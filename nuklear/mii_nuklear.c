@@ -496,12 +496,13 @@ mii_nuklear(
 			};
 			nk_label(ctx, "Speed:", NK_TEXT_LEFT);
 			nk_layout_row_push(ctx, 100);
-			int spi = 0;
+			int spi = mii->speed > .95  && mii->speed < 1.05 ? 0 :
+						mii->speed < 0.9 ? 1 : 2;
 			spi = nk_combo(ctx,
 							speed, NK_LEN(speed),
 							spi, 25, nk_vec2(80,200));
+			mii->speed = spi == 0 ? 1.0 : spi == 1 ? 0.2 : 4.0;
 			nk_layout_space_end(ctx);
-
 		}
 		nk_end(ctx);
 		nk_style_pop_color(ctx);
