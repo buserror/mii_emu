@@ -11,6 +11,7 @@ CPPFLAGS		+= -Ilibmish/src
 CFLAGS			+= --std=gnu99 -Wall -Wextra -O2 -g
 CFLAGS			+= -Wno-unused-parameter -Wno-unused-function
 LDLIBS			+= -lX11 -lm -lGL -lGLU
+LDLIBS			+= -lpthread -lutil
 
 HAS_ALSA		:= $(shell pkg-config --exists alsa && echo 1)
 ifeq ($(HAS_ALSA),1)
