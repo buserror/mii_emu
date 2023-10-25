@@ -1,0 +1,4 @@
+.bash_history
+build-*
+.vscode
+compile_commands.json
