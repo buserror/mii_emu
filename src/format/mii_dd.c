@@ -23,6 +23,12 @@
 #define FCC(_a,_b,_c,_d) (((_a)<<24)|((_b)<<16)|((_c)<<8)|(_d))
 #endif
 
+#ifdef __APPLE__
+#include <libkern/OSByteOrder.h>
+#define htobe64(x) OSSwapHostToBigInt64(x)
+#define be64toh(x) OSSwapBigToHostInt64(x)
+#endif
+
 int
 mii_dd_overlay_load(
 		mii_dd_t * dd );
