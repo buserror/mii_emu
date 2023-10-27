@@ -330,7 +330,9 @@ const char *x_fib_recent_file(const char *appname) {
 }
 
 #ifdef HAVE_X11
+#ifndef __APPLE__
 #include <mntent.h>
+#endif
 #include <dirent.h>
 
 #include <X11/Xlib.h>
@@ -1783,6 +1785,7 @@ static int check_mount (const char *mountpoint, const char *fs, const char *devi
 	return 0;
 }
 
+#ifndef __APPLE__
 static int read_mtab (Display *dpy, const char *mtab) {
 	FILE *mt = fopen (mtab, "r");
 	if (!mt) return -1;
@@ -1805,6 +1808,7 @@ static int read_mtab (Display *dpy, const char *mtab) {
 	fclose (mt);
 	return found;
 }
+#endif
 
 static void populate_places (Display *dpy) {
 	char tmp[1024];
@@ -1833,9 +1837,11 @@ static void populate_places (Display *dpy) {
 		parse_gtk_bookmarks (dpy, _fib_cfg_custom_places);
 	}
 
+#ifndef __APPLE__
 	if (read_mtab (dpy, "/proc/mounts") < 1) {
 		read_mtab (dpy, "/etc/mtab");
 	}
+#endif
 
 	int parsed_bookmarks = 0;
 	if (!parsed_bookmarks && getenv ("HOME")) {
