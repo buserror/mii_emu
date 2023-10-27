@@ -5,12 +5,12 @@ SHELL			= /bin/bash
 # This is where (g)make looks for the source files for implicit rules
 VPATH			:= src src/format src/drivers nuklear contrib
 
-CPPFLAGS		+= -Isrc -Isrc/format -Isrc/roms -Isrc/drivers
+CPPFLAGS		+= -Isrc -Isrc/format -Isrc/roms -Isrc/drivers -I/opt/X11/include
 CPPFLAGS		+= -Icontrib -Inuklear
 CPPFLAGS		+= -Ilibmish/src
 CFLAGS			+= --std=gnu99 -Wall -Wextra -O2 -g
 CFLAGS			+= -Wno-unused-parameter -Wno-unused-function
-LDLIBS			+= -lX11 -lm -lGL -lGLU
+LDLIBS			+= -lX11 -lm -lGL -lGLU -L/opt/X11/lib
 LDLIBS			+= -lpthread -lutil
 
 HAS_ALSA		:= $(shell pkg-config --exists alsa && echo 1)
