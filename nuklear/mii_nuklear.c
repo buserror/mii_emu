@@ -26,7 +26,11 @@
 #define NK_INCLUDE_DEFAULT_FONT
 #define NK_BUTTON_TRIGGER_ON_RELEASE
 #include "nuklear.h"
+#ifdef __APPLE__
+#include "nuklear_xlib_gl2.h"
+#else
 #include "nuklear_xlib_gl3.h"
+#endif
 //#include "stb_image_write.h"
 #include <GL/gl.h>
 #include <GL/glx.h>

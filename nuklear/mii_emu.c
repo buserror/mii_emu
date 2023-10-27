@@ -16,6 +16,9 @@
 #include <time.h>
 #include <limits.h>
 
+#include <GL/glx.h>
+#include <GL/glxext.h>
+
 #define NK_INCLUDE_FIXED_TYPES
 #define NK_INCLUDE_STANDARD_IO
 #define NK_INCLUDE_STANDARD_VARARGS
@@ -26,9 +29,15 @@
 #define NK_BUTTON_TRIGGER_ON_RELEASE
 #include "nuklear.h"
 
+#ifdef __APPLE__
+#define NK_XLIB_GL2_IMPLEMENTATION
+#define NK_XLIB_LOAD_OPENGL_EXTENSIONS
+#include "nuklear_xlib_gl2.h"
+#else
 #define NK_XLIB_GL3_IMPLEMENTATION
 #define NK_XLIB_LOAD_OPENGL_EXTENSIONS
 #include "nuklear_xlib_gl3.h"
+#endif
 
 #include "mii.h"
 #include "mish.h"
