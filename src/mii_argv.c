@@ -25,6 +25,7 @@ _mii_usage(
 	printf("  -v, --verbose\tVerbose output\n");
 	printf("  -m, --mute\tMute the speaker\n");
 	printf("  -vol, --volume <volume>\tSet speaker volume (0.0 to 10.0)\n");
+	printf("  --audio-off, --no-audio, --silent\tDisable audio output\n");
 	printf("  -speed, --speed <speed>\tSet the CPU speed in MHz\n");
 	printf("  -s, --slot <slot>:<driver>\tSpecify a slot and driver\n");
 	printf("\t\tSlot id is 1..7\n");
@@ -132,6 +133,10 @@ mii_argv_parse(
 			exit(0);
 		} else if (!strcmp(arg, "-m") || !strcmp(arg, "--mute")) {
 			mii->speaker.muted = true;
+		} else if (!strcmp(arg, "--audio-off") ||
+					!strcmp(arg, "--no-audio") ||
+					!strcmp(arg, "--silent")) {
+			mii->speaker.off = true;
 		} else if (!strcmp(arg, "-vol") || !strcmp(arg, "--volume")) {
 			if (i < argc-1) {
 				float vol = atof(argv[++i]);
