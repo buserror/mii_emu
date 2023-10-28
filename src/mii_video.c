@@ -101,7 +101,7 @@ static const uint32_t dhires_colors[] = {
 static const uint32_t mono[3][2] = {
 	{ 0xff000000, C_WHITE },
 	{ 0xff000000, C_GREEN },
-	{ 0xff000000, C_ORANGE },
+	{ 0xff000000, HI_RGB(0x14, 0xcf, 0xfd) },
 };
 
 
