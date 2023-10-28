@@ -40,7 +40,7 @@ $(BIN)/mii_emu	: $(LIB)/libmish.a
 libmish 		: $(LIB)/libmish.a
 LDLIBS 			+= $(LIB)/libmish.a
 $(LIB)/libmish.a : | $(LIB) $(OBJ) $(BIN)
-	make -j -C libmish O=$(PWD)
+	make -j -C libmish O="$(PWD)" CC="$(CC)" V="$(V)"
 
 #  Smartport firmware needs the assembler first
 test/asm/%.bin	: test/asm/%.asm | $(BIN)/mii_asm
