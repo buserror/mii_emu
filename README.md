@@ -32,6 +32,7 @@ I wanted something:
     * Adds a small 'attack' filter when playing back to soften the often annoying 'click' of typical audio effects from the apple II.
  * Mouse Card -- mouse isn't captured like in some other emulators.
  * No Slot Clock
+ * Joystick (in a limited way...)
  * Smartport DMA 'hard drive' card
  * "Titan Accelerator //e" simulation, to turn on/off fast mode.
  * Terence's J Boldt [1MB ROM card](https://github.com/tjboldt/ProDOS-ROM-Drive), also because I own a couple!
@@ -127,6 +128,7 @@ There are just a few keys that are mapped for anything useful.
  * A2Desktop PT3 player doesn't see keypresses.
  * Sometimes the emulator goes in 'slow mode', ie 0.2MHz. Likely the frame scheduler playing up.
  * Thats' about it really, all the other things I tried work
+ * Joystick support is a bit limited, no 'mapping' I used a (USB) 8bitdo NES30 Pro, and it works, but it's not perfect. But, I can play choplifter with it, so it's good enough for now...
 
 ## What it could do with
  * Not sure about keeping Nuklear, it does a lot bit it's hard work customizing anything

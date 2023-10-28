@@ -86,6 +86,12 @@ show_state:
 		}
 		return;
 	}
+	if (!strcmp(argv[1], "analog")) {
+		printf("analog: %3d %3d %3d %3d\n", mii->analog.v[0].value,
+				mii->analog.v[1].value, mii->analog.v[2].value,
+				mii->analog.v[3].value);
+		return;
+	}
 	if (!strcmp(argv[1], "trace")) {
 		mii->trace_cpu = !mii->trace_cpu;
 		printf("trace_cpu %d\n", mii->trace_cpu);

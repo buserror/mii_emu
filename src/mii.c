@@ -313,6 +313,11 @@ mii_access_soft_switches(
 			res = true;
 			mii_speaker_click(&mii->speaker);
 			break;
+		case 0xc064 ... 0xc067: // Joystick, buttons
+		case 0xc070: // Analog reset
+			res = true;
+			mii_analog_access(mii, &mii->analog, addr, byte, write);
+			break;
 		case 0xc068:
 			res = true;
 			// IIgs register, read by prodos tho
