@@ -88,6 +88,7 @@ mii_speaker_init(
 		mii_speaker_t *s)
 {
 	s->mii = mii;
+	s->debug_fd = -1;
 	s->fsize = MII_SPEAKER_FRAME_SIZE;
 #ifdef HAS_ALSA
 	if (!s->off)
