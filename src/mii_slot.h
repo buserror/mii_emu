@@ -29,6 +29,7 @@ typedef struct mii_slot_drv_t {
 	const char * desc;
 	int (*probe)(mii_t * mii, uint32_t flags);
 	int (*init)(mii_t * mii, struct mii_slot_t *slot);
+	void (*dispose)(mii_t * mii, struct mii_slot_t *slot); /* optional */
 	void (*reset)(mii_t * mii, struct mii_slot_t *slot); /* optional */
 	void (*run)(mii_t * mii, struct mii_slot_t *slot); /* optional */
 	uint8_t (*access)(
