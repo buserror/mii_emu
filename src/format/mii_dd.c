@@ -33,6 +33,7 @@ mii_dd_overlay_prepare(
 
 void
 mii_dd_system_init(
+		struct mii_t *mii,
 		mii_dd_system_t *dd )
 {
 	dd->drive = NULL;

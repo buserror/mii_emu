@@ -77,6 +77,15 @@ typedef struct mii_dd_system_t {
 	mii_dd_file_t *	file;	// list of all open files (inc overlays)
 } mii_dd_system_t;
 
+struct mii_t;
+
+void
+mii_dd_system_init(
+		struct mii_t *mii,
+		mii_dd_system_t *dd );
+void
+mii_dd_system_dispose(
+		mii_dd_system_t *dd );
 /*
  * register drives with the system -- these are not allocated, they are
  * statically defined in the driver code in their own structures
