@@ -100,6 +100,20 @@ mii_speaker_init(
 	s->frame[0].start = mii->cycles;
 }
 
+void
+mii_speaker_dispose(
+		mii_speaker_t *speaker)
+{
+#ifdef HAS_ALSA
+	if (speaker->alsa_pcm)
+		snd_pcm_close(speaker->alsa_pcm);
+#endif
+	for (int i = 0; i < MII_SPEAKER_FRAME_COUNT; i++) {
+		free(speaker->frame[i].audio);
+		speaker->frame[i].audio = NULL;
+	}
+}
+
 // Called when $c030 is touched, place a sample at the 'appropriate' time
 void
 mii_speaker_click(

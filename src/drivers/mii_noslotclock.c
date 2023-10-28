@@ -104,6 +104,11 @@ _mii_nsc_access(
 		uint8_t * byte,
 		bool write)
 {
+	if (!bank) {
+		printf("%s: disposing of NSC\n", __func__);
+		free(param);
+		return false;
+	}
 	mii_nsc_t * nsc = param;
 //	printf("%s PC:%04x access %s addr %04x byte %02x write %d\n",
 //			__func__, nsc->mii->cpu.PC,

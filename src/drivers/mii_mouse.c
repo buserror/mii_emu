@@ -93,6 +93,16 @@ _mii_mouse_init(
 	return 0;
 }
 
+static void
+_mii_mouse_dispose(
+		mii_t * mii,
+		struct mii_slot_t *slot )
+{
+	mii_card_mouse_t *c = slot->drv_priv;
+	free(c);
+	slot->drv_priv = NULL;
+}
+
 static uint8_t
 _mii_mouse_access(
 		mii_t * mii,
@@ -182,6 +192,7 @@ static mii_slot_drv_t _driver = {
 	.name = "mouse",
 	.desc = "Mouse card",
 	.init = _mii_mouse_init,
+	.dispose = _mii_mouse_dispose,
 	.access = _mii_mouse_access,
 };
 MI_DRIVER_REGISTER(_driver);

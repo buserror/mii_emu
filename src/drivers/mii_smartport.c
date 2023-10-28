@@ -39,7 +39,6 @@ typedef struct mii_card_sm_t {
 	struct mii_card_sm_t *next;
 	mii_dd_t drive[MII_SM_DRIVE_COUNT];
 	struct mii_slot_t *slot;
-	uint8_t * file;
 } mii_card_sm_t;
 
 static void
@@ -274,6 +273,21 @@ _mii_sm_init(
 	return 0;
 }
 
+static void
+_mii_sm_dispose(
+		mii_t * mii,
+		struct mii_slot_t *slot )
+{
+	mii_card_sm_t *c = slot->drv_priv;
+	for (int i = 0; i < MII_SM_DRIVE_COUNT; i++) {
+		free((char *)c->drive[i].name);
+		c->drive[i].name = NULL;
+	}
+	// files attached to drives are automatically freed.
+	free(c);
+	slot->drv_priv = NULL;
+}
+
 static int
 _mii_sm_command(
 		mii_t * mii,
@@ -336,6 +350,7 @@ static mii_slot_drv_t _driver = {
 	.name = "smartport",
 	.desc = "SmartPort card",
 	.init = _mii_sm_init,
+	.dispose = _mii_sm_dispose,
 	.access = _mii_sm_access,
 	.command = _mii_sm_command,
 };

@@ -43,6 +43,9 @@ void
 mii_speaker_init(
 		struct mii_t * mii,
 		mii_speaker_t *speaker);
+void
+mii_speaker_dispose(
+		mii_speaker_t *speaker);
 // Called when $c030 is touched, place a sample at the 'appropriate' time
 void
 mii_speaker_click(
