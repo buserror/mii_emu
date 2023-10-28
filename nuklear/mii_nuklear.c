@@ -16,6 +16,7 @@
 #include "mii.h"
 #include "mii_bank.h"
 #include "mii_sw.h"
+#include "mii_thread.h"
 
 #define NK_INCLUDE_FIXED_TYPES
 #define NK_INCLUDE_STANDARD_IO
@@ -66,139 +67,6 @@ static const struct nk_color style[NK_COLOR_COUNT] = {
 static GLuint screen_texture;
 static struct nk_image screen_nk;
 
-
-#include <time.h>
-
-typedef uint64_t mii_time_t;
-enum {
-	MII_TIME_RES		= 1,
-	MII_TIME_SECOND		= 1000000,
-	MII_TIME_MS			= (MII_TIME_SECOND/1000),
-};
-mii_time_t
-mii_get_time()
-{
-	struct timespec tim;
-	clock_gettime(CLOCK_MONOTONIC_RAW, &tim);
-	uint64_t time = ((uint64_t)tim.tv_sec) * (1000000 / MII_TIME_RES) +
-						tim.tv_nsec / (1000 * MII_TIME_RES);
-	return time;
-}
-
-#include <pthread.h>
-#include "fifo_declare.h"
-
-static pthread_t mii_thread;
-static bool mii_thread_running = false;
-//static mii_trace_t mii_trace = {};
-float default_fps = 60;
-
-enum {
-	SIGNAL_RESET,
-	SIGNAL_STOP,
-	SIGNAL_STEP,
-	SIGNAL_RUN,
-};
-
-typedef struct {
-	uint8_t cmd;
-	uint8_t data;
-} signal_t;
-
-DECLARE_FIFO(signal_t, signal_fifo, 16);
-DEFINE_FIFO(signal_t, signal_fifo);
-
-signal_fifo_t signal_fifo;
-
-static void *mii_thread_func(void *arg)
-{
-	mii_t *mii = (mii_t *) arg;
-	mii_thread_running = true;
-	__uint128_t last_cycles = mii->cycles;
-	uint32_t running 	= 1;
-	unsigned long target_fps_us = 1000000 / default_fps;
-	long sleep_time 	= target_fps_us;
-
-	//mii_time_t base = mii_get_time(NULL);
-	uint32_t last_frame = mii->video.frame_count;
-	mii_time_t last_frame_stamp = mii_get_time();
-	while (mii_thread_running) {
-		signal_t sig;
-		while (!signal_fifo_isempty(&signal_fifo)) {
-			sig = signal_fifo_read(&signal_fifo);
-			switch (sig.cmd) {
-				case SIGNAL_RESET:
-					mii_reset(mii, sig.data);
-					break;
-				case SIGNAL_STOP:
-					mii_dump_run_trace(mii);
-					mii_dump_trace_state(mii);
-					mii->state = MII_STOPPED;
-					break;
-				case SIGNAL_STEP:
-					mii->state = MII_STEP;
-					running = 1;
-					break;
-				case SIGNAL_RUN:
-					mii->state = MII_RUNNING;
-					last_frame_stamp = mii_get_time();
-					running = 1;
-					break;
-			}
-		}
-		if (mii->state != MII_STOPPED)
-			mii_run(mii);
-
-		switch (mii->state) {
-			case MII_STOPPED:
-				usleep(1000);
-				break;
-			case MII_STEP:
-				if (running) {
-					running--;
-					mii_dump_trace_state(mii);
-					usleep(1000);
-					running = 1;
-					if (mii->trace.step_inst)
-						mii->trace.step_inst--;
-					if (mii->trace.step_inst == 0)
-						mii->state = MII_STOPPED;
-				}
-				break;
-			case MII_RUNNING:
-				break;
-			case MII_TERMINATE:
-				mii_thread_running = false;
-				break;
-		}
-
-		if (mii->video.frame_count != last_frame) {
-			sleep_time = target_fps_us;
-			mii_time_t now = mii_get_time();
-			if (mii->state == MII_RUNNING) {
-				mii_time_t delta = now - last_frame_stamp;
-		//		printf("frame time %d/%d sleep time %d\n",
-		//					(int)delta, (int)target_fps_us,
-		//					(int)target_fps_us - delta);
-				sleep_time = target_fps_us - delta;
-				if (sleep_time < 0)
-					sleep_time = 0;
-				last_frame = mii->video.frame_count;
-				while (last_frame_stamp <= now)
-					last_frame_stamp += target_fps_us;
-
-				// calculate the MHz
-				__uint128_t cycles = mii->cycles;
-				__uint128_t delta_cycles = cycles - last_cycles;
-				last_cycles = cycles;
-				mii->speed_current = delta_cycles / (float)target_fps_us;
-			}
-			usleep(sleep_time);
-		}
-	}
-	mii_dispose(mii);
-	return NULL;
-}
 
 extern struct nk_font *nk_main_font;
 struct nk_font *nk_mono_font = NULL;
@@ -255,8 +123,8 @@ mii_nuklear_init(
 			screen_texture, MII_VRAM_WIDTH, MII_VRAM_HEIGHT,
 			nk_rect(0, 0, MII_VIDEO_WIDTH, MII_VIDEO_HEIGHT));
 
-	/* start the thread */
-	pthread_create(&mii_thread, NULL, mii_thread_func, mii);
+	/* start the CPU/emulator thread */
+	mii_thread_start(mii);
 
 }
 
@@ -271,7 +139,8 @@ mii_nuklear_handle_input(
 {
 	struct nk_input *in = &ctx->input;
 	if (in->keyboard.text_len) {
-	//	printf("INPUT %d %s\n", in->keyboard.text_len, in->keyboard.text);
+	//	printf("INPUT %d %02x %s\n",
+	//		in->keyboard.text_len, in->keyboard.text[0], in->keyboard.text);
 		if (in->keyboard.text_len < 4) {
 			mii_keypress(mii, in->keyboard.text[0]);
 		} else if (in->keyboard.text_len > 1) {
@@ -283,35 +152,35 @@ mii_nuklear_handle_input(
 				if (down) {
 					if (key == 0xffc9) { // F12
 						if (nk_input_is_key_down(in, NK_KEY_CTRL)) {
-							signal_t sig = {
+							mii_th_signal_t sig = {
 								.cmd = SIGNAL_RESET,
 								.data = nk_input_is_key_down(in, NK_KEY_SHIFT)
 							};
-							signal_fifo_write(&signal_fifo, sig);
+							mii_th_fifo_write(mii_thread_get_fifo(mii), sig);
 							printf("RESET\n");
 						}
 					} else if (key == 0xffc8) { // F11
 						if (nk_input_is_key_down(in, NK_KEY_CTRL)) {
-							signal_t sig = {
+							mii_th_signal_t sig = {
 								.cmd = SIGNAL_STOP,
 							};
-							signal_fifo_write(&signal_fifo, sig);
+							mii_th_fifo_write(mii_thread_get_fifo(mii), sig);
 							printf("STOP\n");
 						}
 					} else if (key == 0xffc7) { // F10
 						if (nk_input_is_key_down(in, NK_KEY_CTRL)) {
-							signal_t sig = {
+							mii_th_signal_t sig = {
 								.cmd = SIGNAL_STEP,
 							};
-							signal_fifo_write(&signal_fifo, sig);
+							mii_th_fifo_write(mii_thread_get_fifo(mii), sig);
 							printf("STEP\n");
 						}
 					} else if (key == 0xffc6) { // F9
 						if (nk_input_is_key_down(in, NK_KEY_CTRL)) {
-							signal_t sig = {
+							mii_th_signal_t sig = {
 								.cmd = SIGNAL_RUN,
 							};
-							signal_fifo_write(&signal_fifo, sig);
+							mii_th_fifo_write(mii_thread_get_fifo(mii), sig);
 							printf("RUN\n");
 						}
 					} else if (key == 0xffc2) { // F5
@@ -336,7 +205,7 @@ mii_nuklear_handle_input(
 		}
 		in->keyboard.text_len = 0;
 	} else {
-		signal_t sig = {.cmd = -1 };
+		mii_th_signal_t sig = {.cmd = -1 };
 		if (nk_input_is_key_pressed(in, NK_KEY_ENTER))
 			sig.data = 0x0d;
 		else if (nk_input_is_key_pressed(in, NK_KEY_BACKSPACE))
@@ -354,7 +223,7 @@ mii_nuklear_handle_input(
 		else if (nk_input_is_key_pressed(in, NK_KEY_ESCAPE))
 			sig.data = 0x1b;
 		if (sig.data) {
-		//	signal_fifo_write(&signal_fifo, sig);
+		//	mii_th_fifo_write(mii_thread_get_fifo(mii), sig);
 		//	printf("Key %d\n", sig.data);
 			mii_keypress(mii, sig.data);
 		}
@@ -585,13 +454,13 @@ mii_nuklear(
         nk_layout_row_static(ctx, 30, 30, 3);
 
 		if (nk_button_symbol(ctx, NK_SYMBOL_RECT_SOLID)) {
-			signal_fifo_write(&signal_fifo, (signal_t){.cmd = SIGNAL_STOP});
+			mii_th_fifo_write(mii_thread_get_fifo(mii), (mii_th_signal_t){.cmd = SIGNAL_STOP});
 		}
 		if (nk_button_symbol(ctx, NK_SYMBOL_PLUS)) {
-			signal_fifo_write(&signal_fifo, (signal_t){.cmd = SIGNAL_STEP});
+			mii_th_fifo_write(mii_thread_get_fifo(mii), (mii_th_signal_t){.cmd = SIGNAL_STEP});
 		}
 		if (nk_button_symbol(ctx, NK_SYMBOL_TRIANGLE_RIGHT)) {
-			signal_fifo_write(&signal_fifo, (signal_t){.cmd = SIGNAL_RUN});
+			mii_th_fifo_write(mii_thread_get_fifo(mii), (mii_th_signal_t){.cmd = SIGNAL_RUN});
 		}
 		nk_layout_row_dynamic(ctx, 20, 3);
 		{
