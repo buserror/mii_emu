@@ -146,13 +146,13 @@ mii_video_run(
 		mii->video.wait = mii->cycles - mii->video.wait;
 	}
 	mii_bank_t * main = &mii->bank[MII_BANK_MAIN];
-	bool	text 	= !!mii_bank_peek(main, SWTEXT);
-	bool 	page2 	= !!mii_bank_peek(main, SWPAGE2);
-	bool 	col80 	= !!mii_bank_peek(main, SW80COL);
-	bool 	store80 = !!mii_bank_peek(main, SW80STORE);
-	bool	mixed	= !!mii_bank_peek(main, SWMIXED);
-	bool 	hires 	= !!mii_bank_peek(main, SWHIRES);
-	bool 	dhires 	= !!mii_bank_peek(main, SWRDDHIRES);
+	bool	text 	= SW_GETSTATE(mii, SWTEXT);
+	bool 	page2 	= SW_GETSTATE(mii, SWPAGE2);
+	bool 	col80 	= SW_GETSTATE(mii, SW80COL);
+	bool 	store80 = SW_GETSTATE(mii, SW80STORE);
+	bool	mixed	= SW_GETSTATE(mii, SWMIXED);
+	bool 	hires 	= SW_GETSTATE(mii, SWHIRES);
+	bool 	dhires 	= SW_GETSTATE(mii, SWDHIRES);
 
 	pt_start(mii->video.state);
 	/*
@@ -164,7 +164,6 @@ mii_video_run(
 		mii_bank_poke(main, SWVBL, 0x80);
 		if (mixed && !text) {
 			text = mii->video.line >= 192 - (4 * 8);
-			hires = 0;
 		}
 		// http://www.1000bit.it/support/manuali/apple/technotes/aiie/tn.aiie.03.html
 		if (hires && !text && col80 && dhires) {
@@ -362,6 +361,7 @@ mii_access_video(
 		case SWALTCHARSETON:
 			if (!write) break;
 			res = true;
+			SW_SETSTATE(mii, SWALTCHARSET, addr & 1);
 			mii_bank_poke(main, SWALTCHARSET, (addr & 1) << 7);
 			break;
 		case SWVBL:
@@ -380,8 +380,8 @@ mii_access_video(
 		case SW80COLON:
 			if (!write) break;
 			res = true;
+			SW_SETSTATE(mii, SW80COL, addr & 1);
 			mii_bank_poke(main, SW80COL, (addr & 1) << 7);
-//			printf("80COL %s\n", on ? "ON" : "OFF");
 			break;
 		case SWDHIRESOFF: //  0xc05f,
 		case SWDHIRESON: { // = 0xc05e,
@@ -392,22 +392,27 @@ mii_access_video(
 			if (an3_on && !an3) {
 				uint8_t bit = !!mii_bank_peek(main, SW80COL);
 				reg = ((reg << 1) | bit) & 3;
-				printf("VIDEO 80:%d REG now %x\n", bit, reg);
+			//	printf("VIDEO 80:%d REG now %x\n", bit, reg);
 				mii_bank_poke(main, SWAN3_REGISTER, reg);
 			}
 			mii_bank_poke(main, SWAN3, an3_on);
-			printf("DHRES IS %s mode:%d\n",
-					(addr & 1) ? "OFF" : "ON", reg);
+		//	printf("DHRES IS %s mode:%d\n",
+		//			(addr & 1) ? "OFF" : "ON", reg);
+			mii->sw_state = (mii->sw_state & ~M_SWDHIRES) |
+							(!(addr & 1) << B_SWDHIRES);
+			SW_SETSTATE(mii, SWDHIRES, !(addr & 1));
 			mii_bank_poke(main, SWRDDHIRES, (!(addr & 1)) << 7);
 		}	break;
 		case SWTEXTOFF:
 		case SWTEXTON:
 			res = true;
+			SW_SETSTATE(mii, SWTEXT, addr & 1);
 			mii_bank_poke(main, SWTEXT, (addr & 1) << 7);
 			break;
 		case SWMIXEDOFF:
 		case SWMIXEDON:
 			res = true;
+			SW_SETSTATE(mii, SWMIXED, addr & 1);
 			mii_bank_poke(main, SWMIXED, (addr & 1) << 7);
 			break;
 	}

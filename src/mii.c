@@ -157,18 +157,19 @@ mii_page_table_update(
 	if (!mii->mem_dirty)
 		return;
 	mii->mem_dirty = 0;
-	int altzp = mii_sw(mii, SWALTPZ);
-	int page2 = mii_sw(mii, SWPAGE2);
-	int store80 = mii_sw(mii, SW80STORE);
-	int hires = mii_sw(mii, SWHIRES);
-	int ramrd = mii_sw(mii, SWRAMRD);
-	int ramwrt = mii_sw(mii, SWRAMWRT);
-	int intcxrom = mii_sw(mii, SWINTCXROM);
-	int slotc3rom = mii_sw(mii, SWSLOTC3ROM);
+	bool altzp 		= SW_GETSTATE(mii, SWALTPZ);
+	bool page2 		= SW_GETSTATE(mii, SWPAGE2);
+	bool store80 	= SW_GETSTATE(mii, SW80STORE);
+	bool hires 		= SW_GETSTATE(mii, SWHIRES);
+	bool ramrd 		= SW_GETSTATE(mii, SWRAMRD);
+	bool ramwrt 	= SW_GETSTATE(mii, SWRAMWRT);
+	bool intcxrom 	= SW_GETSTATE(mii, SWINTCXROM);
+	bool slotc3rom 	= SW_GETSTATE(mii, SWSLOTC3ROM);
 
 	if (mii->trace_cpu)
-		printf("%04x: page table update altzp:%02x page2:%02x store80:%02x hires:%02x ramrd:%02x ramwrt:%02x intcxrom:%02x slotc3rom:%02x\n",
-			mii->cpu.PC,
+		printf("%04x: page table update altzp:%d page2:%d store80:%d "
+				"hires:%d ramrd:%d ramwrt:%d intcxrom:%d "
+				"slotc3rom:%d\n", mii->cpu.PC,
 			altzp, page2, store80, hires, ramrd, ramwrt, intcxrom, slotc3rom);
 	// clean slate
 	mii_page_set(mii, MII_BANK_MAIN, MII_BANK_MAIN, 0x00, 0xc0);
@@ -191,23 +192,26 @@ mii_page_table_update(
 		mii_page_set(mii, MII_BANK_CARD_ROM, _SAME, 0xc1, 0xc7);
 	mii_page_set(mii,
 		slotc3rom ? MII_BANK_CARD_ROM : MII_BANK_ROM, _SAME, 0xc3, 0xc3);
+	bool bsrread 	= SW_GETSTATE(mii, BSRREAD);
+	bool bsrwrite 	= SW_GETSTATE(mii, BSRWRITE);
+	bool bsrpage2 	= SW_GETSTATE(mii, BSRPAGE2);
 	mii_page_set(mii,
-		mii->bsr_mode.read ?
-				altzp ? MII_BANK_AUX_BSR : MII_BANK_BSR :
-				MII_BANK_ROM,
-		mii->bsr_mode.write ?
-				altzp ? MII_BANK_AUX_BSR : MII_BANK_BSR :
-				MII_BANK_ROM,
+		bsrread ?
+			altzp ? MII_BANK_AUX_BSR : MII_BANK_BSR :
+					MII_BANK_ROM,
+		bsrwrite ?
+			altzp ? MII_BANK_AUX_BSR : MII_BANK_BSR :
+					MII_BANK_ROM,
 				0xd0, 0xff);
 	// BSR P2
 	mii_page_set(mii,
-		mii->bsr_mode.read ?
-			(altzp ? MII_BANK_AUX_BSR : MII_BANK_BSR) +
-					mii->bsr_mode.page2 : MII_BANK_ROM,
-		mii->bsr_mode.write ?
-			(altzp ? MII_BANK_AUX_BSR : MII_BANK_BSR) +
-					mii->bsr_mode.page2 : MII_BANK_ROM,
-					0xd0, 0xdf);
+		bsrread ?
+			(altzp ? MII_BANK_AUX_BSR : MII_BANK_BSR) + bsrpage2 :
+					MII_BANK_ROM,
+		bsrwrite ?
+			(altzp ? MII_BANK_AUX_BSR : MII_BANK_BSR) + bsrpage2 :
+					MII_BANK_ROM,
+				0xd0, 0xdf);
 }
 
 void
@@ -272,9 +276,9 @@ mii_access_soft_switches(
 			static const int read_modes[4] = { 1, 0, 0, 1, };
 			uint8_t rd = read_modes[mode & 3];
 			uint8_t wr = write_modes[mode & 3];
-			mii->bsr_mode.write = wr;
-			mii->bsr_mode.read = rd;
-			mii->bsr_mode.page2 = mode & 0x08 ? 0 : 1;
+			SW_SETSTATE(mii, BSRWRITE, wr);
+			SW_SETSTATE(mii, BSRREAD, rd);
+			SW_SETSTATE(mii, BSRPAGE2, !(mode & 0x08));
 			mii->mem_dirty = 1;
 			if (mii->trace_cpu)
 				printf("%04x: BSR mode addr %04x:%02x read:%s write:%s %s altzp:%02x\n",
@@ -282,7 +286,7 @@ mii_access_soft_switches(
 					mode,
 					rd ? "BSR" : "ROM",
 					wr ? "BSR" : "ROM",
-					mii->bsr_mode.page2 ? "page2" : "page1",
+					SW_GETSTATE(mii, BSRPAGE2) ? "page2" : "page1",
 					mii_sw(mii, SWALTPZ));
 		}	break;
 		case 0xcfff:
@@ -293,12 +297,14 @@ mii_access_soft_switches(
 		case SWPAGE2OFF:
 		case SWPAGE2ON:
 			res = true;
+			SW_SETSTATE(mii, SWPAGE2, addr & 1);
 			mii_bank_poke(main, SWPAGE2, (addr & 1) << 7);
 			mii->mem_dirty = 1;
 			break;
 		case SWHIRESOFF:
 		case SWHIRESON:
 			res = true;
+			SW_SETSTATE(mii, SWHIRES, addr & 1);
 			mii_bank_poke(main, SWHIRES, (addr & 1) << 7);
 			mii->mem_dirty = 1;
 		//	printf("HIRES %s\n", (addr & 1) ? "ON" : "OFF");
@@ -319,36 +325,42 @@ mii_access_soft_switches(
 			case SW80STOREOFF:
 			case SW80STOREON:
 				res = true;
+				SW_SETSTATE(mii, SW80STORE, addr & 1);
 				mii_bank_poke(main, SW80STORE, (addr & 1) << 7);
 				mii->mem_dirty = 1;
 				break;
 			case SWRAMRDOFF:
 			case SWRAMRDON:
 				res = true;
+				SW_SETSTATE(mii, SWRAMRD, addr & 1);
 				mii_bank_poke(main, SWRAMRD, (addr & 1) << 7);
 				mii->mem_dirty = 1;
 				break;
 			case SWRAMWRTOFF:
 			case SWRAMWRTON:
 				res = true;
+				SW_SETSTATE(mii, SWRAMWRT, addr & 1);
 				mii_bank_poke(main, SWRAMWRT, (addr & 1) << 7);
 				mii->mem_dirty = 1;
 				break;
 			case SWALTPZOFF:
 			case SWALTPZON:
 				res = true;
+				SW_SETSTATE(mii, SWALTPZ, addr & 1);
 				mii_bank_poke(main, SWALTPZ, (addr & 1) << 7);
 				mii->mem_dirty = 1;
 				break;
 			case SWINTCXROMOFF:
 			case SWINTCXROMON:
 				res = true;
+				SW_SETSTATE(mii, SWINTCXROM, addr & 1);
 				mii_bank_poke(main, SWINTCXROM, (addr & 1) << 7);
 				mii->mem_dirty = 1;
 				break;
 			case SWSLOTC3ROMOFF:
 			case SWSLOTC3ROMON:
 				res = true;
+				SW_SETSTATE(mii, SWSLOTC3ROM, addr & 1);
 				mii_bank_poke(main, SWSLOTC3ROM, (addr & 1) << 7);
 				mii->mem_dirty = 1;
 				break;
@@ -356,11 +368,11 @@ mii_access_soft_switches(
 	} else {
 		switch (addr) {
 			case SWBSRBANK2:
-				*byte = mii->bsr_mode.page2 ? 0x80 : 0;
+				*byte = SW_GETSTATE(mii, BSRPAGE2) ? 0x80 : 0;
 				res = true;
 				break;
 			case SWBSRREADRAM:
-				*byte = mii->bsr_mode.read ? 0x80 : 0;
+				*byte = SW_GETSTATE(mii, BSRREAD) ? 0x80 : 0;
 				res = true;
 				break;
 			case SWRAMRD:
@@ -514,10 +526,8 @@ mii_reset(
 {
 //	printf("%s cold %d\n", __func__, cold);
 	mii->cpu_state.reset = 1;
-	mii->bsr_mode.write = 1;
-	mii->bsr_mode.read = 0;
-	mii->bsr_mode.page2 = 1;
 	mii_bank_t * main = &mii->bank[MII_BANK_MAIN];
+	mii->sw_state = M_BSRWRITE | M_BSRPAGE2;
 	mii_bank_poke(main, SWSLOTC3ROM, 0);
 	mii_bank_poke(main, SWRAMRD, 0);
 	mii_bank_poke(main, SWRAMWRT, 0);

@@ -3,20 +3,19 @@
 #pragma once
 
 enum {
-	SW80STOREOFF = 0xc000,
-	SW80STOREON = 0xc001,
-	SWALTCHARSETOFF = 0xc00e,
-	SWALTCHARSETON  = 0xc00f,
-
 	SW80STORE = 0xc018,
 	SWVBL = 0xc019,
+	SWALTCHARSET = 0xc01e,
 	SW80COL = 0xc01f,
 	SWTEXT = 0xc01a,
 	SWMIXED = 0xc01b,
 	SWPAGE2 = 0xc01c,
 	SWHIRES = 0xc01d,
-	SWALTCHARSET = 0xc01e,
 
+	SW80STOREOFF = 0xc000,
+	SW80STOREON = 0xc001,
+	SWALTCHARSETOFF = 0xc00e,
+	SWALTCHARSETON  = 0xc00f,
 	SW80COLOFF = 0xc00c,
 	SW80COLON = 0xc00d,
 	SWTEXTOFF = 0xc050,	//  (AKA LORES ON)
@@ -29,8 +28,8 @@ enum {
 	SWHIRESON = 0xc057,
 
 	// this one is inverted, the ON is the even address
-	SWDHIRESOFF = 0xc05f,	// AN3_ON
-	SWDHIRESON 	= 0xc05e,	// AN3_OFF
+	SWDHIRESOFF = 0xc05f,		// AN3_ON
+	SWDHIRESON 	= 0xc05e,		// AN3_OFF
 	SWAN3 		= 0xc05e,		// AN3 status
 	SWAN3_REGISTER = 0xc05f,	// AN3 register for video mode
 	SWRDDHIRES = 0xc07f,
@@ -47,13 +46,81 @@ enum {
 	SWSLOTC3ROMON = 0xc00b,
 	SWBSRBANK2 = 0xc011,
 	SWBSRREADRAM = 0xc012,
+
 	SWRAMRD = 0xc013,
 	SWRAMWRT = 0xc014,
 	SWINTCXROM = 0xc015,
 	SWALTPZ = 0xc016,
 	SWSLOTC3ROM = 0xc017,
+
 	SWSPEAKER = 0xc030,
 	SWKBD = 0xc000,
 	SWAKD = 0xc010,
 
 };
+
+enum {
+	B_SW80STORE 	= ( 0),
+//	B_SWVBL 		= ( 1),
+	B_SWALTCHARSET 	= ( 2),
+	B_SW80COL 		= ( 3),
+	B_SWTEXT 		= ( 4),
+	B_SWMIXED 		= ( 5),
+	B_SWPAGE2 		= ( 6),
+	B_SWHIRES 		= ( 7),
+	B_SWRAMRD 		= ( 8),
+	B_SWRAMWRT 		= ( 9),
+	B_SWINTCXROM 	= (10),
+	B_SWALTPZ 		= (11),
+	B_SWSLOTC3ROM 	= (12),
+	B_BSRWRITE 		= (13),
+	B_BSRREAD 		= (14),
+	B_BSRPAGE2 		= (15),
+	B_SWDHIRES	 	= (16),
+
+	M_SW80STORE 	= (1 <<  B_SW80STORE),
+//	M_SWVBL 		= (1 <<  B_SWVBL),
+	M_SWALTCHARSET 	= (1 <<  B_SWALTCHARSET),
+	M_SW80COL 		= (1 <<  B_SW80COL),
+	M_SWTEXT 		= (1 <<  B_SWTEXT),
+	M_SWMIXED 		= (1 <<  B_SWMIXED),
+	M_SWPAGE2 		= (1 <<  B_SWPAGE2),
+	M_SWHIRES 		= (1 <<  B_SWHIRES),
+	M_SWRAMRD 		= (1 <<  B_SWRAMRD),
+	M_SWRAMWRT 		= (1 <<  B_SWRAMWRT),
+	M_SWINTCXROM 	= (1 <<  B_SWINTCXROM),
+	M_SWALTPZ 		= (1 <<  B_SWALTPZ),
+	M_SWSLOTC3ROM 	= (1 <<  B_SWSLOTC3ROM),
+	M_BSRWRITE 		= (1 <<  B_BSRWRITE),
+	M_BSRREAD 		= (1 <<  B_BSRREAD),
+	M_BSRPAGE2 		= (1 <<  B_BSRPAGE2),
+	M_SWDHIRES	 	= (1 <<  B_SWDHIRES),
+};
+
+// unused is to prevent the stupid warnings about unused static stuff
+static const char __attribute__((unused)) *mii_sw_names[] =  {
+	"80STORE",
+	"VBL",
+	"ALTCHARSET",
+	"80COL",
+	"TEXT",
+	"MIXED",
+	"PAGE2",
+	"HIRES",
+	"RAMRD",
+	"RAMWRT",
+	"INTCXROM",
+	"ALTPZ",
+	"SLOTC3ROM",
+	"BSRWRITE",
+	"BSRREAD",
+	"BSRPAGE2",
+	"DHIRES",
+	NULL,
+} ;
+
+#define SW_SETSTATE(_mii, _sw, _state) \
+	(_mii)->sw_state = ((_mii)->sw_state & ~(M_##_sw)) | \
+						(!!(_state) << B_##_sw)
+#define SW_GETSTATE(_mii, _sw) \
+	(!!((_mii)->sw_state & M_##_sw))

@@ -92,10 +92,7 @@ typedef struct mii_t {
 		uint8_t read : 4, write : 4;
 	} 				mem[256];
 	int 			mem_dirty;	// recalculate mem[] on next access
-	struct {
-		int 		write, read, page2;
-	}				bsr_mode;
-
+	uint32_t 		sw_state;	// B_SW* bitfield
 	mii_trace_t		trace;
 	int				trace_cpu;
 	mii_trap_t		trap;
