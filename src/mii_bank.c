@@ -14,6 +14,23 @@
 #include "mii.h"
 #include "mii_bank.h"
 
+void
+mii_bank_dispose(
+		mii_bank_t *bank)
+{
+	if (bank->alloc)
+		free(bank->mem);
+	bank->mem = NULL;
+	bank->alloc = 0;
+	if (bank->access) {
+		// Allow callback to free anything it wants
+		for (int i = 0; i < bank->size; i++)
+			if (bank->access[i].cb)
+				bank->access[i].cb(NULL, bank->access[i].param, 0, NULL, false);
+		free(bank->access);
+	}
+	bank->access = NULL;
+}
 
 void
 mii_bank_write(

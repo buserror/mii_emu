@@ -11,6 +11,18 @@
 #include <stdbool.h>
 
 struct mii_bank_t;
+/*
+ * Bank access callback can be register with banks and will be called
+ * when a specific page (or pages) are read/written to.
+ * Parameter will be the bank specified, the 'real' address beind read/written
+ * and the 'param' passed when the callback was registered.
+ * The callback should return true if it handled the access, false otherwise.
+ * If it return true, the bank will not be accessed for this read/write.
+ *
+ * Note: the callback will be called once with bank == NULL when the bank
+ * is being disposed, this allow any memory allocated by the callback to be
+ * freed.
+ */
 typedef bool (*mii_bank_access_cb)(
 		struct mii_bank_t *bank,
 		void *param,
@@ -33,6 +45,9 @@ typedef struct mii_bank_t {
 	uint8_t		*mem;
 } mii_bank_t;
 
+void
+mii_bank_dispose(
+		mii_bank_t *bank);
 void
 mii_bank_write(
 		mii_bank_t *bank,
