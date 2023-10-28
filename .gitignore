@@ -2,3 +2,5 @@
 build-*
 .vscode
 compile_commands.json
+cachegrind.out.*
+callgrind.out.*
