@@ -416,45 +416,19 @@ mii_access_keyboard(
 	switch (addr) {
 		case SWKBD:
 			if (!write) {
-				/* If fifo not empty, peek at the next key to process, it already
-				 * has the 0x80 bit on --  otherwise, return 0 */
 				res = true;
-		#if 1
 				*byte = mii_bank_peek(main, SWKBD);
-		#else
-				if (mii_key_fifo_isempty(&mii->keys))
-					*byte = 0;
-				else
-					*byte = mii_key_fifo_read_at(&mii->keys, 0).key;
-		#endif
 			}
 			break;
-		case SWAKD:
+		case SWAKD: {
 			res = true;
-#if 1
-			{
-				uint8_t r = mii_bank_peek(main, SWAKD);
-				if (!write)
-					*byte = r;
-				r &= 0x7f;
-				mii_bank_poke(main, SWAKD, r);
-				mii_bank_poke(main, SWKBD, r);
-			}
-#else
-		//	if (write) {
-				/* clear latch, and replace it immediately with the new key
-				 * if there's one in the FIFO */
-				if (!mii_key_fifo_isempty(&mii->keys)) {
-					mii_key_t k = mii_key_fifo_read(&mii->keys);
-					mii_bank_poke(main, SWAKD, k.key);
-				} else
-					mii_bank_poke(main, SWAKD,
-						mii_bank_peek(main, SWAKD) & ~0x80);
-		//	} else
+			uint8_t r = mii_bank_peek(main, SWAKD);
 			if (!write)
-				*byte = mii_bank_peek(main, SWAKD);
-#endif
-			break;
+				*byte = r;
+			r &= 0x7f;
+			mii_bank_poke(main, SWAKD, r);
+			mii_bank_poke(main, SWKBD, r);
+		}	break;
 		case 0xc061 ... 0xc063: // Push Button 0, 1, 2 (Apple Keys)
 			res = true;
 			if (!write)
@@ -473,16 +447,6 @@ mii_keypress(
 	key |= 0x80;
 	mii_bank_poke(main, SWAKD, key);
 	mii_bank_poke(main, SWKBD, key);
-#if 0
-	mii_key_t k = {
-		.key = key | 0x80,
-	};
-	if (!mii_key_fifo_isfull(&mii->keys))
-		mii_key_fifo_write(&mii->keys, k);
-	else {
-		printf("%s key fifo full\n", __func__);
-	}
-#endif
 }
 
 
