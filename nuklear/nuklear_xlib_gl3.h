@@ -641,6 +641,7 @@ nk_x11_handle_event(XEvent *evt)
             nk_input_key(ctx, NK_KEY_TEXT_END, down);
             nk_input_key(ctx, NK_KEY_SCROLL_END, down);
         } else {
+#if 0 // MII wants these!!
             if (*code == 'c' && (evt->xkey.state & ControlMask))
                 nk_input_key(ctx, NK_KEY_COPY, down);
             else if (*code == 'v' && (evt->xkey.state & ControlMask))
@@ -664,7 +665,8 @@ nk_x11_handle_event(XEvent *evt)
                     nk_input_key(ctx, NK_KEY_TEXT_INSERT_MODE, down);
                 else if (*code == 'r')
                     nk_input_key(ctx, NK_KEY_TEXT_REPLACE_MODE, down);
-
+#endif
+            {
                 char buf[32];
                 KeySym keysym = 0;
                 if (XLookupString((XKeyEvent*)evt, buf, 32, &keysym, NULL) != NoSymbol) {
