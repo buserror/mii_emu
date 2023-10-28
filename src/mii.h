@@ -278,3 +278,11 @@ uint8_t
 mii_register_trap(
 		mii_t *mii,
 		mii_trap_handler_cb cb);
+
+/*
+ * this is used if libmish is active, to register the 'mii' commands
+ */
+
+#define MII_MISH_KIND MISH_FCC('m','i','i',' ')
+#define MII_MISH(_name,_cmd) \
+	MISH_CMD_REGISTER_KIND(_name, _cmd, 0, MII_MISH_KIND)

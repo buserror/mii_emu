@@ -19,7 +19,6 @@
 #include "mii_65c02_ops.h"
 #include "mii_65c02_disasm.h"
 
-extern mii_t g_mii;
 
 void
 _mii_mish_text(
@@ -29,7 +28,7 @@ _mii_mish_text(
 {
 	// load 0x400, calculate the 24 line addresses from the code in video
 	// and show the 40 or 80 chars, depending on col80
-	mii_t * mii = &g_mii;
+	mii_t * mii = param;
 	uint16_t a = 0x400;
 	int page2 = mii_read_one(mii, SWPAGE2);
 //	int col80 = mii_read_one(mii, SW80COL);
@@ -53,7 +52,7 @@ _mii_mish_cmd(
 		const char * argv[])
 {
 	const char * state[] = { "RUNNING", "STOPPED", "STEP" };
-	mii_t * mii = &g_mii;
+	mii_t * mii = param;
 	if (!argv[1]) {
 show_state:
 		printf("mii: %s Target speed: %.3fMHz Current: %.3fMHz\n",
@@ -131,6 +130,11 @@ show_state:
 		mii->state = MII_STOPPED;
 		goto show_state;
 	}
+	if (!strcmp(argv[1], "quit") || !strcmp(argv[1], "exit")) {
+		mii->state = MII_TERMINATE;
+		printf("mii: terminating\n");
+		return;
+	}
 	printf("mii: unknown command %s\n", argv[1]);
 }
 
@@ -140,7 +144,7 @@ _mii_mish_bp(
 		int argc,
 		const char * argv[])
 {
-	mii_t * mii = &g_mii;
+	mii_t * mii = param;
 	if (!argv[1] || !strcmp(argv[1], "list")) {
 		printf("breakpoints: map %04x\n", mii->debug.bp_map);
 		for (int i = 0; i < (int)sizeof(mii->debug.bp_map)*8; i++) {
@@ -206,7 +210,7 @@ _mii_mish_il(
 		if (addr >= 0xffff)
 			addr = 0xfff0;
 	}
-	mii_t * mii = &g_mii;
+	mii_t * mii = param;
 
 	for (int li = 0; li < 20; li++) {
 		uint8_t op[16];
@@ -231,7 +235,7 @@ _mii_mish_dm(
 		if (addr >= 0xffff)
 			addr = 0xfff0;
 	}
-	mii_t * mii = &g_mii;
+	mii_t * mii = param;
 	if (!strcmp(argv[0], "dm")) {
 		printf("dm: %04x\n", addr);
 		for (int i = 0; i < 8; i++) {
@@ -266,7 +270,7 @@ _mii_mish_step(
 		const char * argv[])
 {
 	if (argv[0][0] == 's') {
-		mii_t * mii = &g_mii;
+		mii_t * mii = param;
 		if (argv[1]) {
 			int n = strtol(argv[1], NULL, 10);
 			mii->trace.step_inst = n;
@@ -276,7 +280,7 @@ _mii_mish_step(
 		return;
 	}
 	if (argv[0][0] == 'n') {
-		mii_t * mii = &g_mii;
+		mii_t * mii = param;
 		// read current opcode, find how how many bytes it take,
 		// then put a temporary breakpoint to the next PC.
 		// all of that if this is not a relative branch of course, in
@@ -304,20 +308,18 @@ _mii_mish_step(
 		return;
 	}
 	if (argv[0][0] == 'c') {
-		mii_t * mii = &g_mii;
+		mii_t * mii = param;
 		mii->trace.step_inst = 0;
 		mii->state = MII_RUNNING;
 		return;
 	}
 	if (argv[0][0] == 'h') {
-		mii_t * mii = &g_mii;
+		mii_t * mii = param;
 		mii->trace.step_inst = 0;
 		mii->state = MII_STOPPED;
 		return;
 	}
 }
-
-extern int g_mii_audio_record_fd;
 
 #include <math.h>
 
@@ -327,28 +329,29 @@ _mii_mish_audio(
 		int argc,
 		const char * argv[])
 {
+	mii_t * mii = param;
 	if (argc < 2) {
 		printf("audio: missing argument\n");
 		return;
 	}
 	if (!strcmp(argv[1], "record")) {
-		if (g_mii_audio_record_fd != -1) {
-			close(g_mii_audio_record_fd);
-			g_mii_audio_record_fd = -1;
+		if (mii->speaker.debug_fd != -1) {
+			close(mii->speaker.debug_fd);
+			mii->speaker.debug_fd = -1;
 			printf("audio: stop recording\n");
 		} else {
-			g_mii_audio_record_fd = open("audio.raw",
+			mii->speaker.debug_fd = open("audio.raw",
 										O_WRONLY | O_CREAT | O_TRUNC, 0644);
 			printf("audio: start recording\n");
 		}
 	} else if (!strcmp(argv[1], "mute")) {
 		if (argv[2] && !strcmp(argv[2], "off"))
-			g_mii.speaker.muted = false;
+			mii->speaker.muted = false;
 		else if (argv[2] && !strcmp(argv[2], "on"))
-			g_mii.speaker.muted = true;
+			mii->speaker.muted = true;
 		else if (!argv[2] || (argv[2] && !strcmp(argv[2], "toggle")))
-			g_mii.speaker.muted = !g_mii.speaker.muted;
-		printf("audio: %s\n", g_mii.speaker.muted ? "muted" : "unmuted");
+			mii->speaker.muted = !mii->speaker.muted;
+		printf("audio: %s\n", mii->speaker.muted ? "muted" : "unmuted");
 	} else if (!strcmp(argv[1], "volume")) {
 		if (argc < 3) {
 			printf("audio: missing volume\n");
@@ -358,9 +361,9 @@ _mii_mish_audio(
 		float vol = atof(argv[2]);
 		if (vol < 0) vol = 0;
 		else if (vol > 10) vol = 10;
-		mii_speaker_volume(&g_mii.speaker, vol);
+		mii_speaker_volume(&mii->speaker, vol);
 		printf("audio: volume %.3f (amp: %.4f)\n",
-					vol, g_mii.speaker.vol_multiplier);
+					vol, mii->speaker.vol_multiplier);
 	} else {
 		printf("audio: unknown command %s\n", argv[1]);
 	}
@@ -378,9 +381,10 @@ MISH_CMD_HELP(mii,
 		" poke <addr> <val> : poke a value in memory (respect SW)",
 		" peek <addr> : peek a value in memory (respect SW)",
 		" speed <speed> : set speed in MHz",
-		" stop : stop the cpu"
+		" stop : stop the cpu",
+		" quit|exit : quit the emulator"
 		);
-MISH_CMD_REGISTER(mii, _mii_mish_cmd);
+MII_MISH(mii, _mii_mish_cmd);
 
 MISH_CMD_NAMES(bp, "bp");
 MISH_CMD_HELP(bp,
@@ -389,7 +393,7 @@ MISH_CMD_HELP(bp,
 		" +<addr>[r|w][s] [size]: add at <addr> for read/write, sticky",
 		" -<index> : disable (don't clear) breakpoint <index>"
 		);
-MISH_CMD_REGISTER(bp, _mii_mish_bp);
+MII_MISH(bp, _mii_mish_bp);
 
 MISH_CMD_NAMES(il, "il");
 MISH_CMD_HELP(il,
@@ -397,7 +401,7 @@ MISH_CMD_HELP(il,
 		" <default> : list next 20 instructions.",
 		" [addr]: start at address addr"
 		);
-MISH_CMD_REGISTER(il, _mii_mish_il);
+MII_MISH(il, _mii_mish_il);
 
 MISH_CMD_NAMES(dm, "dm","db","dw","da");
 MISH_CMD_HELP(dm,
@@ -408,7 +412,7 @@ MISH_CMD_HELP(dm,
 		" da [<addr>]: dump one address.",
 		" [addr]: start at address addr"
 		);
-MISH_CMD_REGISTER(dm, _mii_mish_dm);
+MII_MISH(dm, _mii_mish_dm);
 
 MISH_CMD_NAMES(step, "s","step","n","next","cont","h","halt");
 MISH_CMD_HELP(step,
@@ -417,14 +421,14 @@ MISH_CMD_HELP(step,
 		" n|next : step one instruction, skip subroutines.",
 		" cont   :  continue execution."
 		);
-MISH_CMD_REGISTER(step, _mii_mish_step);
+MII_MISH(step, _mii_mish_step);
 
 MISH_CMD_NAMES(text, "text");
 MISH_CMD_HELP(text,
 		"mii: show text page [buggy]",
 		" <default> : that's it"
 		);
-MISH_CMD_REGISTER(text, _mii_mish_text);
+MII_MISH(text, _mii_mish_text);
 
 MISH_CMD_NAMES(audio, "audio");
 MISH_CMD_HELP(audio,
@@ -433,4 +437,4 @@ MISH_CMD_HELP(audio,
 		" mute: mute/unmute audio.",
 		" volume: set volume (0.0 to 1.0)."
 		);
-MISH_CMD_REGISTER(audio, _mii_mish_audio);
+MII_MISH(audio, _mii_mish_audio);

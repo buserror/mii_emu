@@ -117,7 +117,7 @@ main(
     struct nk_colorf bg;
 
 	mii_init(&g_mii);
-    int idx = 0;
+    int idx = 1;
     uint32_t flags = MII_INIT_DEFAULT;
     int r = mii_argv_parse(&g_mii, argc, argv, &idx, &flags);
     if (r == 0) {
@@ -126,6 +126,7 @@ main(
         exit(1);
     mii_prepare(&g_mii, flags);
     mish_prepare(1);
+    mish_set_command_parameter(MISH_FCC('m','i','i',' '), &g_mii);
     printf("MISH_TELNET_PORT = %s\n", getenv("MISH_TELNET_PORT"));
 
     memset(&win, 0, sizeof(win));

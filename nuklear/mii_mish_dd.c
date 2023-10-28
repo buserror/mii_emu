@@ -13,8 +13,6 @@
 
 #include "mii.h"
 
-extern mii_t g_mii;
-
 
 static void
 _mii_mish_dd(
@@ -22,8 +20,9 @@ _mii_mish_dd(
 		int argc,
 		const char * argv[])
 {
+	mii_t * mii = param;
 	if (!argv[1] || !strcmp(argv[1], "list")) {
-		mii_dd_t *d = g_mii.dd.drive;
+		mii_dd_t *d = mii->dd.drive;
 		printf(" ID %-16s %-20s\n", "Card", "Name");
 		while (d) {
 			printf("%d:%d %-16s %-20s : %s\n",
@@ -43,4 +42,4 @@ MISH_CMD_HELP(dd,
 		"mii: disk commands",
 		" <default>|list: list all disk drives"
 		);
-MISH_CMD_REGISTER(dd, _mii_mish_dd);
+MII_MISH(dd, _mii_mish_dd);
