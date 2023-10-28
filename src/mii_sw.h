@@ -1,5 +1,10 @@
-
-
+/*
+ * mii_sw.h
+ *
+ * Copyright (C) 2023 Michel Pollet <buserror@gmail.com>
+ *
+ * SPDX-License-Identifier: MIT
+ */
 #pragma once
 
 enum {
@@ -59,27 +64,29 @@ enum {
 
 };
 
+/*
+ * This is for a bitfield in mii_t that keeps track of the state of the
+ * softswitches used for memory mapping and video.
+ */
 enum {
 	B_SW80STORE 	= ( 0),
-//	B_SWVBL 		= ( 1),
-	B_SWALTCHARSET 	= ( 2),
-	B_SW80COL 		= ( 3),
-	B_SWTEXT 		= ( 4),
-	B_SWMIXED 		= ( 5),
-	B_SWPAGE2 		= ( 6),
-	B_SWHIRES 		= ( 7),
-	B_SWRAMRD 		= ( 8),
-	B_SWRAMWRT 		= ( 9),
-	B_SWINTCXROM 	= (10),
-	B_SWALTPZ 		= (11),
-	B_SWSLOTC3ROM 	= (12),
-	B_BSRWRITE 		= (13),
-	B_BSRREAD 		= (14),
-	B_BSRPAGE2 		= (15),
-	B_SWDHIRES	 	= (16),
+	B_SWALTCHARSET 	= ( 1),
+	B_SW80COL 		= ( 2),
+	B_SWTEXT 		= ( 3),
+	B_SWMIXED 		= ( 4),
+	B_SWPAGE2 		= ( 5),
+	B_SWHIRES 		= ( 6),
+	B_SWRAMRD 		= ( 7),
+	B_SWRAMWRT 		= ( 8),
+	B_SWINTCXROM 	= ( 9),
+	B_SWALTPZ 		= (10),
+	B_SWSLOTC3ROM 	= (11),
+	B_BSRWRITE 		= (12),
+	B_BSRREAD 		= (13),
+	B_BSRPAGE2 		= (14),
+	B_SWDHIRES	 	= (15),
 
 	M_SW80STORE 	= (1 <<  B_SW80STORE),
-//	M_SWVBL 		= (1 <<  B_SWVBL),
 	M_SWALTCHARSET 	= (1 <<  B_SWALTCHARSET),
 	M_SW80COL 		= (1 <<  B_SW80COL),
 	M_SWTEXT 		= (1 <<  B_SWTEXT),
@@ -100,7 +107,6 @@ enum {
 // unused is to prevent the stupid warnings about unused static stuff
 static const char __attribute__((unused)) *mii_sw_names[] =  {
 	"80STORE",
-	"VBL",
 	"ALTCHARSET",
 	"80COL",
 	"TEXT",
