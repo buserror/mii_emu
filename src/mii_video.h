@@ -8,9 +8,7 @@
 
 #pragma once
 
-#include <stdbool.h>
-#include <stdint.h>
-
+#include "mii_types.h"
 
 // TODO move VRAM stuff to somewhere else
 /*
@@ -32,14 +30,14 @@ enum {
 struct mii_t;
 
 typedef struct mii_video_t {
-		void *		state;	// protothread state in mii_video.c
-		uint8_t		line;	// current line
-		bool 		vbl_irq; // VBL IRQ emabled (set by mouse card)
-		__uint128_t	wait;	// 'wait until' cycle marker
-		uint32_t 	pixels[MII_VRAM_WIDTH * MII_VRAM_HEIGHT];
-		uint32_t	frame_count; // incremented every frame
-		uint32_t	frame_drawn;
-		uint8_t 	color_mode;	// color, green, amber
+		void *			state;	// protothread state in mii_video.c
+		uint8_t			line;	// current line
+		bool 			vbl_irq; // VBL IRQ emabled (set by mouse card)
+		mii_cycles_t	wait;	// 'wait until' cycle marker
+		uint32_t 		pixels[MII_VRAM_WIDTH * MII_VRAM_HEIGHT];
+		uint32_t		frame_count; // incremented every frame
+		uint32_t		frame_drawn;
+		uint8_t 		color_mode;	// color, green, amber
 } mii_video_t;
 
 bool

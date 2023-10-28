@@ -156,7 +156,7 @@ mii_speaker_click(
 	// if we've gone past the end of the frame, switch to the next one
 	if (sample_index >= s->fsize) {
 		sample_index = sample_index % s->fsize;
-		__uint128_t newstart = s->mii->cycles - (sample_index * s->clk_per_sample);
+		mii_cycles_t newstart = s->mii->cycles - (sample_index * s->clk_per_sample);
 		s->findex = (s->findex + 1) % MII_SPEAKER_FRAME_COUNT;
 		f = &s->frame[s->findex];
 		f->start = newstart;

@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "mii_types.h"
 #include "mii_65c02.h"
 #include "mii_dd.h"
 #include "mii_bank.h"
@@ -17,6 +18,7 @@
 #include "mii_video.h"
 #include "mii_speaker.h"
 #include "mii_mouse.h"
+#include "mii_analog.h"
 
 enum {
 	MII_BANK_MAIN = 0,		// main 48K address space
@@ -76,12 +78,13 @@ typedef struct mii_trace_t {
 	uint32_t 	step_inst;
 } mii_trace_t;
 
+
 /*
  * principal emulator state, for a faceless emulation
  */
 typedef struct mii_t {
 	unsigned int	state;
-	__uint128_t		cycles;
+	mii_cycles_t	cycles;
 	/* this is the video frame/VBL rate vs 60hz, default to 1.0 */
 	float			speed;
 	float			speed_current; // calculated speed
@@ -121,6 +124,7 @@ typedef struct mii_t {
 	mii_speaker_t	speaker;
 	mii_mouse_t		mouse;
 	mii_dd_system_t	dd;
+	mii_analog_t	analog;
 } mii_t;
 
 enum {

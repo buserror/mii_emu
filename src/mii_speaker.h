@@ -17,8 +17,8 @@ struct snd_pcm_t;
 typedef int16_t mii_audio_sample_t;
 
 typedef struct mii_audio_frame_t {
-	__uint128_t	start;
-	uint16_t	fill;
+	mii_cycles_t	start;
+	uint16_t		fill;
 	mii_audio_sample_t *	audio;
 } mii_audio_frame_t;
 
