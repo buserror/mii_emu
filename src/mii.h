@@ -11,7 +11,6 @@
 #include <stdbool.h>
 
 #include "mii_65c02.h"
-#include "fifo_declare.h"
 #include "mii_dd.h"
 #include "mii_bank.h"
 #include "mii_slot.h"
@@ -33,7 +32,10 @@ enum {
 	MII_BANK_COUNT,
 };
 
-
+/*
+ * A 'trap' is a sequence of 2 special NOPs that are used to trigger
+ * a callback. The callback is called with the mii_t * and the trap ID
+ */
 typedef void (*mii_trap_handler_cb)(
 				mii_t * mii,
 				uint8_t trap);
@@ -49,6 +51,7 @@ enum {
 	MII_RUNNING = 0,	// default
 	MII_STOPPED,
 	MII_STEP,
+	MII_TERMINATE,
 };
 
 enum {
@@ -144,6 +147,12 @@ void
 mii_prepare(
 		mii_t *mii,
 		uint32_t flags );
+/*
+ * Stop the emulator, dispose of everything, free memory etc.
+ */
+void
+mii_dispose(
+		mii_t *mii );
 
 /*
  * Parses arguments until in finds one that isn't for mii, and returns
@@ -157,11 +166,11 @@ mii_prepare(
  */
 int
 mii_argv_parse(
-	mii_t *mii,
-	int argc,
-	const char *argv[],
-	int *index,
-	uint32_t *ioFlags );
+		mii_t *mii,
+		int argc,
+		const char *argv[],
+		int *index,
+		uint32_t *ioFlags );
 /*
  * Locate driver_name, and attempt to register it with slot_id slot.
  * Returns 0 on success, -1 on failure
@@ -262,10 +271,10 @@ extern mii_slot_drv_t * mii_slot_drv_list;
 #define MII_TRAP 0xdbfb
 /*
  * Request a trap ID for the given callback. Calling code is responsible
- * for setting up the trap using the 2 magic NOPs in sequence. See mii_smartport.c
- * for an example.
+ * for setting up the trap using the 2 magic NOPs in sequence.
+ * See mii_smartport.c for an example.
  */
 uint8_t
 mii_register_trap(
-	mii_t *mii,
-	mii_trap_handler_cb cb);
+		mii_t *mii,
+		mii_trap_handler_cb cb);

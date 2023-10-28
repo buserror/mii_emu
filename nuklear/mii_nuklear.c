@@ -167,6 +167,9 @@ static void *mii_thread_func(void *arg)
 				break;
 			case MII_RUNNING:
 				break;
+			case MII_TERMINATE:
+				mii_thread_running = false;
+				break;
 		}
 
 		if (mii->video.frame_count != last_frame) {
@@ -193,6 +196,7 @@ static void *mii_thread_func(void *arg)
 			usleep(sleep_time);
 		}
 	}
+	mii_dispose(mii);
 	return NULL;
 }
 

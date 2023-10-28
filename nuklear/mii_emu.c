@@ -308,7 +308,7 @@ extern const unsigned int mii_droid_size;
         nk_x11_render(NK_ANTI_ALIASING_ON, MAX_VERTEX_BUFFER, MAX_ELEMENT_BUFFER);
         glXSwapBuffers(win.dpy, win.win);
     }
-
+    mii_dispose(&g_mii);
 cleanup:
     nk_x11_shutdown();
     glXMakeCurrent(win.dpy, 0, 0);

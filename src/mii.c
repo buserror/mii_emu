@@ -497,7 +497,6 @@ mii_init(
 	mii->bank[MII_BANK_ROM].mem = (uint8_t*)&iie_enhanced_rom_bin[0];
 	mii->cpu.trap = MII_TRAP;
 	mii_reset(mii, true);
-	mii_speaker_init(mii, &mii->speaker);
 	mii->cpu_state = mii_cpu_init(&mii->cpu);
 	for (int i = 0; i < 7; i++)
 		mii->slot[i].id = i;
@@ -508,6 +507,8 @@ mii_prepare(
 		mii_t *mii,
 		uint32_t flags )
 {
+	mii_dd_system_init(mii, &mii->dd);
+	mii_speaker_init(mii, &mii->speaker);
 	printf("%s driver table\n", __func__);
 	mii_slot_drv_t * drv = mii_slot_drv_list;
 	while (drv) {
@@ -517,6 +518,20 @@ mii_prepare(
 		}
 		drv = drv->next;
 	}
+}
+
+void
+mii_dispose(
+		mii_t *mii )
+{
+	for (int i = 0; i < 7; i++) {
+		if (mii->slot[i].drv && mii->slot[i].drv->dispose)
+			mii->slot[i].drv->dispose(mii, &mii->slot[i]);
+	}
+	for (int i = 0; i < MII_BANK_COUNT; i++)
+		mii_bank_dispose(&mii->bank[i]);
+	mii_speaker_dispose(&mii->speaker);
+	mii_dd_system_dispose(&mii->dd);
 }
 
 void
