@@ -24,8 +24,10 @@ typedef struct mii_audio_frame_t {
 
 typedef struct mii_speaker_t {
 	struct mii_t * mii;
+	int			debug_fd;		// if > 0, dump audio to this fd
 	void * 		alsa_pcm;		// alsa pcm handle
 	bool		muted;			// if true, don't play anything
+	bool		off;			// if true, don't even initialize (alsa)
 	float 		volume;			// volume, 0.0 to 10.0
 	float 		vol_multiplier;	// sample multiplier, 0.0 to 1.0
 	float 		cpu_speed;		// CPU speed in MHz, to calculate clk_per_sample

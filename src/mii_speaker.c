@@ -90,7 +90,8 @@ mii_speaker_init(
 	s->mii = mii;
 	s->fsize = MII_SPEAKER_FRAME_SIZE;
 #ifdef HAS_ALSA
-	_alsa_init(s);	// this can/will change fsize
+	if (!s->off)
+		_alsa_init(s);	// this can/will change fsize
 #endif
 	s->vol_multiplier = 0.2;
 	s->sample = 0x8000;
@@ -132,7 +133,8 @@ mii_speaker_click(
 			(s->mii->cycles - f->start) > (2 * s->fsize * s->clk_per_sample)) {
 	//	printf("Restarting playback\n");
 #ifdef HAS_ALSA
-		snd_pcm_prepare(s->alsa_pcm);
+		if (s->alsa_pcm)
+			snd_pcm_prepare(s->alsa_pcm);
 #endif
 		f->start = s->mii->cycles - (s->clk_per_sample * 8);
 		f->fill = 0;
@@ -166,7 +168,6 @@ mii_speaker_click(
 	f->audio[sample_index] = s->sample * s->vol_multiplier;
 }
 
-int g_mii_audio_record_fd = -1;
 
 // Check to see if there's a new frame to send, send it
 void
@@ -186,15 +187,17 @@ mii_speaker_run(
 		s->fplay = (s->fplay + 1) % MII_SPEAKER_FRAME_COUNT;
 		f = &s->frame[s->fplaying];
 		if (!s->muted) {
-#ifdef HAS_ALSA
-			int pcm;
-			if (g_mii_audio_record_fd != -1)
-				write(g_mii_audio_record_fd, f->audio,
+			if (s->debug_fd != -1)
+				write(s->debug_fd, f->audio,
 							f->fill * sizeof(s->frame[0].audio[0]));
-			if ((pcm = snd_pcm_writei(s->alsa_pcm,
-						f->audio, f->fill)) == -EPIPE) {
-				printf("%s Underrun.\n", __func__);
-				snd_pcm_recover(s->alsa_pcm, pcm, 1);
+#ifdef HAS_ALSA
+			if (s->alsa_pcm) {
+				int pcm;
+				if ((pcm = snd_pcm_writei(s->alsa_pcm,
+							f->audio, f->fill)) == -EPIPE) {
+					printf("%s Underrun.\n", __func__);
+					snd_pcm_recover(s->alsa_pcm, pcm, 1);
+				}
 			}
 #endif
 		}
