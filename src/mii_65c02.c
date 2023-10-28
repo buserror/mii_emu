@@ -233,10 +233,10 @@ next_instruction:
 		{ // BCC, BCS, BEQ, BMI, BNE, BPL, BVC, BVS
 			if (d.s_bit_value == cpu->P.P[d.s_bit]) {
 				cpu->_P = cpu->PC + (int8_t)cpu->_P;
+				cpu->cycle++;
 				if ((cpu->_P & 0xff00) != (cpu->PC & 0xff00))
 					cpu->cycle++;
 				cpu->PC = cpu->_P;
-				cpu->cycle++;
 			}
 		}	break;
 		case 0x80:
@@ -361,6 +361,7 @@ next_instruction:
 		}	break;
 		case 0xEA:
 		{ // NOP
+			cpu->cycle++;
 		}	break;
 		case 0x09: case 0x05: case 0x15: case 0x0D: case 0x1D:
 		case 0x19: case 0x01: case 0x11: case 0x12:
@@ -521,31 +522,31 @@ next_instruction:
 		}	break;
 		case 0xAA:
 		{ // TAX
-			cpu->X = cpu->A;
+			cpu->X = cpu->A;cpu->cycle++;
 			_NZ(cpu->X);
 		}	break;
 		case 0xA8:
 		{ // TAY
-			cpu->Y = cpu->A;
+			cpu->Y = cpu->A;cpu->cycle++;
 			_NZ(cpu->Y);
 		}	break;
 		case 0xBA:
 		{ // TSX
-			cpu->X = cpu->S;
+			cpu->X = cpu->S;cpu->cycle++;
 			_NZ(cpu->X);
 		}	break;
 		case 0x8A:
 		{ // TXA
-			cpu->A = cpu->X;
+			cpu->A = cpu->X;cpu->cycle++;
 			_NZ(cpu->A);
 		}	break;
 		case 0x9A:
 		{ // TXS
-			cpu->S = cpu->X;
+			cpu->S = cpu->X;cpu->cycle++;
 		}	break;
 		case 0x98:
 		{ // TYA
-			cpu->A = cpu->Y;
+			cpu->A = cpu->Y;cpu->cycle++;
 			_NZ(cpu->A);
 		}	break;
 		case 0x07: case 0x17: case 0x27: case 0x37: case 0x47:
