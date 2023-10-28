@@ -44,6 +44,14 @@ void
 mish_terminate(
 		struct mish_t * m);
 
+/* Currently only one flag is used */
+typedef union mish_cmd_flags_t {
+	struct {
+		unsigned int safe : 1;
+	};
+	unsigned int raw;
+} mish_cmd_flags_t;
+
 /*
  * Register a command; please use the macros, don't call this directly.
  *
@@ -51,14 +59,35 @@ mish_terminate(
  * without having to drag libmish into programs that use it; the commands
  * won't register, but if you then link with a program that uses libmish,
  * they will.
+ * Same but allows grouping command by an arbitrary 'kind' value.
  */
 void
-mish_register_cmd(
+mish_register_cmd_kind(
 		const char ** cmd_names,
 		const char ** cmd_help,
 		mish_cmd_handler_p cmd_handler,
 		void * handler_param,
-		int safe) __attribute__((weak));
+		mish_cmd_flags_t flags,
+		unsigned int kind) __attribute__((weak));
+
+#define mish_register_cmd(__named, __help, __handler, __param, __safe) \
+	mish_register_cmd_kind(__named, __help, __handler, __param, \
+			(mish_cmd_flags_t){.safe = __safe}, 0)
+
+/*
+ * There is some provision for command-specific parameters, but it's not
+ * used yet. Instead we use a global one. If 'kind' is zero, ALL parameters
+ * for every command is set to 'param'. If 'kind' is non-zero, only the
+ * commands that have been registered with MISH_CMD_REGISTER_KIND() and
+ * the matchinf 'kind' will have their parameter set to 'param'.
+ *
+ * This allows grouping commands by 'kind' and have them share a parameter.
+ */
+void
+mish_set_command_parameter(
+		unsigned int kind,
+		void * param);
+
 /*!
  * Poll the mish threads for pending commands, and call their handlers.
  * This is only necessary for 'safe' commands that needs to be run on the
@@ -99,15 +128,31 @@ static inline int _gcc_warning_false_pos_workaround(void * func) {
 #define MISH_CMD_REGISTER(_d, _handler) \
 	__attribute__((constructor,used)) \
 	static void _mish_register_##_d() { \
-		if (_gcc_warning_false_pos_workaround(mish_register_cmd)) \
-			mish_register_cmd(_cmd_##_d,_help_##_d,_handler,0,0);\
+		if (_gcc_warning_false_pos_workaround(mish_register_cmd_kind)) \
+			mish_register_cmd_kind(_cmd_##_d,_help_##_d,_handler,0,\
+				(mish_cmd_flags_t){},0);\
+	}
+
+#ifndef MISH_FCC
+// create a four character constant, not necessary, just for convenience
+#define MISH_FCC(_a,_b,_c,_d) (((_a)<<24)|((_b)<<16)|((_c)<<8)|(_d))
+#endif
+
+#define MISH_CMD_REGISTER_KIND(_d, _handler, _safe, _kind) \
+	__attribute__((constructor,used)) \
+	static void _mish_register_##_d() { \
+		if (_gcc_warning_false_pos_workaround(mish_register_cmd_kind)) \
+			mish_register_cmd_kind(_cmd_##_d,_help_##_d,\
+					_handler,0,\
+					(mish_cmd_flags_t){.safe=_safe},_kind);\
 	}
 //! These are called when the main program calls mish_cmd_poll()
 #define MISH_CMD_REGISTER_SAFE(_d, _handler) \
 	__attribute__((constructor,used)) \
 	static void _mish_register_##_d() { \
-		if (_gcc_warning_false_pos_workaround(mish_register_cmd)) \
-			mish_register_cmd(_cmd_##_d,_help_##_d,_handler,0,1);\
+		if (_gcc_warning_false_pos_workaround(mish_register_cmd_kind)) \
+			mish_register_cmd_kind(_cmd_##_d,_help_##_d,_handler,0, \
+					(mish_cmd_flags_t){.safe=1},0);\
 	}
 
 #endif /* LIBMISH_SRC_MISH_H_ */

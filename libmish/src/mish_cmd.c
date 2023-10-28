@@ -29,7 +29,8 @@ typedef struct mish_cmd_t {
 	TAILQ_ENTRY(mish_cmd_t)	self;
 	mish_cmd_handler_p cmd_cb;
 	void *			param_cb;
-	uint32_t		safe : 1;
+	uint32_t 		kind; 	// optional, for your own use
+	mish_cmd_flags_t flags;
 
 	const char **	names;	// list of aliases for the command
 	const char **	help;
@@ -48,12 +49,13 @@ static TAILQ_HEAD(,mish_cmd_t) _cmd_list = TAILQ_HEAD_INITIALIZER(_cmd_list);
 static mish_call_queue_t _cmd_fifo = {0};
 
 void __attribute__((weak))
-mish_register_cmd(
+mish_register_cmd_kind(
 		const char ** cmd_names,
 		const char ** cmd_help,
 		mish_cmd_handler_p cmd_handler,
 		void * handler_param,
-		int safe)
+		mish_cmd_flags_t flags,
+		uint32_t kind)
 {
 	if (!cmd_names || !cmd_help || !cmd_handler) {
 		fprintf(stderr, "%s invalid parameters\n", __func__);
@@ -65,7 +67,8 @@ mish_register_cmd(
 	cmd->help = cmd_help;
 	cmd->cmd_cb = cmd_handler;
 	cmd->param_cb = handler_param;
-	cmd->safe = safe;
+	cmd->kind = kind;
+	cmd->flags = flags;
 
 	// keep the list roughtly sorted
 	mish_cmd_p c, s;
@@ -76,6 +79,18 @@ mish_register_cmd(
 		}
 	}
 	TAILQ_INSERT_TAIL(&_cmd_list, cmd, self);
+}
+
+void
+mish_set_command_parameter(
+		unsigned int kind,
+		void * param)
+{
+	mish_cmd_p cmd;
+	TAILQ_FOREACH(cmd, &_cmd_list, self) {
+		if (!kind || cmd->kind == kind)
+			cmd->param_cb = param;
+	}
 }
 
 /*
@@ -216,7 +231,7 @@ mish_cmd_call(
 	int ac = 0;
 	char ** av = mish_argv_make(cmd_line, &ac);
 
-	if (cmd->safe) {
+	if (cmd->flags.safe) {
 		if (!mish_call_queue_isfull(&_cmd_fifo)) {
 			mish_cmd_call_t fe = {
 					.cmd = cmd,
