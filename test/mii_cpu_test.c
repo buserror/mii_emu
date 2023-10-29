@@ -440,24 +440,6 @@ int main()
 	_run_this("SED ADC 99", doSED_ADC(0x99, 1), 0x00, C | D, 0);
 	_run_this("SED ADC BD", doSED_ADC(0xBD, 0), 0x23, C | D, 0);
 
-	_run_this("LDA ($aa)",
-		"  LDA #$00\n"
-		"  TAY\n"
-		"  TYA\n"
-		"  STA $c064\n"
-		"  LDX #$00\n"
-		"  LDA $c070\n"
-		"  LDY #$00\n"
-		"  NOP\n"
-		"  NOP\n"
-		"l LDA $c064,X\n"
-		"  BPL end\n"
-		"  INY \n"
-		"  BNE l\n"
-		"  DEY \n"
-		"end BRK\n",
-		0xAA, N, 1);
-
 #if 0
 //	_run_this("SED ADC FF", doSED_ADC(0xFF, 0), 0x65, C | D | N, 0);
 

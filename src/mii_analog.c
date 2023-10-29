@@ -39,14 +39,9 @@ mii_analog_access(
 		case 0xc070: {
 			// multiplying by mii->speed allows reading joystick in 'fast' mode,
 			// this basically simulate slowing down just for the joystick reading
-
-			/* TODO: According to various artivles, the multiplier ought
-			 * to be 11, but we're not making the count here, which means it's
-			 * likely the emulated core is missing a cycle for one instruction
-			 * somewhere... */
 			for (int i = 0; i < 4; i++) {
 				a->v[i].decay = mii->cycles +
-									((a->v[i].value * 10.10) * mii->speed);
+									((a->v[i].value * 11) * mii->speed);
 			//	printf("joystick %d: %d\n", i, a->v[i].value);
 			}
 		}	break;

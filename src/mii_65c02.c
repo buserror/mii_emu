@@ -222,10 +222,10 @@ next_instruction:
 			_FETCH(cpu->PC++);	// relative branch
 			if (((cpu->_D >> d.s_bit) & 1) == d.s_bit_value) {
 				cpu->_P = cpu->PC + (int8_t)cpu->_P;
+				cpu->cycle++;
 				if ((cpu->_P & 0xff00) != (cpu->PC & 0xff00))
 					cpu->cycle++;
 				cpu->PC = cpu->_P;
-				cpu->cycle++;
 			}
 		}	break;
 		case 0x90: case 0xB0: case 0xF0: case 0x30:
@@ -241,7 +241,11 @@ next_instruction:
 		}	break;
 		case 0x80:
 		{	// BRA
-			cpu->PC = cpu->PC + (int8_t)cpu->_P; cpu->cycle++;
+			cpu->_P = cpu->PC + (int8_t)cpu->_P;
+			_FETCH(cpu->PC);// cpu->cycle++;
+			if ((cpu->_P & 0xff00) != (cpu->PC & 0xff00))
+				cpu->cycle++;
+			cpu->PC = cpu->_P;
 		}	break;
 		case 0x89:
 		{	// BIT immediate -- does not change N & V!
@@ -261,6 +265,7 @@ next_instruction:
 		}	break;
 		case 0x18: case 0xD8: case 0x58: case 0xB8:
 		{ // CLC, CLD, CLI, CLV
+			_FETCH(cpu->PC);
 			cpu->P.P[d.s_bit] = 0;
 		}	break;
 		case 0xC9: case 0xC5: case 0xD5: case 0xCD: case 0xDD:
@@ -284,18 +289,22 @@ next_instruction:
 		}	break;
 		case 0x3A:
 		{ // DEC
+			_FETCH(cpu->PC);
 			_NZ(--cpu->A);
 		}	break;
 		case 0xC6: case 0xD6: case 0xCE: case 0xDE:
 		{ // DEC
+			_FETCH(cpu->PC);
 			_NZ(--cpu->_D);
 		}	break;
 		case 0xCA:
 		{ // DEX
+			_FETCH(cpu->PC);
 			_NZ(--cpu->X);
 		}	break;
 		case 0x88:
 		{ // DEY
+			_FETCH(cpu->PC);
 			_NZ(--cpu->Y);
 		}	break;
 		case 0x49: case 0x45: case 0x55: case 0x4D: case 0x5D:
@@ -306,18 +315,22 @@ next_instruction:
 		}	break;
 		case 0x1A:
 		{ // INC
+			_FETCH(cpu->PC);
 			_NZ(++cpu->A);
 		}	break;
 		case 0xE6: case 0xF6: case 0xEE: case 0xFE:
 		{ // INC
+			_FETCH(cpu->PC);
 			_NZ(++cpu->_D);
 		}	break;
 		case 0xE8:
 		{ // INX
+			_FETCH(cpu->PC);
 			_NZ(++cpu->X);
 		}	break;
 		case 0xC8:
 		{ // INY
+			_FETCH(cpu->PC);
 			_NZ(++cpu->Y);
 		}	break;
 		case 0x4C: case 0x6C: case 0x7C:
@@ -361,7 +374,7 @@ next_instruction:
 		}	break;
 		case 0xEA:
 		{ // NOP
-			cpu->cycle++;
+			_FETCH(cpu->PC);
 		}	break;
 		case 0x09: case 0x05: case 0x15: case 0x0D: case 0x1D:
 		case 0x19: case 0x01: case 0x11: case 0x12:
