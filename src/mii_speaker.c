@@ -164,9 +164,16 @@ mii_speaker_click(
 		// fill from start of this frame to newly calculated sample_index
 		for (; f->fill < sample_index && f->fill < s->fsize; f->fill++)
 			f->audio[f->fill] = s->sample * s->vol_multiplier;
+		f->audio[sample_index] = 0;
 	}
 	s->sample ^= 0xffff;
-	f->audio[sample_index] = s->sample * s->vol_multiplier;
+	// if we are touching a new sample, make sure the next one is clear too.
+	if (!f->audio[sample_index] && sample_index < s->fsize)
+		f->audio[sample_index + 1] = 0;
+	int32_t mix = f->audio[sample_index] + (s->sample * s->vol_multiplier);
+	if (mix > 0x7fff) mix = 0x7fff;
+	else if (mix < -0x8000) mix = -0x8000;
+	f->audio[sample_index] = mix;
 }
 
 
