@@ -13,5 +13,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+    - name: apt
+      run: sudo apt-get install libglu1-mesa-dev libasound2-dev libx11-dev
     - name: make
       run: make
