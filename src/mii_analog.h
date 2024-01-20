@@ -7,14 +7,15 @@
  */
 #pragma once
 
-#include "mii_types.h"
-
+#include <stdint.h>
 
 typedef struct mii_analog_t {
 	struct {
 		uint8_t  		value;
-		mii_cycles_t	decay;
+//		mii_cycles_t	decay;
+		uint8_t			timer_id;
 	}	v[4];
+	bool		enabled;
 } mii_analog_t;
 
 struct mii_t;

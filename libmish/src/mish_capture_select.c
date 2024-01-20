@@ -69,7 +69,40 @@ _mish_capture_select(
 			if (c->input.fd == -1 || (c->flags & MISH_CLIENT_DELETE))
 				mish_client_delete(m, c);
 		}
+
+		unsigned int max_lines = m->backlog.max_lines;
+		if (m->flags & MISH_CLEAR_BACKLOG) {
+			max_lines = 1;	// zero is unlimited, we don't want that
+			m->flags &= ~MISH_CLEAR_BACKLOG;
+			printf("Clearing backlog has %d lines\n", m->backlog.size);
+		}
+		/*
+		* It is not enough just to remove the top lines from the backlog,
+		* We also need to check all the current clients in case they have
+		* a line we are going to remove in their display... We just have to
+		* check the top line in this case, and 'scroll' their display to the
+		* next line, if applicable
+		*/
+		if (max_lines && m->backlog.size > max_lines) {
+			mish_line_p l;
+			while ((l = TAILQ_FIRST(&m->backlog.log)) != NULL) {
+				TAILQ_REMOVE(&m->backlog.log, l, self);
+				m->backlog.size--;
+				m->backlog.alloc -= sizeof(*l) + l->size;
+				// now check the clients for this line
+				TAILQ_FOREACH_SAFE(c, &m->clients, self, safe) {
+					if (c->bottom == l)
+						c->bottom = TAILQ_NEXT(l, self);
+					if (c->sending == l)
+						c->sending = TAILQ_NEXT(l, self);
+				}
+				free(l);
+				if (m->backlog.size <= max_lines)
+					break;
+			}
+		}
 	}
+
 	if ((m->flags & MISH_CONSOLE_TTY) &&
 			tcsetattr(0, TCSAFLUSH, &m->orig_termios))
 		perror("thread tcsetattr");

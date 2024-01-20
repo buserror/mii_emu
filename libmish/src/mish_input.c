@@ -37,7 +37,7 @@ _mish_input_init(
 
 	int flags = fcntl(fd, F_GETFL, NULL);
 	if (flags == 1) {
-		perror("mish: input F_GETFL");
+	//	perror("mish: input F_GETFL");
 		flags = 0;
 	}
 	if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1)

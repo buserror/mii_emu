@@ -36,7 +36,7 @@ extern const unsigned char mii_smartport_rom_data[];
 #define MII_SM_DRIVE_COUNT 2
 
 typedef struct mii_card_sm_t {
-	struct mii_card_sm_t *next;
+//	struct mii_card_sm_t *next;
 	mii_dd_t drive[MII_SM_DRIVE_COUNT];
 	struct mii_slot_t *slot;
 } mii_card_sm_t;
@@ -244,7 +244,7 @@ _mii_sm_init(
 	c->slot = slot;
 	slot->drv_priv = c;
 
-	printf("%s loading in slot %d\n", __func__, slot->id);
+	printf("%s loading in slot %d\n", __func__, slot->id + 1);
 	uint16_t addr = 0xc100 + (slot->id * 0x100);
 	mii_bank_write(
 			&mii->bank[MII_BANK_CARD_ROM],
@@ -252,7 +252,7 @@ _mii_sm_init(
 
 	uint8_t trap_hd = mii_register_trap(mii, _mii_hd_callback);
 	uint8_t trap_sm = mii_register_trap(mii, _mii_sm_callback);
-	printf("%s: traps %02x %02x\n", __func__, trap_hd, trap_sm);
+//	printf("%s: traps %02x %02x\n", __func__, trap_hd, trap_sm);
 	mii_bank_write(
 			&mii->bank[MII_BANK_CARD_ROM],
 			addr + 0xd2, &trap_hd, 1);
@@ -302,18 +302,15 @@ _mii_sm_command(
 				*(int *)param = MII_SM_DRIVE_COUNT;
 			break;
 		case MII_SLOT_DRIVE_LOAD ... MII_SLOT_DRIVE_LOAD + MII_SM_DRIVE_COUNT - 1:
-			if (param) {
-				int drive = cmd - MII_SLOT_DRIVE_LOAD;
-				const char *filename = param;
-				mii_dd_file_t *file = NULL;
-				if (filename) {
-					file = mii_dd_file_load(&mii->dd, filename, 0);
-					if (!file)
-						return -1;
-				}
-				mii_dd_drive_load(&c->drive[drive], file);
-				return 0;
+			int drive = cmd - MII_SLOT_DRIVE_LOAD;
+			const char *filename = param;
+			mii_dd_file_t *file = NULL;
+			if (filename && *filename) {
+				file = mii_dd_file_load(&mii->dd, filename, 0);
+				if (!file)
+					return -1;
 			}
+			mii_dd_drive_load(&c->drive[drive], file);
 			break;
 	}
 	return 0;
@@ -324,25 +321,6 @@ _mii_sm_access(
 	mii_t * mii, struct mii_slot_t *slot,
 	uint16_t addr, uint8_t byte, bool write)
 {
-	#if 0
-	mii_card_sm_t *c = slot->drv_priv;
-
-	printf("%s PC:%04x addr %04x %02x wr:%d\n", __func__,
-			mii->cpu.PC, addr, byte, write);
-	int psw = addr & 0x0F;
-	if (write) {
-		switch (psw) {
-			case 0:
-			//	c->latch = (c->latch & 0xff00) | byte;
-				break;
-			case 1:
-			//	c->latch = (c->latch & 0x00ff) | (byte << 8);
-				break;
-		}
-	} else {
-	//	return c->file[(c->latch << 4) + psw];
-	}
-	#endif
 	return 0;
 }
 

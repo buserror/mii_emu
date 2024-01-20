@@ -166,9 +166,10 @@ mish_argv_make(
 					state = s_copy;
 				break;
 			case s_copyquote:
-				if (*dup == '\\')
+				if (*dup == '\\') {
 					state = s_skip;
-				else if (*dup == quote) {
+					dup++;
+				} else if (*dup == quote) {
 					state = s_newarg;
 					dup++;
 					if (*dup) *dup++ = 0;

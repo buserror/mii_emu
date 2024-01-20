@@ -352,17 +352,15 @@ _mii_disk2_command(
 				*(int *)param = 2;
 			break;
 		case MII_SLOT_DRIVE_LOAD ... MII_SLOT_DRIVE_LOAD + 2 - 1:
-			if (param) {
-				int drive = cmd - MII_SLOT_DRIVE_LOAD;
-				const char *filename = param;
-				if (c->disk[drive].privdat) {
-					c->disk[drive].eject(&c->disk[drive]);
-				}
-				printf("%s: drive %d loading %s\n", __func__, drive,
-				 			filename);
-				c->disk[drive] = disk_format_load(filename);
-				return 0;
+			int drive = cmd - MII_SLOT_DRIVE_LOAD;
+			if (c->disk[drive].privdat) {
+				c->disk[drive].eject(&c->disk[drive]);
 			}
+			const char *filename = param;
+			printf("%s: drive %d loading %s\n", __func__, drive,
+						filename);
+			c->disk[drive] = disk_format_load(
+								filename && *filename ? filename : NULL);
 			break;
 	}
 	return 0;

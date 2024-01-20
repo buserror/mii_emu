@@ -150,7 +150,7 @@ mii_cpu_asm_load(
 			 * that can be resolved immediately */
 			char *kw = position;
 			while (*kw == ' ' || *kw == '\t') kw++;
-			char *cur = kw;
+			char *cur = NULL;
 			while ((cur = strsep(&kw, ",")) != NULL) {
 				while (*cur == ' ' || *cur == '\t') cur++;
 				char *ke = cur + strlen(cur);
@@ -339,7 +339,7 @@ int
 mii_cpu_asm_assemble(
 	mii_cpu_asm_program_t *p )
 {
-	mii_cpu_asm_line_t *l = p->prog;
+	mii_cpu_asm_line_t *l = NULL;
 	int error = 0;
 
 	// fix symbols
@@ -386,6 +386,12 @@ mii_cpu_asm_assemble(
 				} else if (l->mode == mii_cpu_op[i].desc.mode) {
 					found = i;
 					break;
+				} else if (mii_cpu_op[i].desc.op == 0x20 &&
+								l->mode == ABS) {
+					// this is JSR -- TECHNICALLY it's ABS mode, but
+					// it has to do a 'special' fetch so it's marked as
+					// implied in the table
+					found = i;
 				}
 			}
 		}
@@ -433,7 +439,7 @@ mii_cpu_asm_assemble(
 			while (l2) {
 				int32_t value = 0;
 				if (!strcasecmp(l->op_name, l2->label)) {
-					value = l2->op_value;
+				//	value = l2->op_value;
 					if (!l2->symbol)
 						value = l2->addr;
 					else

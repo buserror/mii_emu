@@ -3,6 +3,13 @@
 #include <stdint.h>
 
 /*
+ * This is pretty heavily dependant on the way bitfields are packed in
+ * bytes, so it's not technically portable; if you have problems using a
+ * strange compiler, undefine this and use the 'discrete' version below.
+ */
+#define MII_PACK_P
+
+/*
  * State structure used to 'talk' to the CPU emulator.
  * It works like this:
  * mii_cpu_state_t s = { .reset = 1 };
@@ -27,9 +34,9 @@
  */
 typedef union mii_cpu_state_t {
 	struct {
-		uint32_t	addr : 16,
-					data : 8,
-					w : 1,
+		uint16_t 	addr;
+		uint8_t 	data;
+		uint8_t		w : 1,
 					sync : 1,
 					reset : 1,
 					irq : 1,
@@ -49,20 +56,30 @@ typedef struct mii_cpu_t {
 	 * are 'indirect' and load from memory will set _P and read in _D
 	 * so the opcode doesn't have to handle s.data at all */
 	uint16_t 	_D, _P;
+
+#ifdef MII_PACK_P
+	union {
+		struct {
+			uint8_t 	C:1, Z:1, I:1, D:1, B:1, _R:1, V:1, N:1;
+		};
+		uint8_t 	P;
+	}			P;
+#else
 	/* My experience with simavr shows that maintaining a 8 bits bitfield
 	 * for a status register is a lot slower than having discrete flags
-	 * and 'constructing' the matching 8 biots register when needed */
+	 * and 'constructing' the matching 8 bits register when needed */
 	union {
 		struct {
 			uint8_t 	C, Z, I, D, B, _R, V, N;
 		};
 		uint8_t 	P[8];
 	}			P;
+#endif
 	uint16_t 	PC;
 	uint8_t 	IR;
 	uint8_t		IRQ;	// IRQ (0) or NMI (1) or BRK (2)
 	uint8_t		cycle;	// for current instruction
-	/* State of the CPU state machine */
+	/* State of the protothread for the CPU state machine (minipt.h) */
 	void *		state;
 
 	/* sequence of instruction that will trigger a trap flag.
@@ -73,8 +90,7 @@ typedef struct mii_cpu_t {
 	// last 4 instructions, as a shift register, used for traps or debug
 	uint32_t	ir_log;
 
-	/* Debug only; the callback is called every cycles, with the current
-	 * state of the cpu. */
+	/* Debug only; Only used by the test units. */
 	uint8_t * 	ram; 	// DEBUG
 } mii_cpu_t;
 
@@ -86,3 +102,35 @@ mii_cpu_state_t
 mii_cpu_run(
 		mii_cpu_t *cpu,
 		mii_cpu_state_t s);
+
+
+#ifdef MII_PACK_P
+#define MII_SET_P(_cpu, _byte) { \
+			(_cpu)->P.P = _byte | 0x30; \
+		}
+#define MII_GET_P(_cpu, _res) \
+		(_res) = (_cpu)->P.P
+#define MII_SET_P_BIT(_cpu, _bit, _val) { \
+		const int __bit = _bit; \
+		(_cpu)->P.P = ((_cpu)->P.P & ~(1 << __bit)) | (!!(_val) << __bit); \
+	}
+#define MII_GET_P_BIT(_cpu, _bit) \
+		!!(((_cpu)->P.P & (1 << (_bit))))
+#else
+#define MII_SET_P(_cpu, _byte) { \
+		const int __byte = _byte; \
+		for (int _pi = 0; _pi < 8; _pi++) \
+			(_cpu)->P.P[_pi] = _pi == B_B || _pi == B_X || \
+						((__byte) & (1 << _pi)); \
+		}
+#define MII_GET_P(_cpu, _res) { \
+		(_res) = 0; \
+		for (int _pi = 0; _pi < 8; _pi++) \
+			(_res) |= (_cpu)->P.P[_pi] << _pi; \
+	}
+#define MII_SET_P_BIT(_cpu, _bit, _val) { \
+		(_cpu)->P.P[_bit] = _val; \
+	}
+#define MII_GET_P_BIT(_cpu, _bit) \
+		((_cpu)->P.P[_bit])
+#endif

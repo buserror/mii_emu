@@ -81,6 +81,11 @@ _alsa_init(
 }
 #endif
 
+static uint64_t
+_mii_speaker_timer_cb(
+		mii_t * mii,
+		void * param );
+
 // Initialize the speaker with the frame size in samples
 void
 mii_speaker_init(
@@ -90,30 +95,84 @@ mii_speaker_init(
 	s->mii = mii;
 	s->debug_fd = -1;
 	s->fsize = MII_SPEAKER_FRAME_SIZE;
+	// disabled at start...
+	s->timer_id = mii_timer_register(mii,
+			_mii_speaker_timer_cb, s, 0, __func__);
 #ifdef HAS_ALSA
 	if (!s->off)
 		_alsa_init(s);	// this can/will change fsize
 #endif
-	s->vol_multiplier = 0.2;
+	mii_speaker_volume(s, 1);
 	s->sample = 0x8000;
 	s->findex = 0;
 	for (int i = 0; i < MII_SPEAKER_FRAME_COUNT; i++)
 		s->frame[i].audio = calloc(sizeof(s->frame[i].audio[0]), s->fsize);
-	s->frame[0].start = mii->cycles;
+//	s->frame[0].start = mii->cycles;
 }
 
 void
 mii_speaker_dispose(
-		mii_speaker_t *speaker)
+		mii_speaker_t *s)
 {
+	s->fsize = 0;
+	mii_timer_set(s->mii, s->timer_id, 0);
 #ifdef HAS_ALSA
-	if (speaker->alsa_pcm)
-		snd_pcm_close(speaker->alsa_pcm);
+	if (s->alsa_pcm)
+		snd_pcm_close(s->alsa_pcm);
 #endif
 	for (int i = 0; i < MII_SPEAKER_FRAME_COUNT; i++) {
-		free(speaker->frame[i].audio);
-		speaker->frame[i].audio = NULL;
+		free(s->frame[i].audio);
+		s->frame[i].audio = NULL;
 	}
+}
+
+// Check to see if there's a new frame to send, send it
+// this timer is always running; it keeps checking for non-empty frames
+static uint64_t
+_mii_speaker_timer_cb(
+		mii_t * mii,
+		void * param )
+{
+	mii_speaker_t *s = (mii_speaker_t *)param;
+
+	if (s->muted || s->off)
+		goto done;
+	mii_audio_frame_t *f = &s->frame[s->fplay];
+	// if the frame is empty, we mark the fact we are in underrun,
+	// so we can restart the audio later on.
+	if (!f->fill) {
+		if (s->under < 10)
+			s->under++;
+		goto done;
+	}
+	s->under = 0;
+	// Here we got a frame to play, so we play it, and move on to the next
+	// There's also the case were we stopped playing and the last frame
+	// wasn't complete, in which case we pad it, and flush it as well
+//	printf("%s: fplay %d findex %d fsize %d fill %d\n",
+//			__func__, s->fplay, s->findex, s->fsize, f->fill);
+	uint16_t sample = f->audio[f->fill - 1] ^ 0xffff;
+	while (f->fill < s->fsize)
+		f->audio[f->fill++] = sample;
+	s->fplay = (s->fplay + 1) % MII_SPEAKER_FRAME_COUNT;
+	s->frame[s->fplay].fill = 0;
+	if (!s->muted) {
+		if (s->debug_fd != -1)
+			write(s->debug_fd, f->audio,
+						f->fill * sizeof(s->frame[0].audio[0]));
+#ifdef HAS_ALSA
+		if (s->alsa_pcm) {
+			int pcm;
+			if ((pcm = snd_pcm_writei(s->alsa_pcm,
+						f->audio, f->fill)) == -EPIPE) {
+				printf("%s Underrun.\n", __func__);
+				snd_pcm_recover(s->alsa_pcm, pcm, 1);
+			}
+		}
+#endif
+	}
+done:
+	return s->fsize * s->clk_per_sample;
 }
 
 // Called when $c030 is touched, place a sample at the 'appropriate' time
@@ -126,18 +185,20 @@ mii_speaker_click(
 		s->cpu_speed = s->mii->speed;
 		s->clk_per_sample = ((1000000.0 /* / s->mii->speed */) /
 					(float)MII_SPEAKER_FREQ) + 0.5f;
-		printf("%s: %d cycles per sample\n", __func__, s->clk_per_sample);
+		printf("%s: %.2f cycles per sample\n", __func__, s->clk_per_sample);
+		mii_timer_set(s->mii, s->timer_id, s->fsize * s->clk_per_sample);
 	}
+	int64_t remains = mii_timer_get(s->mii, s->timer_id);
+
 	mii_audio_frame_t *f = &s->frame[s->findex];
 	// if we had stopped playing for 2 frames, restart
-	if (f->start == 0 ||
-			(s->mii->cycles - f->start) > (2 * s->fsize * s->clk_per_sample)) {
+	if (s->under > 1) {
+		s->under = 0;
 	//	printf("Restarting playback\n");
 #ifdef HAS_ALSA
 		if (s->alsa_pcm)
 			snd_pcm_prepare(s->alsa_pcm);
 #endif
-		f->start = s->mii->cycles - (s->clk_per_sample * 8);
 		f->fill = 0;
 		// add a small attack to the start of the frame to soften the beeps
 		// we are going to flip the sample, so we need to preemptively
@@ -146,20 +207,24 @@ mii_speaker_click(
 		for (int i = 8; i >= 1; i--)
 			f->audio[f->fill++] = (attack / i) * s->vol_multiplier;
 		s->fplay = s->findex; // restart here
+		mii_timer_set(s->mii, s->timer_id, (s->fsize - 16) * s->clk_per_sample);
+		remains = mii_timer_get(s->mii, s->timer_id);
 	}
-
-	long sample_index = (s->mii->cycles - f->start) / s->clk_per_sample;
+	// calculate the sample index we are going to fill -- this is relative
+	// to the frame we are waiting to play
+	long sample_index = // (s->fsize / 2) +
+				(((s->fsize * s->clk_per_sample) - remains) /
+					s->clk_per_sample);
 	// fill from last sample to here with the current sample
 	for (; f->fill < sample_index && f->fill < s->fsize; f->fill++)
 		f->audio[f->fill] = s->sample * s->vol_multiplier;
-
+//	printf("%s: findex %d fsize %d fill %d sample_index %ld\n",
+//			__func__, s->findex, s->fsize, f->fill, sample_index);
 	// if we've gone past the end of the frame, switch to the next one
-	if (sample_index >= s->fsize) {
+	if (sample_index >= s->fsize || sample_index < f->fill) {
 		sample_index = sample_index % s->fsize;
-		mii_cycles_t newstart = s->mii->cycles - (sample_index * s->clk_per_sample);
 		s->findex = (s->findex + 1) % MII_SPEAKER_FRAME_COUNT;
 		f = &s->frame[s->findex];
-		f->start = newstart;
 		f->fill = 0;
 		// fill from start of this frame to newly calculated sample_index
 		for (; f->fill < sample_index && f->fill < s->fsize; f->fill++)
@@ -168,50 +233,22 @@ mii_speaker_click(
 	}
 	s->sample ^= 0xffff;
 	// if we are touching a new sample, make sure the next one is clear too.
+#if 1
+	int32_t mix = s->sample * s->vol_multiplier;
+#else
+	/* Mixing code; in case theres multiple clicks within a sample period.
+	 * This is not used, because it's not really needed, as 2 clicks
+	 * would cancel each others anyway. */
 	if (!f->audio[sample_index] && sample_index < s->fsize)
 		f->audio[sample_index + 1] = 0;
 	int32_t mix = f->audio[sample_index] + (s->sample * s->vol_multiplier);
 	if (mix > 0x7fff) mix = 0x7fff;
 	else if (mix < -0x8000) mix = -0x8000;
+#endif
 	f->audio[sample_index] = mix;
 }
 
 
-// Check to see if there's a new frame to send, send it
-void
-mii_speaker_run(
-		mii_speaker_t *s)
-{
-	mii_audio_frame_t *f = &s->frame[s->fplay];
-
-	// here we check if the frame we want to play is filled, and if it's
-	// been long enough since we started filling it to be sure we have
-	// enough samples to play.
-	// There's also the case were we stopped playing and the last frame
-	// wasn't complete, in which case we flush it as well
-	if (f->fill && ((s->mii->cycles - f->start) >
-					(s->fsize * s->clk_per_sample * 2))) {
-		s->fplaying = s->fplay;
-		s->fplay = (s->fplay + 1) % MII_SPEAKER_FRAME_COUNT;
-		f = &s->frame[s->fplaying];
-		if (!s->muted) {
-			if (s->debug_fd != -1)
-				write(s->debug_fd, f->audio,
-							f->fill * sizeof(s->frame[0].audio[0]));
-#ifdef HAS_ALSA
-			if (s->alsa_pcm) {
-				int pcm;
-				if ((pcm = snd_pcm_writei(s->alsa_pcm,
-							f->audio, f->fill)) == -EPIPE) {
-					printf("%s Underrun.\n", __func__);
-					snd_pcm_recover(s->alsa_pcm, pcm, 1);
-				}
-			}
-#endif
-		}
-		f->fill = 0;
-	}
-}
 
 // this is here so we dont' have to drag in libm math library.
 double fastPow(double a, double b) {

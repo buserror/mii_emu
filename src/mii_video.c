@@ -36,6 +36,8 @@ enum {
 /*
  * Colors were lifted from
  * https://comp.sys.apple2.narkive.com/lTSrj2ZI/apple-ii-colour-rgb
+ * and
+ * https://www.mrob.com/pub/xapple2/colors.html
  */
 #define HI_RGB(r,g,b)	(0xff000000 | ((r) << 16) | ((g) << 8) | (b))
 static const uint32_t lores_colors[] = {
@@ -106,7 +108,7 @@ static const uint32_t mono[3][2] = {
 
 
 /* this 'dims' the colors for every second line of pixels */
-#define C_SCANLINE_MASK 0xffc0c0c0
+#define C_SCANLINE_MASK HI_RGB(0xc0, 0xc0, 0xc0)
 
 static inline uint16_t
 _mii_line_to_video_addr(
@@ -118,6 +120,14 @@ _mii_line_to_video_addr(
 					((line >> 6) << 5) | ((line >> 6) << 3);
 	return addr;
 }
+
+unsigned char reverse(unsigned char b) {
+   b = (b & 0b11110000) >> 4 | (b & 0b00001111) << 4;
+   b = (b & 0b11001100) >> 2 | (b & 0b00110011) << 2;
+   b = (b & 0b10101010) >> 1 | (b & 0b01010101) << 1;
+   return b;
+}
+
 /*
  * This is the state of the video output
  * All timings lifted from https://rich12345.tripod.com/aiivideo/vbl.html
@@ -132,19 +142,20 @@ _mii_line_to_video_addr(
  * static or global.
  * *everything* before the pt_start call is ran every time, so you can use
  * that to reload some sort of state, as here, were we reload all the
- * video mode softwsitches.
+ * video mode softswitches.
+ *
+ * This function is also a 'cycle timer' it returns the number of 6502
+ * cycles to wait until being called again, so it mostly returns the
+ * number of cycles until the next horizontal blanking between each lines,
+ * but also the number of cycles until the next vertical blanking once
+ * the last line is drawn.
  */
-void
-mii_video_run(
-	mii_t *mii)
+static uint64_t
+mii_video_timer_cb(
+	mii_t *mii,
+	void *param)
 {
-	// no need to do anything, we're waiting cycles
-	if (mii->video.wait) {
-		if (mii->video.wait > mii->cycles)
-			return;
-		// extra cycles we waited are kept around for next delay
-		mii->video.wait = mii->cycles - mii->video.wait;
-	}
+	uint64_t res = MII_VIDEO_H_CYCLES * mii->speed;
 	mii_bank_t * main = &mii->bank[MII_BANK_MAIN];
 	bool	text 	= SW_GETSTATE(mii, SWTEXT);
 	bool 	page2 	= SW_GETSTATE(mii, SWPAGE2);
@@ -179,14 +190,15 @@ mii_video_run(
 			mii_bank_t * aux = &mii->bank[MII_BANK_AUX];
 
 			if (reg == 0 || mii->video.color_mode != MII_VIDEO_COLOR) {
-				for (int x = 0; x < 40; x += 1) {
+				const uint32_t clut[2] = {
+						mono[mii->video.color_mode][0],
+						mono[mii->video.color_mode][1] };
+				for (int x = 0; x < 40; x++) {
 					uint32_t ext = (mii_bank_peek(aux, a + x) & 0x7f) |
 									((mii_bank_peek(main, a + x) & 0x7f) << 7);
 					for (int bi = 0; bi < 14; bi++) {
 						uint8_t pixel = (ext >> bi) & 1;
-						uint32_t col = pixel ?
-								mono[mii->video.color_mode][1] :
-								mono[mii->video.color_mode][0];
+						uint32_t col = clut[pixel];
 						*screen++ = col;
 						*l2++ = col & C_SCANLINE_MASK;
 					}
@@ -233,8 +245,8 @@ mii_video_run(
 				uint16_t run =  ((b0 & 0x60) >> ( 5 )) |
 								((b1 & 0x7f) << ( 2 )) |
 								((b2 & 0x03) << ( 9 ));
-           		int odd = (x & 1) << 1;
-            	int offset = (b1 & 0x80) >> 5;
+				int odd = (x & 1) << 1;
+				int offset = (b1 & 0x80) >> 5;
 
 				if (mii->video.color_mode == MII_VIDEO_COLOR) {
 					for (int i = 0; i < 7; i++) {
@@ -263,9 +275,7 @@ mii_video_run(
 				} else {
 					for (int i = 0; i < 7; i++) {
 						uint8_t pixel = (run >> (2 + i)) & 1;
-						uint32_t col = pixel ?
-								mono[mii->video.color_mode][1] :
-								mono[mii->video.color_mode][0];
+						uint32_t col = mono[mii->video.color_mode][pixel];
 						*screen++ = col;
 						*screen++ = col;
 						*l2++ = col & C_SCANLINE_MASK;
@@ -298,9 +308,7 @@ mii_video_run(
 					uint8_t bits = rom[mii->video.line & 0x07];
 					for (int pi = 0; pi < 7; pi++) {
 						uint8_t pixel = (bits >> pi) & 1;
-						uint32_t col = pixel ?
-								mono[mii->video.color_mode][0] :
-								mono[mii->video.color_mode][1];
+						uint32_t col = mono[mii->video.color_mode][!pixel];
 						*screen++ = col;
 						*l2++ = col & C_SCANLINE_MASK;
 						if (!col80) {
@@ -326,25 +334,20 @@ mii_video_run(
 		mii->video.line++;
 		if (mii->video.line == 192) {
 			mii->video.line = 0;
-			mii->video.wait = mii->cycles - mii->video.wait +
-						MII_VIDEO_H_CYCLES * mii->speed;
+			res = MII_VIDEO_H_CYCLES * mii->speed;
 			pt_yield(mii->video.state);
 			mii_bank_poke(main, SWVBL, 0x00);
-			if (mii->video.vbl_irq)
-				mii->cpu_state.irq = 1;
-			mii->video.wait = mii->cycles  - mii->video.wait +
-								MII_VBL_UP_CYCLES * mii->speed;
+			res = MII_VBL_UP_CYCLES * mii->speed;
 			mii->video.frame_count++;
 			pt_yield(mii->video.state);
 		} else {
-			mii->video.wait = mii->cycles  - mii->video.wait +
-								(MII_VIDEO_H_CYCLES + MII_VIDEO_HB_CYCLES) *
+			res = (MII_VIDEO_H_CYCLES + MII_VIDEO_HB_CYCLES) *
 									mii->speed;
 			pt_yield(mii->video.state);
 		}
 	} while (1);
 	pt_end(mii->video.state);
-	return;
+	return res;
 }
 
 bool
@@ -417,4 +420,12 @@ mii_access_video(
 			break;
 	}
 	return res;
+}
+
+void
+mii_video_init(
+	mii_t *mii)
+{
+	mii->video.timer_id = mii_timer_register(mii,
+				mii_video_timer_cb, NULL, MII_VIDEO_H_CYCLES, __func__);
 }

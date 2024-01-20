@@ -8,6 +8,9 @@
 #define MII_CPU_65C02_IMPL
 #include "mii_65c02_ops.h"
 
+#define likely(x)		__builtin_expect(!!(x), 1)
+#define unlikely(x)		__builtin_expect(!!(x), 0)
+
 mii_cpu_state_t
 mii_cpu_init(
 		mii_cpu_t *cpu )
@@ -23,31 +26,27 @@ mii_cpu_init(
 #define _FETCH(_val) { \
 		s.addr = _val; s.w = 0; cpu->cycle++; \
 		pt_yield(cpu->state); \
-	} while (0);
+	}
 #define _STORE(_addr, _val) { \
 		s.addr = _addr; s.data = _val; s.w = 1; cpu->cycle++; \
 		pt_yield(cpu->state); \
-	} while (0);
+	}
 
-#define _SET_P(_byte) { \
-		for (int _pi = 0; _pi < 8; _pi++) \
-			cpu->P.P[_pi] = _pi == B_B || _pi == B_X || \
-						((_byte) & (1 << _pi)); \
-		}
+
 #define _NZC(_val) { \
 		uint16_t v = (_val); \
 		cpu->P.N = !!(v & 0x80); \
 		cpu->P.Z = (v & 0xff) == 0; \
 		cpu->P.C = !!(v & 0xff00); \
-	} while (0)
+	}
 #define _NZ(_val) { \
 		uint16_t v = (_val); \
 		cpu->P.N = !!(v & 0x80); \
 		cpu->P.Z = (v & 0xff) == 0; \
-	} while (0)
+	}
 #define _C(_val) { \
 		cpu->P.C = !!(_val); \
-	} while (0)
+	}
 
 mii_cpu_state_t
 mii_cpu_run(
@@ -57,28 +56,30 @@ mii_cpu_run(
 	mii_op_desc_t d = mii_cpu_op[cpu->IR].desc;
 	pt_start(cpu->state);
 next_instruction:
-	if (s.reset) {
+	if (unlikely(s.reset)) {
 		s.reset = 0;
 		_FETCH(0xfffc); cpu->_P = s.data;
 		_FETCH(0xfffd);	cpu->_P |= s.data << 8;
 		cpu->PC = cpu->_P;
 	  	cpu->S = 0xFF;
-		_SET_P(0);
+		MII_SET_P(cpu, 0);
 	}
-	if (s.irq) {
+	if (unlikely(s.irq) && cpu->P.I == 0) {
+		if (!cpu->IRQ)
+			cpu->IRQ = 1;
+	}
+	if (unlikely(cpu->IRQ)) {
 		s.irq = 0;
-		cpu->P.P[B_B] = cpu->IRQ == 2;
-		cpu->IRQ = 1;
-		cpu->_D = cpu->PC + 1;
+		cpu->P.B = cpu->IRQ == 2;
+		cpu->_D = cpu->PC;
 		_STORE(0x0100 | cpu->S--, cpu->_D >> 8);
 		_STORE(0x0100 | cpu->S--, cpu->_D & 0xff);
 		uint8_t p = 0;
-		for (int i = 0; i < 8; i++)
-			p |= (i == B_X || cpu->P.P[i]) << i;
+		MII_GET_P(cpu, p);
 		_STORE(0x0100 | cpu->S--, p);
-		cpu->P.P[B_I] = 1;
-	}
-	if (cpu->IRQ) {
+		cpu->P.I = 1;
+		if (cpu->IRQ == 2)
+			cpu->P.D = 0;
 		cpu->IRQ = 0;
 		_FETCH(0xfffe); cpu->_P = s.data;
 		_FETCH(0xffff);	cpu->_P |= s.data << 8;
@@ -95,7 +96,7 @@ next_instruction:
 	d = mii_cpu_op[cpu->IR].desc;
 	cpu->ir_log = (cpu->ir_log << 8) | cpu->IR;
 	s.trap = cpu->trap && (cpu->ir_log & 0xffff) == cpu->trap;
-	if (s.trap)
+	if (unlikely(s.trap))
 		cpu->ir_log = 0;
 	switch (d.mode) {
 		case IMM:
@@ -173,17 +174,20 @@ next_instruction:
 		case 0x79: case 0x61: case 0x71: case 0x72:
 		{ // ADC
 			// Handle adding in BCD with bit D
-			if (cpu->P.D) {
-				uint8_t lo = (cpu->A & 0x0f) + (cpu->_D & 0x0f) + !!cpu->P.C;
+			if (unlikely(cpu->P.D)) {
+				uint8_t D = cpu->_D;
+				uint8_t lo = (cpu->A & 0x0f) + (D & 0x0f) + !!cpu->P.C;
 				if (lo > 9) lo += 6;
-				uint8_t hi = (cpu->A >> 4) + (cpu->_D >> 4) + (lo > 0x0f);
-				cpu->P.Z = ((uint8_t)(cpu->A + cpu->_D + cpu->P.C)) == 0;
+				uint8_t hi = (cpu->A >> 4) + (D >> 4) + (lo > 0x0f);
+				cpu->P.Z = ((uint8_t)(cpu->A + D + cpu->P.C)) == 0;
 				// that is 6502 behaviour
 //				cpu->P.N = !!(hi & 0xf8);
-				cpu->P.V = !!((!((cpu->A ^ cpu->_D) & 0x80) &&
+				cpu->P.V = !!((!((cpu->A ^ D) & 0x80) &&
 								((cpu->A ^ (hi << 4))) & 0x80));
 				if (hi > 9) hi += 6;
 				cpu->P.C = hi > 15;
+			//	printf("ADC %02x %02x C:%d %x%x\n",
+			//			cpu->A, D, !!cpu->P.C, hi & 0xf, lo & 0xf);
 				cpu->A = (hi << 4) | (lo & 0x0f);
 				// THAT is 65c02 behaviour
 				cpu->P.N = !!(cpu->A & 0x80);
@@ -219,9 +223,11 @@ next_instruction:
 		case 0xaf: case 0xbf: case 0xcf: case 0xdf: case 0xef:
 		case 0xff:
 		{ // BBR/BBS
+//			printf(" BB%c%d vs %02x\n", d.s_bit_value ? 'S' : 'R',
+//					d.s_bit, cpu->_D);
 			_FETCH(cpu->PC++);	// relative branch
 			if (((cpu->_D >> d.s_bit) & 1) == d.s_bit_value) {
-				cpu->_P = cpu->PC + (int8_t)cpu->_P;
+				cpu->_P = cpu->PC + (int8_t)s.data;
 				cpu->cycle++;
 				if ((cpu->_P & 0xff00) != (cpu->PC & 0xff00))
 					cpu->cycle++;
@@ -231,7 +237,7 @@ next_instruction:
 		case 0x90: case 0xB0: case 0xF0: case 0x30:
 		case 0xD0: case 0x10: case 0x50: case 0x70:
 		{ // BCC, BCS, BEQ, BMI, BNE, BPL, BVC, BVS
-			if (d.s_bit_value == cpu->P.P[d.s_bit]) {
+			if (d.s_bit_value == MII_GET_P_BIT(cpu, d.s_bit)) {
 				cpu->_P = cpu->PC + (int8_t)cpu->_P;
 				cpu->cycle++;
 				if ((cpu->_P & 0xff00) != (cpu->PC & 0xff00))
@@ -259,14 +265,16 @@ next_instruction:
 		}	break;
 		case 0x00:
 		{ // BRK
+			// Turns out BRK is a 2 byte opcode, who knew? well that guy did:
+			// https://www.nesdev.org/the%20'B'%20flag%20&%20BRK%20instruction.txt#:~:text=A%20note%20on%20the%20BRK,opcode%2C%20and%20not%20just%201.
+			_FETCH(cpu->PC++);	// cpu->cycle++;
 			s.irq = 1;
-			cpu->IRQ = 2;		// IRQ interrupt
-		//	cpu->P.P[B_D] = 0; 	// 65c02 clears this
+			cpu->IRQ = 2;		// BRK sort of IRQ interrupt
 		}	break;
 		case 0x18: case 0xD8: case 0x58: case 0xB8:
 		{ // CLC, CLD, CLI, CLV
 			_FETCH(cpu->PC);
-			cpu->P.P[d.s_bit] = 0;
+			MII_SET_P_BIT(cpu, d.s_bit, 0);
 		}	break;
 		case 0xC9: case 0xC5: case 0xD5: case 0xCD: case 0xDD:
 		case 0xD9: case 0xC1: case 0xD1: case 0xD2:
@@ -338,10 +346,13 @@ next_instruction:
 			cpu->PC = cpu->_P;
 		}	break;
 		case 0x20:
+		// https://github.com/AppleWin/AppleWin/issues/1257
 		{ // JSR
-			cpu->_D = cpu->PC - 1;
-			_STORE(0x0100 | cpu->S--, cpu->_D >> 8);
-			_STORE(0x0100 | cpu->S--, cpu->_D & 0xff);
+			_FETCH(cpu->PC++);		cpu->_P = s.data;
+			_FETCH(0x0100 | cpu->S);
+			_STORE(0x0100 | cpu->S--, cpu->PC >> 8);
+			_STORE(0x0100 | cpu->S--, cpu->PC & 0xff);
+			_FETCH(cpu->PC++);		cpu->_P |= s.data << 8;
 			cpu->PC = cpu->_P;
 		}	break;
 		case 0xA9: case 0xA5: case 0xB5: case 0xAD: case 0xBD:
@@ -389,9 +400,8 @@ next_instruction:
 		case 0x08:
 		{ // PHP
 			uint8_t p = 0;
-			for (int i = 0; i < 8; i++)
-				p |= (i == B_X || cpu->P.P[i]) << i;
-			p |= (1 << B_B);
+			MII_GET_P(cpu, p);
+			p |= (1 << B_B) | (1 << B_X);
 			_STORE(0x0100 | cpu->S--, p);	cpu->cycle++;
 		}	break;
 		case 0xDA:
@@ -411,7 +421,7 @@ next_instruction:
 		case 0x28:
 		{ // PLP
 			_FETCH(0x0100 | ++cpu->S);cpu->cycle++;
-			_SET_P(s.data);cpu->cycle++;
+			MII_SET_P(cpu, s.data);cpu->cycle++;
 		}	break;
 		case 0xFA:
 		{ // PLX
@@ -459,14 +469,15 @@ next_instruction:
 		}	break;
 		case 0x40:
 		{ // RTI
-			_FETCH(0x0100 | ((++cpu->S) & 0xff));
+			_FETCH(cpu->PC);	// dummy write
+			cpu->S++; _FETCH(0x0100 | cpu->S);
 			for (int i = 0; i < 8; i++)
-				cpu->P.P[i] = i == B_B || (s.data & (1 << i));
+				MII_SET_P_BIT(cpu, i, i == B_B || (s.data & (1 << i)));
 			cpu->P._R = 1;
-			_FETCH(0x0100 | ((++cpu->S) & 0xff));
+			cpu->S++; _FETCH(0x0100 | cpu->S);
 			cpu->_P = s.data;
-			_FETCH(0x0100 | ((++cpu->S) & 0xff));
-			cpu->_P = (s.data << 8) | (cpu->_P );
+			cpu->S++; _FETCH(0x0100 | cpu->S);
+			cpu->_P |= s.data << 8;
 			cpu->PC = cpu->_P;
 		}	break;
 		case 0x60:
@@ -481,17 +492,24 @@ next_instruction:
 		case 0xF9: case 0xE1: case 0xF1: case 0xF2:
 		{ // SBC
 			// Handle subbing in BCD with bit D
-			if (cpu->P.D) {
-				uint8_t lo = (cpu->A & 0x0f) - (cpu->_D & 0x0f) - !cpu->P.C;
-				if (lo & 0x10) lo -= 6;
-				uint8_t hi = (cpu->A >> 4) - (cpu->_D >> 4) - (lo & 0x10);
-				if (hi & 0x10) hi -= 6;
-				cpu->P.Z = ((uint8_t)(cpu->A - cpu->_D - !cpu->P.C)) == 0;
-				cpu->P.N = !!(hi & 0x8);
-				cpu->P.V = !!(((cpu->A ^ cpu->_D) &
+			if (unlikely(cpu->P.D)) {
+				uint8_t D = 0x99 - cpu->_D;
+				// verbatim ADC code here
+				uint8_t lo = (cpu->A & 0x0f) + (D & 0x0f) + !!cpu->P.C;
+				if (lo > 9) lo += 6;
+				uint8_t hi = (cpu->A >> 4) + (D >> 4) + (lo > 0x0f);
+				cpu->P.Z = ((uint8_t)(cpu->A + D + cpu->P.C)) == 0;
+				// that is 6502 behaviour
+//				cpu->P.N = !!(hi & 0xf8);
+				cpu->P.V = !!((!((cpu->A ^ D) & 0x80) &&
 								((cpu->A ^ (hi << 4))) & 0x80));
-				cpu->P.C = !(hi & 0x10);
+				if (hi > 9) hi += 6;
+				cpu->P.C = hi > 15;
+			//	printf("SBC %02x %02x C:%d %x%x\n",
+			//			cpu->A, D, !!cpu->P.C, hi & 0xf, lo & 0xf);
 				cpu->A = (hi << 4) | (lo & 0x0f);
+				// THAT is 65c02 behaviour
+				cpu->P.N = !!(cpu->A & 0x80);
 			} else {
 				cpu->_D = (~cpu->_D) & 0xff;
 				uint16_t sum = cpu->A + cpu->_D + !!cpu->P.C;
@@ -504,7 +522,7 @@ next_instruction:
 		}	break;
 		case 0x38: case 0xF8: case 0x78:
 		{ // SEC, SED, SEI
-			cpu->P.P[d.s_bit] = 1;
+			MII_SET_P_BIT(cpu, d.s_bit, 1);
 		}	break;
 		case 0x85: case 0x95: case 0x8D: case 0x9D:
 		case 0x99: case 0x81: case 0x91: case 0x92:

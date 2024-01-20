@@ -1,4 +1,11 @@
-
+/*
+ * mii_mouse.c
+ *
+ * Copyright (C) 2023 Michel Pollet <buserror@gmail.com>
+ *
+ * SPDX-License-Identifier: MIT
+ *
+ */
 
 #include "mii.h"
 
@@ -16,6 +23,48 @@
 #include "mii.h"
 #include "mii_bank.h"
 
+/*
+ * Coded against this information
+ * http://stason.org/TULARC/pc/apple2/programmer/012-How-do-I-write-programs-which-use-the-mouse.html
+ */
+
+/*
+ * Screen holes
+ * $0478 + slot Low byte of absolute X position
+ * $04F8 + slot Low byte of absolute Y position
+ * $0578 + slot High byte of absolute X position
+ * $05F8 + slot High byte of absolute Y position
+ * $0678 + slot Reserved and used by the firmware
+ * $06F8 + slot Reserved and used by the firmware
+ * $0778 + slot Button 0/1 interrupt status byte
+ * $07F8 + slot Mode byte
+ *
+ * Interrupt status byte:
+ * Set by READMOUSE
+ * Bit 7 6 5 4 3 2 1 0
+ *     | | | | | | | |
+ *     | | | | | | | `--- Previously, button 1 was up (0) or down (1)
+ *     | | | | | | `----- Movement interrupt
+ *     | | | | | `------- Button 0/1 interrupt
+ *     | | | | `--------- VBL interrupt
+ *     | | | `----------- Currently, button 1 is up (0) or down (1)
+ *     | | `------------- X/Y moved since last READMOUSE
+ *     | `--------------- Previously, button 0 was up (0) or down (1)
+ *     `----------------- Currently, button 0 is up (0) or down (1)
+ *
+ * Mode byte
+ * Valid after calling SERVEMOUSE, cleared with READMOUSE
+ * Bit 7 6 5 4 3 2 1 0
+ *     | | | | | | | |
+ *     | | | | | | | `--- Mouse off (0) or on (1)
+ *     | | | | | | `----- Interrupt if mouse is moved
+ *     | | | | | `------- Interrupt if button is pressed
+ *     | | | | `--------- Interrupt on VBL
+ *     | | | `----------- Reserved
+ *     | | `------------- Reserved
+ *     | `--------------- Reserved
+ *     `----------------- Reserved
+ */
 
 enum {
 	CLAMP_MIN_LO    = 0x478,
@@ -42,6 +91,8 @@ enum {
 
 typedef struct mii_card_mouse_t {
 	struct mii_slot_t *	slot;
+	mii_t *				mii;
+	uint8_t 			timer_id;	// 60hz timer
 	uint8_t 			slot_offset;
 	uint8_t				mode; // cached mode byte
 	struct {
@@ -49,6 +100,44 @@ typedef struct mii_card_mouse_t {
 		bool 				button;
 	}					last;
 } mii_card_mouse_t;
+
+static uint64_t
+_mii_mouse_vbl_handler(
+		mii_t * mii,
+		void *param)
+{
+	mii_card_mouse_t *c = param;
+	/* this is not exact, the VBL interrupt should still work when
+	 * the mouse is disabled, but it's not really important -- for the moment
+	 */
+	if (!mii->mouse.enabled)
+		return 1000000 / 60;
+
+	mii_bank_t * main = &mii->bank[MII_BANK_MAIN];
+	uint8_t status = mii_bank_peek(main, MOUSE_STATUS + c->slot_offset);
+	uint8_t old = status;
+
+	if (c->mode & mouseIntMoveEnabled) {
+		if ((mii->mouse.x != c->last.x) || (mii->mouse.y != c->last.y)) {
+			mii->cpu_state.irq = 1;
+			status |= 1 << 1;
+		}
+	}
+	if (c->mode & mouseIntButtonEnabled) {
+		if (mii->mouse.button && !c->last.button) {
+			mii->cpu_state.irq = 1;
+			status |= 1 << 2;
+		}
+	}
+	if (c->mode & mouseIntVBlankEnabled) {
+		mii->cpu_state.irq = 1;
+		status |= 1 << 3;
+	}
+//	if (mii->cpu_state.irq) mii->trace_cpu = true;
+	if (status != old)
+		mii_bank_poke(main, MOUSE_STATUS + c->slot_offset, status);
+	return 1000000 / 60;
+}
 
 static int
 _mii_mouse_init(
@@ -58,12 +147,16 @@ _mii_mouse_init(
 	mii_card_mouse_t *c = calloc(1, sizeof(*c));
 	c->slot = slot;
 	slot->drv_priv = c;
+	c->mii = mii;
 
 	printf("%s loading in slot %d\n", __func__, slot->id + 1);
 
 	c->slot_offset = slot->id + 1 + 0xc0;
 	uint8_t data[256] = {};
 
+	c->timer_id = mii_timer_register(mii,
+			_mii_mouse_vbl_handler, c,
+			1000000 / 60, __func__);
 	// Identification as a mouse card
 	// From Technical Note Misc #8, "Pascal 1.1 Firmware Protocol ID Bytes":
 	data[0x05] = 0x38;
@@ -84,12 +177,10 @@ _mii_mouse_init(
 		data[base+3] = 0x18; // CLC ;no error
 		data[base+4] = 0x60; // RTS
 	}
-
 	uint16_t addr = 0xc100 + (slot->id * 0x100);
 	mii_bank_write(
 			&mii->bank[MII_BANK_CARD_ROM],
 			addr, data, 256);
-
 	return 0;
 }
 
@@ -127,21 +218,19 @@ _mii_mouse_access(
 				printf(" Button:   %s\n", byte & mouseIntButtonEnabled ? "enabled" : "disabled");
 				printf(" VBlank:   %s\n", byte & mouseIntVBlankEnabled ? "enabled" : "disabled");
 				c->mode = byte;
-				mii->video.vbl_irq = !!(byte & mouseIntVBlankEnabled);
 			}
 		}	break;
+		case 3: // service mouse
+			// no need to handle that, the VBL handler does it
+			break;
 		case 4: {// read mouse
 			if (!mii->mouse.enabled)
 				break;
 			uint8_t status = 0;
-			if (mii->mouse.button)
-				status |= 1 << 7;
-			if (c->last.button) {
-				status |= 1 << 6;
-			}
-			if ((mii->mouse.x != c->last.x) || (mii->mouse.y != c->last.y)) {
+			if ((mii->mouse.x != c->last.x) || (mii->mouse.y != c->last.y))
 				status |= 1 << 5;
-			}
+			status |= c->last.button ? 1 << 6 : 0;
+			status |= mii->mouse.button ? 1 << 7 : 0;
 			mii_bank_poke(main, MOUSE_X_HI + c->slot_offset, mii->mouse.x >> 8);
 			mii_bank_poke(main, MOUSE_Y_HI + c->slot_offset, mii->mouse.y >> 8);
 			mii_bank_poke(main, MOUSE_X_LO + c->slot_offset, mii->mouse.x);

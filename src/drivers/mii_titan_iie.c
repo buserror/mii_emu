@@ -60,7 +60,7 @@ _mii_titan_probe(
 		mii_t *mii,
 		uint32_t flags)
 {
-	printf("%s %s\n", __func__, flags & MII_INIT_TITAN ? "enabled" : "disabled");
+//	printf("%s %s\n", __func__, flags & MII_INIT_TITAN ? "enabled" : "disabled");
 	if (!(flags & MII_INIT_TITAN))
 		return 0;
 	// this override a read-only soft switch, but we only handle writes

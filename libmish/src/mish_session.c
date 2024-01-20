@@ -11,7 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h> // for isatty etc
-
+#include <ctype.h>	// for isdigit
 #ifdef __MACH__
 #include <mach/clock.h>
 #include <mach/mach.h>
@@ -106,12 +106,12 @@ mish_prepare(
 		if (tty)
 			m->flags |= MISH_CONSOLE_TTY;
 		if (tcgetattr(0, &m->orig_termios))
-			perror("tcgetattr");
+			;//perror("tcgetattr");
 		struct termios raw = m->orig_termios;
 		raw.c_iflag &= ~(ICRNL | IXON);
 		raw.c_lflag &= ~(ECHO | ICANON | IEXTEN); // ISIG
 		if (tcsetattr(0, TCSAFLUSH, &raw))
-			perror("tcsetattr");
+			;//perror("tcsetattr");
 	}
 #endif
 	if (!(caps & MISH_CAP_NO_TELNET)) {
@@ -271,12 +271,36 @@ _mish_cmd_mish(
 		printf("          max sizes: vector: %d input: %d\n",
 				c->output.size, c->input.line ? c->input.line->size : 0);
 	}
-
+	if (argv[1] && !strcmp(argv[1], "clear")) {
+		printf("Clearing backlog\n");
+		m->flags |= MISH_CLEAR_BACKLOG;
+	}
+	if (argv[1] && !strcmp(argv[1], "backlog")) {
+		if (argv[2]) {
+			if (!strcmp(argv[2], "clear")) {
+				m->flags |= MISH_CLEAR_BACKLOG;
+			} else if (!strcmp(argv[2], "max") && argv[3] && isdigit(argv[3][0])) {
+				m->backlog.max_lines = atoi(argv[3]);
+				printf("Backlog max lines set to %d\n", m->backlog.max_lines);
+			} else if (isdigit(argv[2][0])) {
+				m->backlog.max_lines = atoi(argv[2]);
+				printf("Backlog max lines set to %d\n", m->backlog.max_lines);
+			} else
+				fprintf(stderr, "Unknown backlog command '%s'\n", argv[2]);
+		} else {
+			printf("Backlog: %6d/%6d lines (%5dKB)\n",
+					m->backlog.size, m->backlog.max_lines,
+					(int)m->backlog.alloc / 1024);
+		}
+	}
 }
 
 MISH_CMD_NAMES(mish, "mish");
 MISH_CMD_HELP(mish,
-		"Displays mish status.",
+		"[cmd...] Displays mish status.",
+		"backlog [clear] [max <n>] - show backlog status\n"
+		"   also set the maximum lines in the backlog\n"
+		"   (0 = unlimited)\n"
 		"Show status and a few bits of internals.");
 MISH_CMD_REGISTER(mish, _mish_cmd_mish);
 

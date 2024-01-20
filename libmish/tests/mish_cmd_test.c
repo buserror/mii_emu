@@ -5,7 +5,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-
+#define MISH_DEBUG 1
 #include "mish_cmd.c"
 
 int main()

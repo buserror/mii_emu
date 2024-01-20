@@ -150,7 +150,7 @@ mii_argv_parse(
 		} else if (!strcmp(arg, "-speed") || !strcmp(arg, "--speed")) {
 			if (i < argc-1) {
 				mii->speed = atof(argv[++i]);
-				if (mii->speed < 0.0)
+				if (mii->speed <= 0.0)
 					mii->speed = 1.0;
 			} else {
 				printf("mii: missing speed value\n");

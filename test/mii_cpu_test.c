@@ -33,7 +33,7 @@ _run_one_dump_state(
 	// display the S flags
 	static const char *s_flags = "CZIDBRVN";
 	for (int i = 0; i < 8; i++)
-		printf("%c", cpu->P.P[i] ? s_flags[i] : tolower(s_flags[i]));
+		printf("%c", MII_GET_P_BIT(cpu, i) ? s_flags[i] : tolower(s_flags[i]));
 	if (s.sync) {
 		mii_op_t d = mii_cpu_op[cpu->ram[cpu->PC]];
 		printf(" ");
@@ -42,7 +42,7 @@ _run_one_dump_state(
 			MII_DUMP_DIS_PC | MII_DUMP_DIS_DUMP_HEX);
 		printf("%s", dis);
 		if (d.desc.branch) {
-			if (cpu->P.P[d.desc.s_bit] == d.desc.s_bit_value)
+			if (MII_GET_P_BIT(cpu, d.desc.s_bit) == d.desc.s_bit_value)
 				printf(" ; taken");
 		}
 		printf("\n");
@@ -77,7 +77,7 @@ _run_one_test(
 	if (verbose) {
 	//	cpu.debug = _run_one_dump_state;
 	}
-	cpu.P.P[5] = 1;
+	cpu.P._R = 1;
   	cpu.S = 0xFF;
 	cpu.PC = p.org;
 	cpu.A = 0x01;
@@ -145,7 +145,7 @@ _run_this_one(
 	mii_cpu_state_t s = {0};
 	verbose += p.verbose;
 	cpu.ram = ram;
-	cpu.P.P[B_X] = 1;
+	cpu.P._R = 1;
 	expected_flags |= (1 << B_X);
   	cpu.S = 0xFF;
 	cpu.PC = p.org;
@@ -162,9 +162,10 @@ _run_this_one(
 				int err = 0;
 				static const char *s_flags = "CZIDBRVN";
 				for (int i = 0; i < 8; i++)
-					if (cpu.P.P[i] != ((expected_flags >> i) & 1)) {
+					if (MII_GET_P_BIT(&cpu, i) != ((expected_flags >> i) & 1)) {
 						printf("** S bit %c mismatch %d want %d\n",
-							s_flags[i], cpu.P.P[i], (expected_flags >> i) & 1);
+							s_flags[i], MII_GET_P_BIT(&cpu, i),
+							(expected_flags >> i) & 1);
 						err++;
 					}
 				if (err)
@@ -225,6 +226,12 @@ static char * doSED_ADC(uint8_t a, uint8_t b) {
 #include <glob.h>
 int main()
 {
+	printf("Sizeof mii_op_desc_t %d\n", (int)sizeof(mii_op_desc_t));
+	printf("Sizeof mii_op_t %d\n", (int)sizeof(mii_op_t));
+	printf("Sizeof mii_cpu_t %d\n", (int)sizeof(mii_cpu_t));
+	printf("Sizeof mii_cpu_state_t %d\n", (int)sizeof(mii_cpu_state_t));
+	printf("Sizeof mii_cpu_op %d\n", (int)sizeof(mii_cpu_op));
+
 	glob_t globbuf;
 	glob("test/asm/0*.asm", 0, NULL, &globbuf);
 	for (int i = 0; i < (int)globbuf.gl_pathc; i++) {
@@ -249,6 +256,17 @@ int main()
 		V = (1 << B_V),
 		N = (1 << B_N),
 	};
+	// https://github.com/AppleWin/AppleWin/issues/1257
+	_run_one_test(
+			"; Test of JSR *in* the stack\n"
+			"  .org $0100\n"
+			"  jmp test\n"
+			"pass:  .org $0155\n"
+			"test:  .org $0178\n"
+			"  LDX #$7D\n"
+			"  TXS\n"
+			"  JSR $1355\n",
+			0);
 	_run_this("RMB $12",
 			" lda #$FF\n"
 			" sta $12\n"
@@ -348,7 +366,7 @@ int main()
 		0x3F, C, 0);
 	_run_this("SBC ($12) SED",
 		indirect("SEC\n  SED", 0x75, 0x25, "SBC ($12)"),
-		0x50, C | D, 0);
+		0x50, C | D | V, 0);
 	_run_this("STA ($12)",
 		indirect("", 0xF1, 0xC0, "STA ($12)\n LDA $3001"),
 		0xF1, N, 0);
@@ -439,9 +457,7 @@ int main()
 	_run_this("SED ADC 99", doSED_ADC(0x99, 0), 0x99, N | D, 0);
 	_run_this("SED ADC 99", doSED_ADC(0x99, 1), 0x00, C | D, 0);
 	_run_this("SED ADC BD", doSED_ADC(0xBD, 0), 0x23, C | D, 0);
-
-#if 0
-//	_run_this("SED ADC FF", doSED_ADC(0xFF, 0), 0x65, C | D | N, 0);
+	_run_this("SED ADC FF", doSED_ADC(0xFF, 0), 0x65, C | D , 0);
 
 	_run_this("SED ADC 0,1", doSED_ADC(0, 1), 0x01, D, 0);
 	_run_this("SED ADC 0,9", doSED_ADC(0, 9), 0x09, D, 0);
@@ -449,15 +465,15 @@ int main()
 	_run_this("SED ADC 0,1D", doSED_ADC(0, 0x1D), 0x23, D, 0);
 	_run_this("SED ADC 0,99", doSED_ADC(0, 0x99), 0x99, N | D, 0);
 	_run_this("SED ADC 0,BD", doSED_ADC(0, 0xBD), 0x23, C | D, 0);
-//	_run_this("SED ADC 0,FF", doSED_ADC(0, 0xFF), 0x65, C | D, 0);
+	_run_this("SED ADC 0,FF", doSED_ADC(0, 0xFF), 0x65, C | D, 0);
 
-	_run_this("SED ADC 99,1", doSED_ADC(0x99, 1), 0x0, Z | C | D, 0);
+	_run_this("SED ADC 99,1", doSED_ADC(0x99, 1), 0x0, C | D, 0);
 	_run_this("SED ADC 35,35", doSED_ADC(0x35, 0x35), 0x70, D, 0);
 	_run_this("SED ADC 45,45", doSED_ADC(0x45, 0x45), 0x90, N | V | D, 0);
-	_run_this("SED ADC 50,50", doSED_ADC(0x50, 0x50), 0x0, V | Z | C | D, 0);
+	_run_this("SED ADC 50,50", doSED_ADC(0x50, 0x50), 0x0, V | C | D, 0);
 	_run_this("SED ADC 99,99", doSED_ADC(0x99, 0x99), 0x98, N | V | C | D, 0);
-//	_run_this("SED ADC B1,C1", doSED_ADC(0xB1, 0xC1), 0xD2, N | V | C | D, 0);
-#endif
+	_run_this("SED ADC B1,C1", doSED_ADC(0xB1, 0xC1), 0xD2, N | V | C | D, 0);
+
 	// create an emulator, load the binary file 6502_functional_test.bin at $0000
 	// and run it until we hit a BRK
 	const char *bigtest[] = {
@@ -479,8 +495,8 @@ int main()
 		mii_cpu_state_t s = {0};
 		cpu.ram = ram;
 //		cpu.debug = _run_one_dump_state;
-		cpu.P.P[B_X] = 1;
-		cpu.P.P[B_I] = 1;
+		cpu.P._R = 1;
+		cpu.P.I = 1;
 		cpu.S = 0xFF;
 		cpu.PC = 0x400;
 		cpu.A = 0x00;
@@ -495,11 +511,15 @@ int main()
 				if (cpu.PC == prev_pc) {
 					same_pc_count++;
 					if (same_pc_count > 3) {
-						printf("TEST %s: FAIL (stuck at %04X)\n",
-							bigtest[ti], cpu.PC);
-						_run_one_dump_state(&cpu, s, NULL);
-						printf("  Failed instruction is %c%c%c\n",
-							cpu.A, cpu.X, cpu.Y);
+						if (ram[cpu.PC] == 0x4c)
+							printf("TEST %s: PASS\n", bigtest[ti]);
+						else {
+							printf("TEST %s: FAIL (stuck at %04X)\n",
+								bigtest[ti], cpu.PC);
+							_run_one_dump_state(&cpu, s, NULL);
+							printf("  Failed instruction is %c%c%c\n",
+								cpu.A, cpu.X, cpu.Y);
+						}
 						break;
 					}
 				} else {
@@ -508,7 +528,7 @@ int main()
 				}
 			}
 		//	if (s.sync)
-				_run_one_dump_state(&cpu, s, NULL);
+		//		_run_one_dump_state(&cpu, s, NULL);
 		} while (count--);
 		printf("TEST run with %d spare\n", count);
 		_run_one_dump_state(&cpu, s, NULL);

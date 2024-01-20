@@ -196,7 +196,7 @@ header:
             continue;
         }
 
-        const int data_field_sz = 0x15A; //counts prologue, not epilogue
+    //    const int data_field_sz = 0x15A; //counts prologue, not epilogue
         for (;;) {
             if (rd >= (end - 0x15A)) goto bail;
             if (rd[0] == 0xD5 && rd[1] == 0xAA) {

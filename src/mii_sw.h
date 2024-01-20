@@ -85,27 +85,33 @@ enum {
 	B_BSRREAD 		= (13),
 	B_BSRPAGE2 		= (14),
 	B_SWDHIRES	 	= (15),
+	// this is no 'real' softwitch, but a bit to mention a card has
+	// it's secondary rom online in pages c800-cfff
+	B_SLOTAUXROM	= (16),
 
-	M_SW80STORE 	= (1 <<  B_SW80STORE),
-	M_SWALTCHARSET 	= (1 <<  B_SWALTCHARSET),
-	M_SW80COL 		= (1 <<  B_SW80COL),
-	M_SWTEXT 		= (1 <<  B_SWTEXT),
-	M_SWMIXED 		= (1 <<  B_SWMIXED),
-	M_SWPAGE2 		= (1 <<  B_SWPAGE2),
-	M_SWHIRES 		= (1 <<  B_SWHIRES),
-	M_SWRAMRD 		= (1 <<  B_SWRAMRD),
-	M_SWRAMWRT 		= (1 <<  B_SWRAMWRT),
-	M_SWINTCXROM 	= (1 <<  B_SWINTCXROM),
-	M_SWALTPZ 		= (1 <<  B_SWALTPZ),
-	M_SWSLOTC3ROM 	= (1 <<  B_SWSLOTC3ROM),
-	M_BSRWRITE 		= (1 <<  B_BSRWRITE),
-	M_BSRREAD 		= (1 <<  B_BSRREAD),
-	M_BSRPAGE2 		= (1 <<  B_BSRPAGE2),
-	M_SWDHIRES	 	= (1 <<  B_SWDHIRES),
+	M_SW80STORE 	= (1 << B_SW80STORE),
+	M_SWALTCHARSET 	= (1 << B_SWALTCHARSET),
+	M_SW80COL 		= (1 << B_SW80COL),
+	M_SWTEXT 		= (1 << B_SWTEXT),
+	M_SWMIXED 		= (1 << B_SWMIXED),
+	M_SWPAGE2 		= (1 << B_SWPAGE2),
+	M_SWHIRES 		= (1 << B_SWHIRES),
+	M_SWRAMRD 		= (1 << B_SWRAMRD),
+	M_SWRAMWRT 		= (1 << B_SWRAMWRT),
+	M_SWINTCXROM 	= (1 << B_SWINTCXROM),
+	M_SWALTPZ 		= (1 << B_SWALTPZ),
+	M_SWSLOTC3ROM 	= (1 << B_SWSLOTC3ROM),
+	M_BSRWRITE 		= (1 << B_BSRWRITE),
+	M_BSRREAD 		= (1 << B_BSRREAD),
+	M_BSRPAGE2 		= (1 << B_BSRPAGE2),
+	M_SWDHIRES	 	= (1 << B_SWDHIRES),
+	M_SLOTAUXROM	= (1 << B_SLOTAUXROM),
 };
 
+#define __unused__ __attribute__((unused))
+
 // unused is to prevent the stupid warnings about unused static stuff
-static const char __attribute__((unused)) *mii_sw_names[] =  {
+static const char __unused__ *mii_sw_names[] =  {
 	"80STORE",
 	"ALTCHARSET",
 	"80COL",
@@ -122,6 +128,7 @@ static const char __attribute__((unused)) *mii_sw_names[] =  {
 	"BSRREAD",
 	"BSRPAGE2",
 	"DHIRES",
+	"AUXROMON",
 	NULL,
 } ;
 

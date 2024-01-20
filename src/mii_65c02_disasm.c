@@ -21,6 +21,10 @@ mii_cpu_disasm_one(
 	mii_op_desc_t d = mii_cpu_op[op].desc;
 	if (!d.pc)
 		d.pc = 1;
+	// special case for JSR, it is marked as IMPLIED for execution, but is
+	// in fact ABSOLUTE for PC calculation
+	if (op == 0x20)
+		d.mode = ABS;
 	*out = 0;
 	int len = out_len;
 	if (flags & MII_DUMP_DIS_PC)

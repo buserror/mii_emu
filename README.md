@@ -1,3 +1,21 @@
+# MII Version Changelog
+## 1.5
+ * BIG update, loads of changes, fixes, improvements.
+ * New super UI, using home-made libmui, channeling both GS/OS and MacOS 7.x!
+ * New emulation fixes, way more accurate. Video redone, audio redone.
+ * New front-end program using XLib and OpenGL 'low level'.
+ * New Icon.
+## 1.0
+ * Fixed a few graphics rendering bugs/color swapped
+ * Fixed a few Makefile issues involving pathnamed with 'spaces' in them.
+ * More tweaks to the emulation, added a few cycles here and there.
+ ## 0.9
+ * Added a 'debugger' shell, accessible via telnet.
+ * Added a mini-assembler, used to compile the drivers and the CPU unit tests.
+ * Added a 'Titan Accelerator IIe' simulation, to turn on/off fast mode.
+## 0.5
+ * Initial release
+
 # MII Apple //e Emulator
 
 I know there are many out there, but none of them were ticking my fancy, so I decide to write my own. To start with it was "How hard can it be really?" then it snowballed as more and more things were fixed & added. It's been shelved for a while because well, it lacked documentation, headers, licence and stuff, so I spent some time cleaning it up for release.
@@ -5,8 +23,8 @@ I know there are many out there, but none of them were ticking my fancy, so I de
 One primary reason for this project was that linapple (or -pie) codebase is really horrible. It dates back from 2000's or before, with loads of Windows crud leftover, some SDL crud added, the audio just doesn't really work, and overall if you want to hack around the codebase, it's pretty dreadful.
 
 
-![Monochrome Double-Hi res](docs/screen_main.png)
-*Double hires in monochrome*
+![Quick how to load and boot](docs/video_main.webm)
+*Quick Howto Load & Boot*
 
 I wanted something:
 
@@ -32,12 +50,14 @@ I wanted something:
     * Adds a small 'attack' filter when playing back to soften the often annoying 'click' of typical audio effects from the apple II.
  * Mouse Card -- mouse isn't captured like in some other emulators.
  * No Slot Clock
- * Joystick (in a limited way...)
+ * Joystick Support
  * Smartport DMA 'hard drive' card
  * "Titan Accelerator //e" simulation, to turn on/off fast mode.
  * Terence's J Boldt [1MB ROM card](https://github.com/tjboldt/ProDOS-ROM-Drive), also because I own a couple!
  * Floppy Drive [more on that later]
- * No dependencies (X11) OpenGL rendering, using Nuklear backend for UI
+ * No dependencies (X11) OpenGL rendering
+ * Built-in debugger (using telnet access)
+ * Super cool looking UI!
 
 ![Phosphorescent Green](docs/screen_green.png)
 *Good old green monitor style. Theres Amber too.*
@@ -48,13 +68,24 @@ I wanted something:
       * libgl-dev
       * libglu-dev
       * libx11-dev
+      * libpixman-1-dev
    * Many of them will probably be installed already.
    * For more details on development, see [Compiling](docs/Compiling.md)
    * Then just type `make` and it should compile.
-   * To run it, just type `build-x86_64-linux-gnu/bin/bin/mii_emu` and it should start.
-   * `mii_emu --help` will display:
+   * To run it, just type `build-x86_64-linux-gnu/bin/mii_emu_gl` and it should start.
 
-         Usage: ./build-x86_64-linux-gnu/bin/mii_emu [options]
+## Command line options
+If you run it with no options, and there are no config file, it will present
+you with a dialog to select the ROMs and the drives.
+
+![Config dialog](docs/screen_config.png)
+*Main slot configuration dialog*
+
+You can also use the command line to specify them, and other options.
+
+   * `mii_emu_gl --help` will display:
+
+         Usage: ./build-x86_64-linux-gnu/bin/mii_emu_gl [options]
          Options:
          -h, --help	This help
          -v, --verbose	Verbose output
@@ -89,16 +120,17 @@ I wanted something:
              disk2 - Apple Disk ][
 
 ## Key Bindings
-There are just a few keys that are mapped for anything useful.
+There are just a few keys that are mapped for anything useful. List is not exausive, but here are the main ones:
    * **Control-F12** is Control-Reset on the IIe. (**Shift-Control-F12** is **Open Apple-Reset**)
    * **'Super'** left and **'Super'** right are **Open** and **Close Apple** keys.
       These keys are mapped to the left and right 'Windows' keys on a PC keyboard, and they might want to open the start menu (I know it's the case with Cinnamon), so you might want to disable that.
    * **F5** sets the CPU speed to 1MHz
    * **F6** to 4MHz.
    * These keys control the built-in debugger:
-      * **Control-F11** Stops the emulator; see the command prompt/telnet for how to proceed, dump state, disassembly etc.
-      * **Control-F10** 'steps' the emulator, ie one instruction at a time.
-      * **Control-F9** is 'continue' -- resumes the emulator.
+      * **Control-F4** Stops the emulator; see the command prompt/telnet for how to proceed, dump state, disassembly etc.
+      * **Control-F5** is 'continue' -- resumes the emulator.
+      * **Control-F6** 'steps' the emulator, ie one instruction at a time.
+      * **Control-F7** 'next' instruction, ie step over a JSR instruction.
 
 
 ![Telnet into mii_emu](docs/screen_mish.png)
@@ -124,20 +156,15 @@ There are just a few keys that are mapped for anything useful.
      + This allows you to make sure your disk images aren't corrupted when 'hard rebooting' the emulator, if you are in the process of testing/developing a program for example.
 
 ## What it cannot do
- * MouseCalc crashes (VBL IRQ, or a mouse mode I don't support yet)
  * A2Desktop PT3 player doesn't see keypresses.
- * Sometimes the emulator goes in 'slow mode', ie 0.2MHz. Likely the frame scheduler playing up.
  * Thats' about it really, all the other things I tried work
- * Joystick support is a bit limited, no 'mapping' I used a (USB) 8bitdo NES30 Pro, and it works, but it's not perfect. But, I can play choplifter with it, so it's good enough for now...
+ * Joystick support is a bit limited, no 'mapping' I used a (USB) 8bitdo NES30 Pro, and it works, but it's not perfect. But, I can play choplifter with it, so it's good enough for now... *NOTE* Soon will have it's own config dialog to do mapping.
 
 ## What it could do with
- * Not sure about keeping Nuklear, it does a lot bit it's hard work customizing anything
- * Add a memory extension 'card' -- not sure why, but hey, why not.
- * Joystick support. As soon as I find a USB joystick that vaguely looks retro, I'll get one.
  * The main window is 1280x720 on purpose, so it could do Full Screen.
  * Port it to Raspbery Pi. I don't expect compiling issues, just video issues with GLes
  * Make a tool to 'flatten' overlay files back into the primary image.
- * Some sort of UI to select/eject disks.
+ * Make a UI for the debugger, instead of telnet.
 
 
 ![Total Replay](docs/screen_total.png)

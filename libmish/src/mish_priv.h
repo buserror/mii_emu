@@ -134,6 +134,8 @@ enum {
 	MISH_QUIT			= (1 << 31),
 	// the process console we started was a tty, so has terminal settings
 	MISH_CONSOLE_TTY	= (1 << 30),
+	// request to clear the backlog
+	MISH_CLEAR_BACKLOG	= (1 << 29),
 };
 
 typedef struct mish_t {
@@ -151,6 +153,7 @@ typedef struct mish_t {
 	pthread_t		main;			// todo: allow pause/stop/resume?
 
 	struct {
+		unsigned int 		max_lines;	// max lines in backlog (0 = unlimited)
 		mish_line_queue_t	log;
 		unsigned int		size;	// number of lines in backlog
 		size_t				alloc;	// number of bytes in the backlog

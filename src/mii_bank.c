@@ -15,6 +15,16 @@
 #include "mii_bank.h"
 
 void
+mii_bank_init(
+		mii_bank_t *bank)
+{
+	if (bank->mem)
+		return;
+	bank->mem = calloc(1, bank->size * 256);
+	bank->alloc = 1;
+}
+
+void
 mii_bank_dispose(
 		mii_bank_t *bank)
 {
@@ -39,8 +49,8 @@ mii_bank_write(
 		const uint8_t *data,
 		uint16_t len)
 {
-	if ((addr < bank->base) ||
-			((addr + len) > (uint32_t)(bank->base + (bank->size * 256)))) {
+	uint32_t end = bank->base + (bank->size << 8);
+	if (unlikely(addr < bank->base) || unlikely((addr + len) > end)) {
 		printf("%s %s INVALID write addr %04x len %d %04x:%04x\n",
 					__func__, bank->name, addr, (int)len,
 					bank->base, bank->base + (bank->size * 256));
@@ -52,14 +62,10 @@ mii_bank_write(
 					addr, (uint8_t *)data, true))
 			return;
 	}
-	if (!bank->mem) {
-		bank->alloc = 1;
-		bank->mem = calloc(1, bank->size * 256);
-	}
 	addr -= bank->base;
-	for (uint16_t i = 0; i < len; i++, addr++) {
-		bank->mem[addr] = data[i];
-	}
+	do {
+		bank->mem[addr++] = *data++;
+	} while (unlikely(--len));
 }
 
 void
@@ -69,27 +75,25 @@ mii_bank_read(
 		uint8_t *data,
 		uint16_t len)
 {
-	if (addr < bank->base ||
-			(addr + len) > (uint32_t)(bank->base + (bank->size * 256))) {
+	#if 0 // rather expensive test when profiling!
+	uint32_t end = bank->base + (bank->size << 8);
+	if (unlikely(addr < bank->base) || unlikely((addr + len) > end)) {
 		printf("%s %s INVALID read addr %04x len %d %04x-%04x\n",
 					__func__, bank->name, addr, (int)len,
 					bank->base, bank->base + (bank->size * 256));
 		return;
 	}
+	#endif
 	uint8_t page_index = (addr - bank->base) >> 8;
 	if (bank->access && bank->access[page_index].cb) {
 		if (bank->access[page_index].cb(bank, bank->access[page_index].param,
 					addr, data, false))
 			return;
 	}
-	if (!bank->mem) {
-		bank->alloc = 1;
-		bank->mem = calloc(1, bank->size * 256);
-	}
 	addr -= bank->base;
-	for (uint16_t i = 0; i < len; i++, addr++) {
-		data[i] = bank->mem[addr];
-	}
+	do {
+		*data++ = bank->mem[addr++];
+	} while (unlikely(--len));
 }
 
 
@@ -113,8 +117,8 @@ mii_bank_install_access_cb(
 	if (!bank->access) {
 		bank->access = calloc(1, bank->size * sizeof(bank->access[0]));
 	}
-	printf("%s %s install access cb page %02x:%02x\n",
-			__func__, bank->name, page, end);
+//	printf("%s %s install access cb page %02x:%02x\n",
+//			__func__, bank->name, page, end);
 	for (int i = page; i <= end; i++) {
 		bank->access[i].cb = cb;
 		bank->access[i].param = param;

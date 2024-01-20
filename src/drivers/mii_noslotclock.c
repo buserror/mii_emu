@@ -105,7 +105,7 @@ _mii_nsc_access(
 		bool write)
 {
 	if (!bank) {
-		printf("%s: disposing of NSC\n", __func__);
+	//	printf("%s: disposing of NSC\n", __func__);
 		free(param);
 		return false;
 	}
@@ -158,7 +158,7 @@ _mii_nsc_probe(
 		mii_t *mii,
 		uint32_t flags)
 {
-	printf("%s %s\n", __func__, flags & MII_INIT_NSC ? "enabled" : "disabled");
+//	printf("%s %s\n", __func__, flags & MII_INIT_NSC ? "enabled" : "disabled");
 	if (!(flags & MII_INIT_NSC))
 		return 0;
 	mii_nsc_t * nsc = calloc(1, sizeof(*nsc));

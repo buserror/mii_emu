@@ -83,7 +83,7 @@ mii_dump_trace_state(
 	// display the S flags
 	static const char *s_flags = "CZIDBRVN";
 	for (int i = 0; i < 8; i++)
-		printf("%c", cpu->P.P[7-i] ? s_flags[7-i] : tolower(s_flags[7-i]));
+		printf("%c", MII_GET_P_BIT(cpu, i) ? s_flags[i] : tolower(s_flags[i]));
 	if (s.sync) {
 		uint8_t op[16];
 		for (int i = 0; i < 4; i++) {
@@ -96,7 +96,7 @@ mii_dump_trace_state(
 					MII_DUMP_DIS_DUMP_HEX);
 		printf(": %s", dis);
 		if (d.desc.branch) {
-			if (cpu->P.P[d.desc.s_bit] == d.desc.s_bit_value)
+			if (MII_GET_P_BIT(cpu, d.desc.s_bit) == d.desc.s_bit_value)
 				printf(" ; taken");
 		}
 		printf("\n");
@@ -109,7 +109,7 @@ mii_dump_run_trace(
 	mii_t *mii)
 {
 	// walk all the previous PC values in mii->trace, and display a line
-	// of disassebly for all of them
+	// of disassembly for all of them
 	for (int li = 0; li < MII_PC_LOG_SIZE; li++) {
 		int idx = (mii->trace.idx + li) & (MII_PC_LOG_SIZE - 1);
 		uint16_t pc = mii->trace.log[idx];
@@ -154,7 +154,7 @@ static void
 mii_page_table_update(
 		mii_t *mii)
 {
-	if (!mii->mem_dirty)
+	if (likely(!mii->mem_dirty))
 		return;
 	mii->mem_dirty = 0;
 	bool altzp 		= SW_GETSTATE(mii, SWALTPZ);
@@ -165,9 +165,10 @@ mii_page_table_update(
 	bool ramwrt 	= SW_GETSTATE(mii, SWRAMWRT);
 	bool intcxrom 	= SW_GETSTATE(mii, SWINTCXROM);
 	bool slotc3rom 	= SW_GETSTATE(mii, SWSLOTC3ROM);
+	bool slotauxrom	= SW_GETSTATE(mii, SLOTAUXROM);
 
-	if (mii->trace_cpu)
-		printf("%04x: page table update altzp:%d page2:%d store80:%d "
+	if (unlikely(mii->trace_cpu))
+		printf("%04x: MEM update altzp:%d page2:%d store80:%d "
 				"hires:%d ramrd:%d ramwrt:%d intcxrom:%d "
 				"slotc3rom:%d\n", mii->cpu.PC,
 			altzp, page2, store80, hires, ramrd, ramwrt, intcxrom, slotc3rom);
@@ -188,8 +189,11 @@ mii_page_table_update(
 				page2 ? MII_BANK_AUX : MII_BANK_MAIN,
 				page2 ? MII_BANK_AUX : MII_BANK_MAIN, 0x20, 0x3f);
 	}
-	if (!intcxrom)
+	if (!intcxrom) {
 		mii_page_set(mii, MII_BANK_CARD_ROM, _SAME, 0xc1, 0xc7);
+		if (slotauxrom)
+			mii_page_set(mii, MII_BANK_CARD_ROM, _SAME, 0xc8, 0xcf);
+	}
 	mii_page_set(mii,
 		slotc3rom ? MII_BANK_CARD_ROM : MII_BANK_ROM, _SAME, 0xc3, 0xc3);
 	bool bsrread 	= SW_GETSTATE(mii, BSRREAD);
@@ -229,6 +233,55 @@ mii_set_sw_override(
 	mii->soft_switches_override[sw_addr].param = param;
 }
 
+/*
+ * This watches for any write to 0xcfff -- if a card had it's aux rom
+ * selected, it will deselect it.
+ */
+static bool
+_mii_deselect_auxrom(
+		struct mii_bank_t *bank,
+		void *param,
+		uint16_t addr,
+		uint8_t * byte,
+		bool write)
+{
+	if (addr != 0xcfff)
+		return false;
+	mii_t * mii = param;
+//	printf("%s AUXROM:%d\n", __func__, !!(mii->sw_state & M_SLOTAUXROM));
+	if (!(mii->sw_state & M_SLOTAUXROM))
+		return false;
+	for (int i = 0; i < 7; i++) {
+		mii_slot_t * slot = &mii->slot[i];
+		if (slot->aux_rom_selected) {
+			printf("%s %d: %s\n", __func__,
+					i, slot->drv ? slot->drv->name : "(none?)");
+			slot->aux_rom_selected = false;
+		}
+	}
+	mii->sw_state &= ~M_SLOTAUXROM;
+	mii->mem_dirty = true;
+	return false;
+}
+
+static bool
+_mii_select_c3rom(
+		struct mii_bank_t *bank,
+		void *param,
+		uint16_t addr,
+		uint8_t * byte,
+		bool write)
+{
+	mii_t * mii = param;
+	printf("%s\n", __func__);
+	if (mii->sw_state & M_SLOTAUXROM) {
+	//	printf("%s: C3 aux rom re-selected\n", __func__);
+		mii->sw_state &= ~M_SLOTAUXROM;
+	}
+	mii->mem_dirty = true;
+	return false;
+}
+
 static bool
 mii_access_soft_switches(
 		mii_t *mii,
@@ -236,7 +289,7 @@ mii_access_soft_switches(
 		uint8_t * byte,
 		bool write)
 {
-	if (!(addr >= 0xc000 && addr <= 0xc0ff) || addr == 0xcfff)
+	if (!(addr >= 0xc000 && addr <= 0xc0ff))
 		return false;
 	bool res = false;
 	uint8_t on = 0;
@@ -280,7 +333,9 @@ mii_access_soft_switches(
 			SW_SETSTATE(mii, BSRREAD, rd);
 			SW_SETSTATE(mii, BSRPAGE2, !(mode & 0x08));
 			mii->mem_dirty = 1;
-			if (mii->trace_cpu)
+//			mii->trace_cpu = 1;
+//			mii->state = MII_STOPPED;
+			if (unlikely(mii->trace_cpu))
 				printf("%04x: BSR mode addr %04x:%02x read:%s write:%s %s altzp:%02x\n",
 					mii->cpu.PC, addr,
 					mode,
@@ -289,11 +344,6 @@ mii_access_soft_switches(
 					SW_GETSTATE(mii, BSRPAGE2) ? "page2" : "page1",
 					mii_sw(mii, SWALTPZ));
 		}	break;
-		case 0xcfff:
-			res = true;
-			mii->mem_dirty = 1;
-			printf("%s TODO reset SLOT roms\n", __func__);
-			break;
 		case SWPAGE2OFF:
 		case SWPAGE2ON:
 			res = true;
@@ -390,14 +440,21 @@ mii_access_soft_switches(
 				*byte = mii_bank_peek(main, addr);
 				break;
 			case 0xc020: // toggle TAPE output ?!?!
-			case 0xc064: // Analog Input 0 (paddle 0)
-			case 0xc065: // Analog Input 1 (paddle 1)
-			case 0xc079: // Analog Input Reset
 				res = true;
 				break;
 			case 0xc068:
 				res = true;
 				// IIgs register, read by prodos tho
+				break;
+			default:
+				res = true;
+				/*
+				 * this is moderately important, return some random value
+				 * as it is supposed to represent what's on the bus at the time,
+				 * typically video being decoded etc.
+				 */
+				*byte = mii->random[mii->random_index++];
+				mii->random_index &= 0xff;
 				break;
 		}
 	}
@@ -460,15 +517,35 @@ mii_init(
 		mii_t *mii )
 {
 	memset(mii, 0, sizeof(*mii));
-	mii->speed = 1.0;
+	mii->speed = 1.023;
+	mii->timer.map = 0;
 	for (int i = 0; i < MII_BANK_COUNT; i++)
 		mii->bank[i] = _mii_banks_init[i];
 	mii->bank[MII_BANK_ROM].mem = (uint8_t*)&iie_enhanced_rom_bin[0];
+	for (int i = 0; i < MII_BANK_COUNT; i++)
+		mii_bank_init(&mii->bank[i]);
 	mii->cpu.trap = MII_TRAP;
+	// these are called once, regardless of reset
+	mii_dd_system_init(mii, &mii->dd);
+	mii_analog_init(mii, &mii->analog);
+	mii_video_init(mii);
+	mii_speaker_init(mii, &mii->speaker);
+
 	mii_reset(mii, true);
 	mii->cpu_state = mii_cpu_init(&mii->cpu);
 	for (int i = 0; i < 7; i++)
 		mii->slot[i].id = i;
+
+//	srandom(time(NULL));
+	for (int i = 0; i < 256; i++)
+		mii->random[i] = random();
+
+	mii_bank_install_access_cb(&mii->bank[MII_BANK_CARD_ROM],
+			_mii_deselect_auxrom, mii, 0xcf, 0xcf);
+	mii_bank_install_access_cb(&mii->bank[MII_BANK_ROM],
+			_mii_deselect_auxrom, mii, 0xcf, 0xcf);
+	mii_bank_install_access_cb(&mii->bank[MII_BANK_ROM],
+			_mii_select_c3rom, mii, 0xc3, 0xc3);
 }
 
 void
@@ -476,14 +553,12 @@ mii_prepare(
 		mii_t *mii,
 		uint32_t flags )
 {
-	mii_dd_system_init(mii, &mii->dd);
-	mii_speaker_init(mii, &mii->speaker);
-	printf("%s driver table\n", __func__);
+//	printf("%s driver table\n", __func__);
 	mii_slot_drv_t * drv = mii_slot_drv_list;
 	while (drv) {
 		printf("%s driver: %s\n", __func__, drv->name);
 		if (drv->probe && drv->probe(mii, flags)) {
-			printf("%s %s probe done\n", __func__, drv->name);
+		//	printf("%s %s probe done\n", __func__, drv->name);
 		}
 		drv = drv->next;
 	}
@@ -501,6 +576,7 @@ mii_dispose(
 		mii_bank_dispose(&mii->bank[i]);
 	mii_speaker_dispose(&mii->speaker);
 	mii_dd_system_dispose(&mii->dd);
+	mii->state = MII_INIT;
 }
 
 void
@@ -509,6 +585,7 @@ mii_reset(
 		bool cold)
 {
 //	printf("%s cold %d\n", __func__, cold);
+	mii->state = MII_RUNNING;
 	mii->cpu_state.reset = 1;
 	mii_bank_t * main = &mii->bank[MII_BANK_MAIN];
 	mii->sw_state = M_BSRWRITE | M_BSRPAGE2;
@@ -547,27 +624,27 @@ mii_mem_access(
 		mii_access_keyboard(mii, addr, d, wr) ||
 		mii_access_video(mii, addr, d, wr) ||
 		mii_access_soft_switches(mii, addr, d, wr);
-	if (!done) {
-		uint8_t page = addr >> 8;
-		if (wr) {
-			uint8_t m = mii->mem[page].write;
-			mii_bank_t * b = &mii->bank[m];
-			if (b->ro) {
-			//	printf("%s write to RO bank %s %04x:%02x\n",
-			//		__func__, b->name, addr, *d);
-			} else
-				mii_bank_write(b, addr, d, 1);
-		} else {
-			uint8_t m = mii->mem[page].read;
-			mii_bank_t * b = &mii->bank[m];
-			*d = mii_bank_peek(b, addr);
-		}
+	if (done)
+		return;
+	uint8_t page = addr >> 8;
+	if (wr) {
+		uint8_t m = mii->mem[page].write;
+		mii_bank_t * b = &mii->bank[m];
+		if (b->ro) {
+		//	printf("%s write to RO bank %s %04x:%02x\n",
+		//		__func__, b->name, addr, *d);
+		} else
+			mii_bank_write(b, addr, d, 1);
+	} else {
+		uint8_t m = mii->mem[page].read;
+		mii_bank_t * b = &mii->bank[m];
+		*d = mii_bank_peek(b, addr);
 	}
 }
 
 static void
 _mii_handle_trap(
-	mii_t *mii)
+		mii_t *mii)
 {
 //	printf("%s TRAP hit PC: %04x\n", __func__, mii->cpu.PC);
 	mii->cpu_state.sync = 1;
@@ -588,8 +665,8 @@ _mii_handle_trap(
 
 uint8_t
 mii_register_trap(
-	mii_t *mii,
-	mii_trap_handler_cb cb)
+		mii_t *mii,
+		mii_trap_handler_cb cb)
 {
 	if (mii->trap.map == 0xffff) {
 		printf("%s no more traps!!\n", __func__);
@@ -605,23 +682,91 @@ mii_register_trap(
 	return 0xff;
 }
 
+uint8_t
+mii_timer_register(
+		mii_t *mii,
+		mii_timer_p cb,
+		void *param,
+		int64_t when,
+		const char *name)
+{
+	if (mii->timer.map == (uint64_t)-1) {
+		printf("%s no more timers!!\n", __func__);
+		return 0xff;
+	}
+	int i = ffsll(~mii->timer.map) - 1;
+	mii->timer.map |= 1ull << i;
+	mii->timer.timers[i].cb = cb;
+	mii->timer.timers[i].param = param;
+	mii->timer.timers[i].when = when;
+	mii->timer.timers[i].name = name;
+	return i;
+}
+
+int64_t
+mii_timer_get(
+		mii_t *mii,
+		uint8_t timer_id)
+{
+	if (timer_id >= (int)sizeof(mii->timer.map) * 8)
+		return 0;
+	return mii->timer.timers[timer_id].when;
+}
+
+int
+mii_timer_set(
+		mii_t *mii,
+		uint8_t timer_id,
+		int64_t when)
+{
+	if (timer_id >= (int)sizeof(mii->timer.map) * 8)
+		return -1;
+	mii->timer.timers[timer_id].when = when;
+	return 0;
+}
+
+static void
+mii_timer_run(
+		mii_t *mii,
+		uint64_t cycles)
+{
+	uint64_t timer = mii->timer.map;
+	while (timer) {
+		int i = ffsll(timer) - 1;
+		timer &= ~(1ull << i);
+		if (mii->timer.timers[i].when > 0) {
+			mii->timer.timers[i].when -= cycles;
+			if (mii->timer.timers[i].when <= 0) {
+				if (mii->timer.timers[i].cb)
+					mii->timer.timers[i].when += mii->timer.timers[i].cb(mii,
+							mii->timer.timers[i].param);
+			}
+		}
+	}
+}
+
 void
 mii_run(
 		mii_t *mii)
 {
 	/* this runs all cycles for one instruction */
+	uint16_t cycle = mii->cpu.cycle;
 	do {
-		if (mii->trace_cpu)
+		if (unlikely(mii->trace_cpu > 1))
 			mii_dump_trace_state(mii);
 		mii->cpu_state = mii_cpu_run(&mii->cpu, mii->cpu_state);
-		mii_video_run(mii);
-		mii_speaker_run(&mii->speaker);
+
+		mii_timer_run(mii,
+					mii->cpu.cycle > cycle ? mii->cpu.cycle - cycle :
+					mii->cpu.cycle);
+		cycle = mii->cpu.cycle;
+
 		// extract 16-bit address from pin mask
 		const uint16_t addr = mii->cpu_state.addr;
-		const uint8_t data = mii->cpu_state.data;
+//		const uint8_t data = mii->cpu_state.data;
 		int wr = mii->cpu_state.w;
-		uint8_t d = data;
-		if (mii->debug.bp_map) {
+//		uint8_t d = data;
+		if (unlikely(mii->debug.bp_map)) {
 			for (int i = 0; i < (int)sizeof(mii->debug.bp_map) * 8; i++) {
 				if (!(mii->debug.bp_map & (1 << i)))
 					continue;
@@ -644,14 +789,12 @@ mii_run(
 				}
 			}
 		}
-		mii_mem_access(mii, addr, &d, wr, true);
-		if (!wr)
-			mii->cpu_state.data = d;
-		if (mii->cpu_state.trap) {
+		mii_mem_access(mii, addr, &mii->cpu_state.data, wr, true);
+		if (unlikely(mii->cpu_state.trap)) {
 			_mii_handle_trap(mii);
 		}
 	} while (!(mii->cpu_state.sync));
-	mii->cycles += mii->cpu.cycle;
+
 	// log PC for the running disassembler display
 	mii->trace.log[mii->trace.idx] = mii->cpu.PC;
 	mii->trace.idx = (mii->trace.idx + 1) & (MII_PC_LOG_SIZE - 1);

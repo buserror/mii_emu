@@ -36,6 +36,7 @@ mii_dd_system_init(
 		struct mii_t *mii,
 		mii_dd_system_t *dd )
 {
+//	printf("*** %s: %p\n", __func__, dd);
 	dd->drive = NULL;
 	dd->file = NULL;
 }
@@ -44,6 +45,7 @@ void
 mii_dd_system_dispose(
 		mii_dd_system_t *dd )
 {
+//	printf("*** %s: %p\n", __func__, dd);
 	while (dd->file)
 		mii_dd_file_dispose(dd, dd->file);
 	dd->file = NULL;
@@ -56,6 +58,7 @@ mii_dd_register_drives(
 		mii_dd_t * drives,
 		uint8_t count )
 {
+//	printf("%s: registering %d drives\n", __func__, count);
 	for (int i = 0; i < count; i++) {
 		mii_dd_t *d = &drives[i];
 		d->dd = dd;
@@ -121,6 +124,8 @@ mii_dd_drive_load(
 	dd->file = file;
 	printf("%s: %s loading %s\n", __func__,
 				dd->name, file->pathname);
+	if (dd->ro || dd->wp)
+		return 0;
 	if (mii_dd_overlay_load(dd) < 0) {
 		printf("%s: No overlay to load, we're fine for now\n", __func__);
 		// no overlay.. what to do?
@@ -370,6 +375,8 @@ mii_dd_write(
 		uint16_t 	blockcount)
 {
 	if (!dd || !dd->file || !dd->file->map)
+		return -1;
+	if (dd->ro || dd->wp)
 		return -1;
 //	printf("%s: %s write %d blocks at %d\n",
 //		__func__, dd->name, blockcount, blk);

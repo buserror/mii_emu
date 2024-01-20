@@ -23,8 +23,10 @@ EXTRA_LDFLAGS	= $(BASE_LDFLAGS)
 LIBSRC			:= ${notdir ${wildcard src/*.c}}
 
 # Tell make/gcc to find the files in VPATH
-VPATH 			= src
-VPATH			+= tests
+SRC_VPATH 		= src
+SRC_VPATH		+= tests
+vpath %.c $(SRC_VPATH)
+
 IPATH 			= src
 
 include ./Makefile.common
@@ -47,6 +49,7 @@ tools: $(TOOLS)
 tests: $(TESTS)
 
 LIBOBJ			:= ${patsubst %, ${OBJ}/%, ${notdir ${LIBSRC:.c=.o}}}
+$(LIBOBJ)		: | $(OBJ)
 
 $(LIB)/$(TARGET).a : $(LIBOBJ) | $(LIB)
 $(LIB)/$(TARGET).so.$(SOV) : $(LIBOBJ) | $(LIB)/$(TARGET).a

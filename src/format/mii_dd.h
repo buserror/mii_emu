@@ -13,8 +13,9 @@
 struct mii_dd_t;
 
 enum {
-	MII_DD_FILE_OVERLAY = 1,
+//	MII_DD_FILE_OVERLAY = 1,
 	MII_DD_FILE_RAM,
+	MII_DD_FILE_ROM,
 	MII_DD_FILE_2MG 	= 5,
 };
 
@@ -52,9 +53,9 @@ typedef union mii_dd_overlay_header_t {
 
 typedef struct mii_dd_overlay_t {
 	mii_dd_overlay_header_t *header;	// points to the file mapped in memory
-	uint64_t *		bitmap;				// usage bitmap
-	uint8_t * 		blocks;				// raw block data
-	mii_dd_file_t	*file;				// overlay file mapping
+	uint64_t *				bitmap;				// usage bitmap
+	uint8_t * 				blocks;				// raw block data
+	mii_dd_file_t	*		file;				// overlay file mapping
 } mii_dd_overlay_t;
 
 struct mii_slot_t;
@@ -62,19 +63,19 @@ struct mii_dd_system_t;
 
 // a disk drive, with a slot, a drive number, and a file
 typedef struct mii_dd_t {
-	struct mii_dd_t *next;
+	struct mii_dd_t *		next;
 	struct mii_dd_system_t *dd;
-	const char *	name;	 // ie "Disk ][ D:2"
-	uint8_t 		slot_id : 4, drive : 4;
-	struct mii_slot_t *slot;
-	unsigned int 	ro : 1, wp : 1, can_eject : 1;
-	mii_dd_file_t * file;
-	mii_dd_overlay_t overlay;
+	const char *			name;	 // ie "Disk ][ D:2"
+	uint8_t 				slot_id : 4, drive : 4;
+	struct mii_slot_t *		slot;
+	unsigned int 			ro : 1, wp : 1, can_eject : 1;
+	mii_dd_file_t * 		file;
+	mii_dd_overlay_t		overlay;
 } mii_dd_t;
 
 typedef struct mii_dd_system_t {
-	mii_dd_t *		drive;	// list of all drives on all slots
-	mii_dd_file_t *	file;	// list of all open files (inc overlays)
+	mii_dd_t *				drive;	// list of all drives on all slots
+	mii_dd_file_t *			file;	// list of all open files (inc overlays)
 } mii_dd_system_t;
 
 struct mii_t;

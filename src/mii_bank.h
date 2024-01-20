@@ -46,6 +46,9 @@ typedef struct mii_bank_t {
 } mii_bank_t;
 
 void
+mii_bank_init(
+		mii_bank_t *bank);
+void
 mii_bank_dispose(
 		mii_bank_t *bank);
 void

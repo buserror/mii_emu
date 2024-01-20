@@ -189,7 +189,7 @@ const mii_op_t mii_cpu_op[256] = {
 	PCODE_PC(JMP, ABS,		0x4C, 3)
 	PCODE_PC(JMP, IND,		0x6C, 3)
 	PCODE_PC(JMP, IND_AX,	0x7C, 3)
-	PCODE_PC(JSR, ABS,		0x20, 3)
+	PCODE___(JSR, IMPLIED,	0x20, 3)
 	PCODE___(LDA, IMM,		0xA9, 2)
 	PCODE_R_(LDA, ZP_REL,	0xA5, 2)
 	PCODE_R_(LDA, ZP_X,		0xB5, 2)

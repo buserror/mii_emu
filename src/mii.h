@@ -10,7 +10,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "mii_types.h"
 #include "mii_65c02.h"
 #include "mii_dd.h"
 #include "mii_bank.h"
@@ -19,6 +18,9 @@
 #include "mii_speaker.h"
 #include "mii_mouse.h"
 #include "mii_analog.h"
+
+#define likely(x)		__builtin_expect(!!(x), 1)
+#define unlikely(x)		__builtin_expect(!!(x), 0)
 
 enum {
 	MII_BANK_MAIN = 0,		// main 48K address space
@@ -50,7 +52,8 @@ typedef struct mii_trap_t {
 
 // state of the emulator
 enum {
-	MII_RUNNING = 0,	// default
+	MII_INIT = 0,
+	MII_RUNNING,	// default
 	MII_STOPPED,
 	MII_STEP,
 	MII_TERMINATE,
@@ -78,16 +81,32 @@ typedef struct mii_trace_t {
 	uint32_t 	step_inst;
 } mii_trace_t;
 
-
+typedef uint64_t (*mii_timer_p)(
+				mii_t * mii,
+				void * param );
 /*
  * principal emulator state, for a faceless emulation
  */
 typedef struct mii_t {
 	unsigned int	state;
-	mii_cycles_t	cycles;
+	/*
+	 * These are 'cycle timers' -- they count down from a set value,
+	 * and stop at 0 (or possiblu -1 or -2, depending on the instructions)
+	 * and call the callback (if present).
+	 * The callback returns the number of cycles to wait until the next
+	 * call.
+	 */
+	struct {
+		uint64_t map;
+		struct {
+			mii_timer_p 		cb;
+			void *				param;
+			int64_t 			when;
+			const char *		name; // debug
+		} timers[64];
+	}				timer;
 	/* this is the video frame/VBL rate vs 60hz, default to 1.0 */
 	float			speed;
-	float			speed_current; // calculated speed
 	mii_cpu_t 		cpu;
 	mii_cpu_state_t	cpu_state;
 	/*
@@ -125,6 +144,9 @@ typedef struct mii_t {
 	mii_mouse_t		mouse;
 	mii_dd_system_t	dd;
 	mii_analog_t	analog;
+
+	uint8_t 		random[256];
+	uint8_t 		random_index;
 } mii_t;
 
 enum {
@@ -235,7 +257,6 @@ mii_write_word(
 		mii_t *mii,
 		uint16_t addr,
 		uint16_t w);
-
 /* lower level call to access memory -- this one can trigger softswitches
  * if specified. Otherwise behaves as the previous ones, one byte at a time
  */
@@ -256,12 +277,33 @@ mii_set_sw_override(
 		mii_bank_access_cb cb,
 		void *param);
 
+/* register a cycle timer. cb will be called when (at least) when
+ * cycles have been spent -- the callback returns how many it should
+ * spend until the next call */
+uint8_t
+mii_timer_register(
+		mii_t *mii,
+		mii_timer_p cb, // this is optional, can be NULL
+		void *param,
+		int64_t when,
+		const char *name);
+/* return the cycles left for timer_id (can be negative !)*/
+int64_t
+mii_timer_get(
+		mii_t *mii,
+		uint8_t timer_id);
+int
+mii_timer_set(
+		mii_t *mii,
+		uint8_t timer_id,
+		int64_t when);
+
 void
 mii_dump_trace_state(
-	mii_t *mii);
+		mii_t *mii);
 void
 mii_dump_run_trace(
-	mii_t *mii);
+		mii_t *mii);
 
 extern mii_slot_drv_t * mii_slot_drv_list;
 

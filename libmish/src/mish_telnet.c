@@ -176,11 +176,12 @@ mish_telnet_prepare(
 		port = port & 0x3fff;
 	}
 
-	int tries = 5;
+	int tries = 10;
 	do {
 		b.sin_port = htons(port);
 		if (bind(m->telnet.listen, (struct sockaddr *)&b, sizeof(b)) == -1) {
 			fprintf(stderr, "%s can't bind %d\n", __func__, ntohs(b.sin_port));
+			perror("bind");
 			port = port + (random() & 0x3ff);
 			continue;
 		}

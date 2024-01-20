@@ -8,6 +8,7 @@
  * This is a driver for these eprom/flash cards from
  * Terence J. Boldt and the likes
  */
+#define _GNU_SOURCE // for asprintf
 #include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -21,37 +22,55 @@
 #include "mii.h"
 #include "mii_bank.h"
 
+#define INCBIN_STYLE INCBIN_STYLE_SNAKE
+#define INCBIN_PREFIX mii_
+#include "incbin.h"
+
+INCBIN(1mb_rom, "disks/GamesWithFirmware.po");
+
 typedef struct mii_card_ee_t {
-	uint8_t * file;
-	uint16_t  latch;
+	mii_dd_t 	drive[1];
+	uint8_t * 	file;
+	uint16_t  	latch;
 } mii_card_ee_t;
 
-int mmapfile(const char *fname, uint8_t **buf, size_t *sz, int flags);
 
 static int
 _mii_ee_init(
 		mii_t * mii,
 		struct mii_slot_t *slot )
 {
-	uint8_t * file;
-	size_t sz;
-	const char *fname = "disks/Apple IIe Diagnostic 2.1.po";
-	//const char *fname = "disks/GamesWithFirmware.po";
-
-	if (mmapfile(fname, &file, &sz, O_RDONLY) != 0) {
-		printf("Failed to load %s\n", fname);
-		return -1;
-	}
 	mii_card_ee_t *c = calloc(1, sizeof(*c));
 
 	slot->drv_priv = c;
-	c->file = file;
-	printf("%s loading in slot %d\n", __func__, slot->id);
-	uint16_t addr = 0xc100 + (slot->id * 0x100);
-	mii_bank_write(
-			&mii->bank[MII_BANK_CARD_ROM],
-			addr, c->file + 0x300, 256);
+	printf("%s loading in slot %d\n", __func__, slot->id + 1);
 
+	for (int i = 0; i < 1; i++) {
+		mii_dd_t *dd = &c->drive[i];
+		dd->slot_id = slot->id + 1;
+		dd->drive = i + 1;
+		dd->slot = slot;
+		dd->ro = 1; dd->wp = 1;
+		asprintf((char **)&dd->name, "EE1MB S:%d D:%d",
+				dd->slot_id, dd->drive);
+	}
+	mii_dd_register_drives(&mii->dd, c->drive, 1);
+
+#if 1
+	c->file = (uint8_t*)mii_1mb_rom_data;
+#else
+	const char *fname = "disks/GamesWithFirmware.po";
+
+	mii_dd_file_t *file = mii_dd_file_load(&mii->dd, fname, 0);
+	mii_dd_drive_load(&c->drive[0], file);
+	c->file = file->map;
+#endif
+	if (c->file) {
+		uint16_t addr = 0xc100 + (slot->id * 0x100);
+		mii_bank_write(
+				&mii->bank[MII_BANK_CARD_ROM],
+				addr, c->file + 0x300, 256);
+	}
 	return 0;
 }
 
@@ -75,7 +94,35 @@ _mii_ee_access(
 				break;
 		}
 	} else {
-		return c->file[(c->latch << 4) + psw];
+		return c->file ? c->file[(c->latch << 4) + psw] : 0xff;
+	}
+	return 0;
+}
+
+static int
+_mii_ee_command(
+		mii_t * mii,
+		struct mii_slot_t *slot,
+		uint8_t cmd,
+		void * param)
+{
+	mii_card_ee_t *c = slot->drv_priv;
+	switch (cmd) {
+		case MII_SLOT_DRIVE_COUNT:
+			if (param)
+				*(int *)param = 1;
+			break;
+		case MII_SLOT_DRIVE_LOAD:
+			const char *filename = param;
+			mii_dd_file_t *file = NULL;
+			if (filename && *filename) {
+				file = mii_dd_file_load(&mii->dd, filename, 0);
+				if (!file)
+					return -1;
+			}
+			mii_dd_drive_load(&c->drive[0], file);
+			c->file = file ? file->map : (uint8_t*)mii_1mb_rom_data;
+			break;
 	}
 	return 0;
 }
@@ -85,5 +132,6 @@ static mii_slot_drv_t _driver = {
 	.desc = "EEPROM 1MB card",
 	.init = _mii_ee_init,
 	.access = _mii_ee_access,
+	.command = _mii_ee_command,
 };
 MI_DRIVER_REGISTER(_driver);

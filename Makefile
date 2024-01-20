@@ -3,15 +3,24 @@
 CC				= gcc
 SHELL			= /bin/bash
 # This is where (g)make looks for the source files for implicit rules
-VPATH			:= src src/format src/drivers nuklear contrib
+VPATH			:= src src/format src/drivers contrib
+VPATH 			+= ui_gl
 
 CPPFLAGS		+= -Isrc -Isrc/format -Isrc/roms -Isrc/drivers
-CPPFLAGS		+= -Icontrib -Inuklear
+CPPFLAGS		+= -Icontrib
 CPPFLAGS		+= -Ilibmish/src
-CFLAGS			+= --std=gnu99 -Wall -Wextra -O2 -g
+CPPFLAGS		+= -Ilibmui/mui
+
+OPTIMIZE		?= -O2 -march=native
+CFLAGS			+= --std=gnu99 -Wall -Wextra -g
+CFLAGS			+= -fno-omit-frame-pointer
+CFLAGS			+= $(OPTIMIZE)
 CFLAGS			+= -Wno-unused-parameter -Wno-unused-function
-LDLIBS			+= -lX11 -lm -lGL -lGLU
-LDLIBS			+= -lpthread -lutil
+LDLIBS			+= -lX11 -lGL -lGLU
+LDLIBS			+= -lpthread -lutil -lm
+
+VERSION			:= ${shell git log -1 --date=short --pretty="%h %cd"}
+CPPFLAGS		+= -DMII_VERSION="\"$(VERSION)\""
 
 HAS_ALSA		:= $(shell pkg-config --exists alsa && echo 1)
 ifeq ($(HAS_ALSA),1)
@@ -26,21 +35,35 @@ BIN 			:= $(O)/bin
 LIB 			:= $(O)/lib
 OBJ 			:= $(O)/obj
 
-all				: $(BIN)/mii_emu
+all				: $(BIN)/mii_emu_gl
 
 MII_SRC			:= $(wildcard src/*.c src/format/*.c \
 							src/drivers/*.c contrib/*.c)
-UI_SRC			:= $(wildcard nuklear/*.c)
+UI_SRC			:= $(wildcard ui_gl/*.c)
+
 SRC				:= $(MII_SRC) $(UI_SRC)
 ALL_OBJ			:= ${patsubst %, ${OBJ}/%, ${notdir ${SRC:.c=.o}}}
 
-$(BIN)/mii_emu	: $(ALL_OBJ)
-$(BIN)/mii_emu	: $(LIB)/libmish.a
+CPPFLAGS		+= ${shell pkg-config --cflags pixman-1}
+LDLIBS			+= ${shell pkg-config --libs pixman-1}
 
-libmish 		: $(LIB)/libmish.a
+$(BIN)/mii_emu_gl	: $(ALL_OBJ) | mui mish
+$(BIN)/mii_emu_gl	: $(LIB)/libmish.a
+$(BIN)/mii_emu_gl	: $(LIB)/libmui.a
+
+.PHONY			: mish mui
+mish 			: $(LIB)/libmish.a
 LDLIBS 			+= $(LIB)/libmish.a
-$(LIB)/libmish.a : | $(LIB) $(OBJ) $(BIN)
-	make -j -C libmish O="../" CC="$(CC)" V="$(V)"
+$(LIB)/libmish.a : ${wildcard libmish/src/*} | $(LIB) $(OBJ) $(BIN)
+	mkdir -p $(OBJ)/libmish && \
+	make -j -C libmish O="../" CC="$(CC)" V="$(V)" static
+
+LDLIBS 			+= $(LIB)/libmui.a
+mui 			: $(LIB)/libmui.a
+$(LIB)/libmui.a : ${wildcard libmui/mui/*} | $(LIB) $(OBJ) $(BIN)
+	mkdir -p $(OBJ)/libmui && \
+	make -j -C libmui BUILD_DIR="../" CC="$(CC)" \
+			V="$(V)" OPTIMIZE="$(OPTIMIZE)" static
 
 #  Smartport firmware needs the assembler first
 test/asm/%.bin	: test/asm/%.asm | $(BIN)/mii_asm
@@ -48,17 +71,16 @@ test/asm/%.bin	: test/asm/%.asm | $(BIN)/mii_asm
 # And it also INCBIN the firmware driver
 $(OBJ)/mii_smarport.o : test/asm/mii_smartport_driver.bin
 
-$(OBJ)/libsofd.o : CPPFLAGS += -DHAVE_X11
-
 clean			:
-	rm -rf $(O)
+	rm -rf $(O); make -C libmui clean; make -C libmish clean
 
 # This is for development purpose. This will recompile the project
 # everytime a file is modified.
 watch			:
 	while true; do \
 		clear; $(MAKE) -j all tests; \
-		inotifywait -qre close_write src src/format nuklear test; \
+		inotifywait -qre close_write src src/format ui_gl test \
+					libmui libmui/mui; \
 	done
 
 tests				: $(BIN)/mii_test $(BIN)/mii_cpu_test $(BIN)/mii_asm
@@ -82,8 +104,8 @@ else
 Q := @
 endif
 
-$(OBJ)/%.o		: %.c | $(OBJ)
-	@echo "  CC      $<"
+$(OBJ)/%.o 			: %.c | $(OBJ)
+	@echo "  CC " ${filter -O%, $(CPPFLAGS) $(CFLAGS)} " $<"
 	$(Q)$(CC) -MMD $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
 $(BIN)/%			:  | $(BIN)
@@ -95,12 +117,19 @@ $(OBJ) $(BIN) $(LIB) :
 
 # Generates the necessary file to help clangd index the files properly.
 # This currently has to be done manually, but helps a lot if you use 'kate'
-# editor or anthing else that is compatible with the LSP protocol
+# editor or anthing else that is compatible with the LSP protocol (vscode too)
 compile_commands.json: lsp
 lsp:
 	{ $$(which gmake) CC=gcc V=1 --always-make --dry-run all tests; \
-		$$(which gmake) CC=gcc V=1 --always-make --dry-run -C libmish ; } | \
+		$$(which gmake) CC=gcc V=1 --always-make --dry-run -C libmish ; \
+		$$(which gmake) CC=gcc V=1 --always-make --dry-run -C libmui ; } | \
 		sh utils/clangd_gen.sh >compile_commands.json
 
 -include $(O)/*.d
 -include $(O)/obj/*.d
+
+
+install:
+	mkdir -p $(DESTDIR)/bin
+	mkdir -p $(DESTDIR)/share/games/mii/
+	cp $(BIN)/mii_emu_gl $(DESTDIR)/bin/
