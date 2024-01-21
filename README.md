@@ -23,7 +23,7 @@ I know there are many out there, but none of them were ticking my fancy, so I de
 One primary reason for this project was that linapple (or -pie) codebase is really horrible. It dates back from 2000's or before, with loads of Windows crud leftover, some SDL crud added, the audio just doesn't really work, and overall if you want to hack around the codebase, it's pretty dreadful.
 
 
-![Quick how to load and boot](docs/video_main.mp4)
+![Quick how to load and boot](docs/video_main.gif)
 *Quick Howto Load & Boot*
 
 I wanted something:
