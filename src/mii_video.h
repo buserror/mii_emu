@@ -15,13 +15,20 @@
 #define MII_VIDEO_WIDTH		(280 * 2)
 #define MII_VIDEO_HEIGHT	(192 * 2)
 // in case padding is needed, these can be changed
+
+#if 0	// Loads of padding to align to power of 2 sizes
+#define MII_VRAM_WIDTH		(1024 * 4)
+#define MII_VRAM_HEIGHT		512
+#else
 #define MII_VRAM_WIDTH		(MII_VIDEO_WIDTH * 4)
 #define MII_VRAM_HEIGHT		MII_VIDEO_HEIGHT
+#endif
 
 enum {
 	MII_VIDEO_COLOR		= 0,
 	MII_VIDEO_GREEN,
 	MII_VIDEO_AMBER,
+	MII_VIDEO_MODE_COUNT
 };
 
 struct mii_t;

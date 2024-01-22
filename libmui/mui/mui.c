@@ -34,6 +34,7 @@ mui_dispose(
 		mui_t *ui)
 {
 	pixman_region32_fini(&ui->inval);
+	pixman_region32_fini(&ui->redraw);
 	mui_font_dispose(ui);
 	mui_window_t *w;
 	while ((w = TAILQ_FIRST(&ui->windows))) {

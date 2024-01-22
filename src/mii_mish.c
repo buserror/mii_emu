@@ -64,15 +64,30 @@ show_state:
 			char buf[32];
 			sprintf(buf, "%s:%d", mii_sw_names[i],
 					!!(mii->sw_state & (1 << i)));
-			printf("%-13.13s%s", buf, !(i % 6) ? "\n" : " ");
+			printf("%-13.13s%s", buf, !((i+1) % 6) ? "\n" : " ");
 		}
 		printf("\n");
+		printf("RGB Video Mode: %d\n", mii->video.color_mode);
 		return;
 	}
 	if (!strcmp(argv[1], "reset")) {
 		mii_reset(mii, 0);
 		return;
 	}
+	if (!strcmp(argv[1], "rgb")) {
+		if (argc < 3) {
+			printf("rgb: missing argument\n");
+			return;
+		}
+		uint8_t val = strtol(argv[2], NULL, 16);
+		if (val > MII_VIDEO_MODE_COUNT) {
+			printf("rgb: invalid mode %d\n", val);
+			return;
+		}
+		mii->video.color_mode = val;
+		return;
+	}
+
 	if (!strcmp(argv[1], "mem")) {
 		printf("mii: memory map: ");
 		for (int i = 0; i < MII_BANK_COUNT; i++)
@@ -241,6 +256,54 @@ _mii_mish_il(
 	}
 }
 
+
+static void
+_mii_mish_mm(
+		void * param,
+		int argc,
+		const char * argv[])
+{
+	static uint32_t addr = 0x800;
+	if (argv[1]) {
+		addr = strtol(argv[1], NULL, 16);
+		if (addr > 0x00100000)
+			addr = 0x00fff0;
+	}
+	mii_t * mii = param;
+	int bi = (addr >> 16) & 0xf;
+	if (bi > MII_BANK_COUNT) {
+		printf("mii: invalid bank index %d (0:7)\n", bi);
+		return;
+	}
+	addr &= 0xffff;
+	mii_bank_t * bank = &mii->bank[bi];
+//	addr -= bank->base;
+	if (!strcmp(argv[0], "mm")) {
+		printf("%s %04x\n", bank->name, addr);
+		for (int i = 0; i < 8; i++) {
+			printf("%06x: ", addr);
+			for (int j = 0; j < 16; j++)
+				printf("%02x ", mii_bank_peek(bank, addr++));
+			printf("\n");
+		}
+		return;
+	}
+	if (!strcmp(argv[0], "mb")) {
+		printf("%s: %04x: ", bank->name, addr);
+		printf("%02x ", mii_bank_peek(bank, addr++));
+		printf("\n");
+		return;
+	}
+	if (!strcmp(argv[0], "mw") || !strcmp(argv[0], "ma")) {
+		printf("%s: %04x: ", bank->name, addr);
+		uint8_t l = mii_bank_peek(bank, addr++);
+		uint8_t h = mii_bank_peek(bank, addr++);
+		printf("%02x%02x", h, l);
+		printf("\n");
+		return;
+	}
+}
+
 static void
 _mii_mish_dm(
 		void * param,
@@ -403,6 +466,7 @@ MISH_CMD_NAMES(mii, "mii");
 MISH_CMD_HELP(mii,
 		"mii: access internals, trace, reset, speed, etc",
 		" <default> : dump current state",
+		" rgb <val>: Set RGB mode to <val>(0:color,1:green,2:amber)"
 		" reset : reset the cpu",
 		" t|trace : toggle trace_cpu (WARNING HUGE traces!))",
 		" mem : dump memory and bank map",
@@ -441,6 +505,17 @@ MISH_CMD_HELP(dm,
 		" [addr]: start at address addr"
 		);
 MII_MISH(dm, _mii_mish_dm);
+
+MISH_CMD_NAMES(mm, "mm","mb","mw","ma");
+MISH_CMD_HELP(mm,
+		"mii: dump memory, byte, word, [raw address]",
+		" <default>|mm <addr>: dump 64 bytes.",
+		" mb [<addr>]: dump one byte.",
+		" mw [<addr>]: dump one word.",
+		" ma [<addr>]: dump one address.",
+		" [addr]: 24 bits address addr 00 main, 01 aux"
+		);
+MII_MISH(mm, _mii_mish_mm);
 
 MISH_CMD_NAMES(step, "s","step","n","next","cont","h","halt");
 MISH_CMD_HELP(step,

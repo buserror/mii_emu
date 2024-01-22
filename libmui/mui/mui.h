@@ -111,7 +111,7 @@ enum mui_modifier_e {
 #define MUI_ICON_SBAR_UP		""
 #define MUI_ICON_SBAR_DOWN		""
 
-/* These are specific the Charcoal System font */
+/* These are specific to our custom version of the Charcoal System font */
 #define MUI_GLYPH_APPLE 		""	// solid apple
 #define MUI_GLYPH_OAPPLE 		""	// open apple
 #define MUI_GLYPH_COMMAND 		""
@@ -138,7 +138,7 @@ enum mui_modifier_e {
 typedef uint64_t mui_time_t;
 
 /*
- * Even description. pretty standard stuff here -- the 'when' field is
+ * Event description. pretty standard stuff here -- the 'when' field is
  * only used really to detect double clicks so far.
  *
  * Even handlers should return true if the event was handled, (in which case
@@ -204,7 +204,7 @@ struct mui_listbox_elem_t;
 
 /*
  * Window DEFinition -- Handle all related to a window, from drawing to
- * even handling.
+ * event handling.
  */
 enum {
 	MUI_WDEF_INIT = 0,
@@ -288,7 +288,7 @@ struct cg_ctx_t;
 
 /*
  * Describes a pixmap. Currently only used for the screen destination pixels.
- * And really, only bpp:43 for ARGB is supported.
+ * And really, only bpp:32 for ARGB is supported.
  */
 typedef struct mui_pixmap_t {
 	uint8_t * 					pixels;
@@ -447,6 +447,7 @@ mui_font_textbox(
 		unsigned int 	text_len,
 		mui_color_t 	color,
 		uint16_t 		flags );
+
 DECLARE_C_ARRAY(stb_ttc_g*, mui_glyph_array, 8, int x, y, w; );
 DECLARE_C_ARRAY(mui_glyph_array_t, mui_glyph_line_array, 8);
 
@@ -519,7 +520,7 @@ mui_window_create(
 		uint8_t 		layer,
 		const char *	title,
 		uint32_t 		instance_size);
-// Dispose a window and it's content (controls).
+// Dispose of a window and it's content (controls).
 /*
  * Note: if an action is in progress the window is not freed immediately
  * but added to the zombie list, and freed when the action is done.
@@ -574,8 +575,9 @@ struct mui_menu_items_t;
 
 /*
  * This is a menu item descriptor (also used for the titles, bar a few bits).
- * This does not a *control* in the window, instead this is used to describe
- * the menus and menu item controls that are created when the menu becomes visible.
+ * This is not a *control* in the window, instead this is used to describe
+ * the menus and menu item controls that are created when the menu becomes
+ * visible.
  */
 typedef struct mui_menu_item_t {
 	uint32_t 					disabled : 1, hilited : 1;
@@ -777,10 +779,11 @@ mui_button_new(
 		const char *	title,
 		uint32_t 		uid );
 /*
- * Create a static text box. Font is optional, flags correponds to the MUI_TEXT_ALIGN_*
- * PLUS the extrast listed below.
+ * Create a static text box. Font is optional (default to the system main font),
+ * flags corresponds to the MUI_TEXT_ALIGN_* * PLUS the extra(s) listed below.
  */
 enum mui_textbox_e {
+	// draw the frame around the text box
 	MUI_CONTROL_TEXTBOX_FRAME		= (1 << 8),
 };
 mui_control_t *

@@ -36,9 +36,10 @@
 #define WINDOW_WIDTH 		1280
 #define WINDOW_HEIGHT		720
 
+#define POWER_OF_TWO 		0
 
 typedef struct mii_gl_tex_t {
-	c2_rect_t 			frame;
+//	c2_rect_t 			frame;
 	GLuint 				id;
 }	mii_gl_tex_t;
 
@@ -47,6 +48,7 @@ typedef struct mii_x11_t {
 	pthread_t 			cpu_thread;
 
 	mui_drawable_t 		dr;		// drawable
+	uint32_t 			dr_padded_y;
 
 	union {
 		struct {
@@ -392,6 +394,7 @@ mii_x11_init(
 				ui->glContext = create_context(ui->dpy, ui->fbc, 0, True, attr);
 			}
 		}
+
 		XSync(ui->dpy, False);
 		XSetErrorHandler(old_handler);
 		if (gl_err || !ui->glContext)
@@ -402,9 +405,28 @@ mii_x11_init(
 		mui_pixmap_t* pix = &ui->dr.pix;
 		pix->size.y = WINDOW_HEIGHT;
 		pix->size.x = WINDOW_WIDTH;
-		pix->row_bytes = WINDOW_WIDTH * 4;
+		// annoyingly I have to make it a LOT bigger to handle that the
+		// non-power-of-2 texture extension is not avialable everywhere
+		// textures, which is a bit of a waste of memory, but oh well.
+
+#if POWER_OF_TWO
+		int padded_x = 1;
+		int padded_y = 1;
+		while (padded_x < pix->size.x)
+			padded_x <<= 1;
+		while (padded_y < pix->size.y)
+			padded_y <<= 1;
+#else
+		int padded_x = pix->size.x;
+		int padded_y = pix->size.y;
+#endif
+		pix->row_bytes = padded_x * 4;
 		pix->bpp = 32;
-		pix->pixels = malloc(pix->row_bytes * WINDOW_HEIGHT * (pix->bpp / 8));
+
+		ui->dr_padded_y = padded_y;
+		printf("MUI Padded UI size is %dx%d\n", padded_x, padded_y);
+
+		pix->pixels = malloc(pix->row_bytes * ui->dr_padded_y);
 		mui->screen_size = pix->size;
 	}
 	{
@@ -631,7 +653,7 @@ mii_x11_prepare_textures(
 		mii_x11_t *ui)
 {
 	mii_t * mii = &ui->video.mii;
-	mui_t * mui = &ui->video.mui;
+//	mui_t * mui = &ui->video.mui;
 	GLuint tex[2];
 	glGenTextures(2, tex);
 	for (int i = 0; i < 2; i++) {
@@ -658,9 +680,10 @@ mii_x11_prepare_textures(
 	glBindTexture(GL_TEXTURE_2D, ui->mui_tex.id);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
 	glTexImage2D(GL_TEXTURE_2D, 0, 4,
-			ui->dr.pix.row_bytes / 4,
-			mui->screen_size.y, 0, GL_RGBA,
+			ui->dr.pix.row_bytes / 4,	// already power of two.
+			ui->dr_padded_y, 0, GL_RGBA,
 			GL_UNSIGNED_BYTE,
 			ui->dr.pix.pixels);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -730,10 +753,10 @@ mii_x11_render(
 			glTexCoord2f(ui->attr.width / (double)(ui->dr.pix.row_bytes / 4), 0);
 					glVertex2f(ui->attr.width, 0);
 			glTexCoord2f(ui->attr.width / (double)(ui->dr.pix.row_bytes / 4),
-						ui->attr.height / (double)(ui->dr.pix.size.y));
+						ui->attr.height / (double)(ui->dr_padded_y));
 					glVertex2f(ui->attr.width, ui->attr.height);
 			glTexCoord2f(0,
-						ui->attr.height / (double)(ui->dr.pix.size.y));
+						ui->attr.height / (double)(ui->dr_padded_y));
 					glVertex2f(0, ui->attr.height);
 			glEnd();
 		}
@@ -857,6 +880,8 @@ mii_x11_reload_config(
 	ui->cpu_thread = mii_thread_start(mii);
 }
 
+mii_x11_t g_mii = {};
+
 int
 main(
 		int argc,
@@ -866,7 +891,6 @@ main(
 	asprintf(&conf_path, "%s/.local/share/mii", getenv("HOME"));
 	mkdir(conf_path, 0755);
 
-	mii_x11_t g_mii = {};
 	mii_x11_t * ui = &g_mii;
 	mii_t * mii = &g_mii.video.mii;
 	bool no_config_found = false;
@@ -990,6 +1014,7 @@ main(
 			glViewport(0, 0, ui->width, ui->height);
 			_mii_transition(ui);
 			mii_x11_render(ui);
+			glFlush();
 			glXSwapBuffers(ui->dpy, ui->win);
 		}
 		/* Wait for next frame */

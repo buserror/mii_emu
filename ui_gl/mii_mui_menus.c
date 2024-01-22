@@ -333,8 +333,8 @@ mii_mui_menu_slot_menu_update(
 	mui_control_t * m = mui_control_get_by_id(mbar, FCC('f','i','l','e'));
 	mui_menu_items_t * items = mui_popupmenu_get_items(m);
 
-	printf("%s items %p count %d RO:%d\n",
-		__func__, items, items? items->count : 0, items? items->read_only : 0);
+//	printf("%s items %p count %d RO:%d\n",
+//		__func__, items, items? items->count : 0, items? items->read_only : 0);
 
 	mui_menu_items_clear(items);
 	if (!items->read_only)
@@ -373,11 +373,6 @@ mii_mui_menu_slot_menu_update(
 	}
 	// array is NULL terminated
 	mui_menu_items_push(items, (mui_menu_item_t){});
-	for (int i = 0; i < (int)items->count; i++)
-		printf("  %d: %s\n", i, items->e[i].title);
-
-	printf("%s items %p count %d RO:%d done\n",
-		__func__, items, items? items->count : 0, items? items->read_only : 0);
 }
 
 void
