@@ -39,76 +39,98 @@ enum {
  * and
  * https://www.mrob.com/pub/xapple2/colors.html
  */
-#define HI_RGB(r,g,b)	(0xff000000 | ((r) << 16) | ((g) << 8) | (b))
-static const uint32_t lores_colors[] = {
-	[0x0] = HI_RGB(0x00, 0x00, 0x00),	// black
-	[0x1] = HI_RGB(0xe3, 0x1e, 0x60),	// magenta
-	[0x2] = HI_RGB(0x60, 0x4e, 0xbd),	// dark blue
-	[0x3] = HI_RGB(0xff, 0x44, 0xfd),	// purple
-	[0x4] = HI_RGB(0x00, 0xa3, 0x60),	// dark green
-	[0x5] = HI_RGB(0x9c, 0x9c, 0x9c),	// gray 1
-	[0x6] = HI_RGB(0x14, 0xcf, 0xfd),	// medium blue
-	[0x7] = HI_RGB(0xd0, 0xc3, 0xff),	// light blue
-	[0x8] = HI_RGB(0x60, 0x72, 0x03),	// brown
-	[0x9] = HI_RGB(0xff, 0x6a, 0x3c),	// orange
-	[0xa] = HI_RGB(0x9c, 0x9c, 0x9c),	// gray 2
-	[0xb] = HI_RGB(0xff, 0xa0, 0xd0),	// pink
-	[0xc] = HI_RGB(0x14, 0xf5, 0x3c),	// light green
-	[0xd] = HI_RGB(0xd0, 0xdd, 0x8d),	// yellow
-	[0xe] = HI_RGB(0x72, 0xff, 0xd0),	// aqua
-	[0xf] = HI_RGB(0xff, 0xff, 0xff),	// white
+typedef struct mii_color_t {
+	uint32_t 	rgb;
+	uint8_t 	l;
+} mii_color_t;
+
+#define HI_LUMA(r,g,b) \
+		((uint8_t)(0.2126 * (r) + 0.7152 * (g) + 0.0722 * (b)))
+
+#define HI_RGB(r,g,b)	{ \
+		.rgb = (0xff000000 | ((b) << 16) | ((g) << 8) | (r)), \
+		.l = HI_LUMA(r,g,b) \
+	}
+
+/* this 'dims' the colors for every second line of pixels
+ * This is a very very cheap filter but it works really well!
+ */
+#define C_SCANLINE_MASK 0xffc0c0c0
+
+/* These are the 'official' RGB colors for apple II,
+ * Well not really, it is just ONE interpreation of many, we could possibly
+ * make some sort of color lookup table to allow switching them on the fly?
+ */
+#define	C_BLACK		HI_RGB(0x00, 0x00, 0x00)	// black
+#define	C_PURPLE 	HI_RGB(0xff, 0x44, 0xfd)	// purple
+#define	C_GREEN 	HI_RGB(0x14, 0xf5, 0x3c)	// green
+#define	C_BLUE		HI_RGB(0x14, 0xcf, 0xfd)	// blue
+#define	C_ORANGE 	HI_RGB(0xff, 0x6a, 0x3c)	// orange
+#define	C_WHITE		HI_RGB(0xff, 0xff, 0xff)	// white
+#define C_MAGENTA	HI_RGB(0xe3, 0x1e, 0x60)	// magenta
+#define C_DARKBLUE	HI_RGB(0x60, 0x4e, 0xbd)	// dark blue
+#define C_DARKGREEN HI_RGB(0x00, 0xa3, 0x60)	// dark green
+#define C_GRAY1 	HI_RGB(0x9c, 0x9c, 0x9c)	// gray 1
+#define C_GRAY2 	HI_RGB(0x9c, 0x9c, 0x9c)	// gray 2
+#define C_LIGHTBLUE HI_RGB(0xd0, 0xc3, 0xff)	// light blue
+#define C_BROWN 	HI_RGB(0x60, 0x72, 0x03)	// brown
+#define C_PINK  	HI_RGB(0xff, 0xa0, 0xd0)	// pink
+#define C_YELLOW 	HI_RGB(0xd0, 0xdd, 0x8d)	// yellow
+#define C_AQUA  	HI_RGB(0x72, 0xff, 0xd0)	// aqua
+
+// this is not an official color, just 'my' interpretation of an amber screen
+#define C_AMBER 	HI_RGB(0xfd, 0xcf, 0x14)	// amber
+
+static const mii_color_t lores_colors[2][16] = { {
+[0x0] = C_BLACK,	[0x1] = C_MAGENTA,	[0x2] = C_DARKBLUE,	[0x3] = C_PURPLE,
+[0x4] = C_DARKGREEN,[0x5] = C_GRAY1,	[0x6] = C_BLUE,		[0x7] = C_LIGHTBLUE,
+[0x8] = C_BROWN,	[0x9] = C_ORANGE,	[0xa] = C_GRAY2,	[0xb] = C_PINK,
+[0xc] = C_GREEN,	[0xd] = C_YELLOW,	[0xe] = C_AQUA,		[0xf] = C_WHITE,
+},{
+[0x0] = C_BLACK,	[0x1] = C_DARKBLUE,	[0x2] = C_DARKGREEN,[0x3] = C_BLUE,
+[0x4] = C_BROWN,	[0x5] = C_GRAY2,	[0x6] = C_GREEN,	[0x7] = C_AQUA,
+[0x8] = C_MAGENTA,	[0x9] = C_PURPLE,	[0xa] = C_GRAY1,	[0xb] = C_LIGHTBLUE,
+[0xc] = C_ORANGE,	[0xd] = C_PINK,		[0xe] = C_YELLOW,	[0xf] = C_WHITE,
+} };
+static const mii_color_t dhires_colors[] = {
+[0x0] = C_BLACK,	[0x1] = C_MAGENTA,	[0x2] = C_BROWN,	[0x3] = C_ORANGE,
+[0x4] = C_DARKGREEN,[0x5] = C_GRAY1,	[0x6] = C_GREEN,	[0x7] = C_YELLOW,
+[0x8] = C_DARKBLUE,	[0x9] = C_PURPLE,	[0xa] = C_GRAY2,	[0xb] = C_PINK,
+[0xc] = C_BLUE,		[0xd] = C_LIGHTBLUE,[0xe] = C_AQUA,		[0xf] = C_WHITE,
 };
 
-enum {
-	C_BLACK		= HI_RGB(0x00, 0x00, 0x00),	// black
-	C_PURPLE 	= HI_RGB(0xff, 0x44, 0xfd),	// purple
-	C_GREEN 	= HI_RGB(0x14, 0xf5, 0x3c),	// green
-	C_BLUE		= HI_RGB(0x14, 0xcf, 0xfd),	// blue
-	C_ORANGE 	= HI_RGB(0xff, 0x6a, 0x3c),	// orange
-	C_WHITE		= HI_RGB(0xff, 0xff, 0xff),	// white
-};
-
-static const uint32_t hires_colors[] = {
+static const mii_color_t hires_colors[] = {
 	C_BLACK,
 	C_PURPLE,
 	C_GREEN,
 	C_GREEN,
 	C_PURPLE,
-	C_ORANGE,
-	C_BLUE,
 	C_BLUE,
 	C_ORANGE,
+	C_ORANGE,
+	C_BLUE,
 	C_WHITE,
 };
 
-static const uint32_t dhires_colors[] = {
-	[0x0] = HI_RGB(0x00, 0x00, 0x00),	// black
-	[0x1] = HI_RGB(0xe3, 0x1e, 0x60),	// magenta
-	[0x2] = HI_RGB(0x60, 0x72, 0x03),	// brown
-	[0x3] = HI_RGB(0xff, 0x6a, 0x3c),	// orange
-	[0x4] = HI_RGB(0x00, 0xa3, 0x60),	// dark green
-	[0x5] = HI_RGB(0x9c, 0x9c, 0x9c),	// gray 1
-	[0x6] = HI_RGB(0x14, 0xf5, 0x3c),	// light green
-	[0x7] = HI_RGB(0xd0, 0xdd, 0x8d),	// yellow
-	[0x8] = HI_RGB(0x60, 0x4e, 0xbd),	// dark blue
-	[0x9] = HI_RGB(0xff, 0x44, 0xfd),	// purple
-	[0xa] = HI_RGB(0x9c, 0x9c, 0x9c),	// gray 2
-	[0xb] = HI_RGB(0xff, 0xa0, 0xd0),	// pink
-	[0xc] = HI_RGB(0x14, 0xcf, 0xfd),	// medium blue
-	[0xd] = HI_RGB(0xd0, 0xc3, 0xff),	// light blue
-	[0xe] = HI_RGB(0x72, 0xff, 0xd0),	// aqua
-	[0xf] = HI_RGB(0xff, 0xff, 0xff),	// white
-};
-
-static const uint32_t mono[3][2] = {
-	{ 0xff000000, C_WHITE },
-	{ 0xff000000, C_GREEN },
-	{ 0xff000000, HI_RGB(0x14, 0xcf, 0xfd) },
+static const mii_color_t mono[3][2] = {
+	{ C_BLACK, C_WHITE },
+	{ C_BLACK, C_GREEN },
+	{ C_BLACK, C_AMBER },
 };
 
 
-/* this 'dims' the colors for every second line of pixels */
-#define C_SCANLINE_MASK HI_RGB(0xc0, 0xc0, 0xc0)
+// TODO redo the hires decoder by reversing bits line by line...
+static inline uint8_t reverse8(uint8_t b) {
+	b = (b & 0b11110000) >> 4 | (b & 0b00001111) << 4;
+	b = (b & 0b11001100) >> 2 | (b & 0b00110011) << 2;
+	b = (b & 0b10101010) >> 1 | (b & 0b01010101) << 1;
+	return b;
+}
+static inline uint8_t reverse4(uint8_t b) {
+	b = (b & 0b0001) << 3 | (b & 0b0010) << 1 |
+		(b & 0b0100) >> 1 | (b & 0b1000) >> 3;
+	return b;
+}
 
 static inline uint16_t
 _mii_line_to_video_addr(
@@ -119,13 +141,6 @@ _mii_line_to_video_addr(
 				 (((line >> 3) & 7) << 7) |
 					((line >> 6) << 5) | ((line >> 6) << 3);
 	return addr;
-}
-
-unsigned char reverse(unsigned char b) {
-   b = (b & 0b11110000) >> 4 | (b & 0b00001111) << 4;
-   b = (b & 0b11001100) >> 2 | (b & 0b00110011) << 2;
-   b = (b & 0b10101010) >> 1 | (b & 0b01010101) << 1;
-   return b;
 }
 
 /*
@@ -176,6 +191,7 @@ mii_video_timer_cb(
 		if (mixed && !text) {
 			text = mii->video.line >= 192 - (4 * 8);
 		}
+		const int mode = mii->video.color_mode;
 		// http://www.1000bit.it/support/manuali/apple/technotes/aiie/tn.aiie.03.html
 		if (hires && !text && col80 && dhires) {
 			if (store80)
@@ -189,10 +205,10 @@ mii_video_timer_cb(
 
 			mii_bank_t * aux = &mii->bank[MII_BANK_AUX];
 
-			if (reg == 0 || mii->video.color_mode != MII_VIDEO_COLOR) {
+			if (reg == 0 || mode != MII_VIDEO_COLOR) {
 				const uint32_t clut[2] = {
-						mono[mii->video.color_mode][0],
-						mono[mii->video.color_mode][1] };
+						mono[mode][0].rgb,
+						mono[mode][1].rgb };
 				for (int x = 0; x < 40; x++) {
 					uint32_t ext = (mii_bank_peek(aux, a + x) & 0x7f) |
 									((mii_bank_peek(main, a + x) & 0x7f) << 7);
@@ -214,9 +230,9 @@ mii_video_timer_cb(
 						run |= ((uint64_t)(b & 0x7f) << (bx * 7));
 					}
 					for (int px = 0; px < 14 && dx < 80*2; px++, dx++) {
-						uint8_t pixel = run & 0xf;
+						uint8_t pixel = reverse4(run & 0xf);
 						run >>= 4;
-						uint32_t col = dhires_colors[pixel];
+						uint32_t col = dhires_colors[pixel].rgb;
 						*screen++ = col;
 						*screen++ = col;
 						*screen++ = col;
@@ -247,8 +263,7 @@ mii_video_timer_cb(
 								((b2 & 0x03) << ( 9 ));
 				int odd = (x & 1) << 1;
 				int offset = (b1 & 0x80) >> 5;
-
-				if (mii->video.color_mode == MII_VIDEO_COLOR) {
+				if (mode == MII_VIDEO_COLOR) {
 					for (int i = 0; i < 7; i++) {
 						uint8_t left = (run >> (1 + i)) & 1;
 						uint8_t pixel = (run >> (2 + i)) & 1;
@@ -266,7 +281,7 @@ mii_video_timer_cb(
 								idx = offset + odd + 1 - (i & 1) + 1;
 							}
 						}
-						uint32_t col = hires_colors[idx];
+						uint32_t col = hires_colors[idx].rgb;
 						*screen++ = col;
 						*screen++ = col;
 						*l2++ = col & C_SCANLINE_MASK;
@@ -275,7 +290,7 @@ mii_video_timer_cb(
 				} else {
 					for (int i = 0; i < 7; i++) {
 						uint8_t pixel = (run >> (2 + i)) & 1;
-						uint32_t col = mono[mii->video.color_mode][pixel];
+						uint32_t col = mono[mode][pixel].rgb;
 						*screen++ = col;
 						*screen++ = col;
 						*l2++ = col & C_SCANLINE_MASK;
@@ -308,7 +323,7 @@ mii_video_timer_cb(
 					uint8_t bits = rom[mii->video.line & 0x07];
 					for (int pi = 0; pi < 7; pi++) {
 						uint8_t pixel = (bits >> pi) & 1;
-						uint32_t col = mono[mii->video.color_mode][!pixel];
+						uint32_t col = mono[mode][!pixel].rgb;
 						*screen++ = col;
 						*l2++ = col & C_SCANLINE_MASK;
 						if (!col80) {
@@ -319,13 +334,31 @@ mii_video_timer_cb(
 				} else { // lores graphics
 					int lo_line = mii->video.line / 4;
 					c = c >> ((lo_line & 1) * 4);
-					uint32_t pixel = lores_colors[c & 0x0f];
-					for (int pi = 0; pi < 7; pi++) {
-						*screen++ = pixel;
-						*l2++ = pixel & C_SCANLINE_MASK;
-						if (!col80) {
+
+					if (mode == MII_VIDEO_COLOR) {
+						uint32_t pixel = lores_colors[(x & col80) ^ col80][c & 0x0f].rgb;
+						for (int pi = 0; pi < 7; pi++) {
 							*screen++ = pixel;
 							*l2++ = pixel & C_SCANLINE_MASK;
+							if (!col80) {
+								*screen++ = pixel;
+								*l2++ = pixel & C_SCANLINE_MASK;
+							}
+						}
+					} else {
+						/* Not sure at all this should be rendered like this,
+						 * but I can't find a reference on how to render low
+						 * res graphics in mono */
+						c |= (c << 4);
+						for (int pi = 0; pi < 7; pi++) {
+							uint32_t pixel = mono[mode][c & 1].rgb;
+							c >>= 1;
+							*screen++ = pixel;
+							*l2++ = pixel & C_SCANLINE_MASK;
+							if (!col80) {
+								*screen++ = pixel;
+								*l2++ = pixel & C_SCANLINE_MASK;
+							}
 						}
 					}
 				}
@@ -429,3 +462,33 @@ mii_video_init(
 	mii->video.timer_id = mii_timer_register(mii,
 				mii_video_timer_cb, NULL, MII_VIDEO_H_CYCLES, __func__);
 }
+
+
+
+static void
+_mii_mish_video(
+		void * param,
+		int argc,
+		const char * argv[])
+{
+	mii_t * mii = param;
+
+	if (!argv[1] || !strcmp(argv[1], "list")) {
+		for (int i = 0; i < 16; i++) {
+			printf("%01x: %08x %08x %08x\n", i,
+					lores_colors[0][i].rgb,
+					lores_colors[1][i].rgb,
+					dhires_colors[i].rgb);
+		}
+		return;
+	}
+}
+
+#include "mish.h"
+
+MISH_CMD_NAMES(video, "video");
+MISH_CMD_HELP(video,
+		"video: test patterns generator",
+		" <default>: dump color tables"
+		);
+MII_MISH(video, _mii_mish_video);
