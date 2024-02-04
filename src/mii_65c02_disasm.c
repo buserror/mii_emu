@@ -1,3 +1,10 @@
+/*
+ * mii_65c02_disasm.c
+ *
+ * Copyright (C) 2023 Michel Pollet <buserror@gmail.com>
+ *
+ * SPDX-License-Identifier: MIT
+ */
 
 #include <stdio.h>
 #include <stdlib.h>

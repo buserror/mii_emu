@@ -12,12 +12,17 @@
 #include <string.h>
 #include <ctype.h>
 #include <unistd.h>
-#include <regex.h>
 #include <errno.h>
 #include <sys/stat.h>
 #include <glob.h>
 #include <libgen.h>
 
+#ifdef __linux__
+#define MUI_HAS_REGEXP
+#endif
+#ifdef MUI_HAS_REGEXP
+#include <regex.h>
+#endif
 #include "mui.h"
 #include "c2_geometry.h"
 
@@ -27,16 +32,24 @@
 DECLARE_C_ARRAY(char*, string_array, 2);
 IMPLEMENT_C_ARRAY(string_array);
 
+#define MUI_STDF_MAX_SUFFIX 16
+
 typedef struct mui_stdfile_t {
 	mui_window_t 		win;
 	mui_control_t *		ok, *cancel, *home, *root;
 	mui_control_t *		listbox, *popup;
 	char * 				pref_file; // pathname we put last path used
 	char * 				re_pattern;
+	struct {
+		char  			 	s[16];
+		uint32_t 			hash;
+	}				suffix[MUI_STDF_MAX_SUFFIX];
 	char *				current_path;
 	char *				selected_path;
-	regex_t 			re;
 	string_array_t		pop_path;
+#ifdef MUI_HAS_REGEXP
+	regex_t 			re;
+#endif
 } mui_stdfile_t;
 
 enum {
@@ -66,6 +79,24 @@ _mui_stdfile_sort_cb(
 	return strcmp(ea->elem, eb->elem);
 }
 
+static uint32_t
+mui_hash_nocase(
+	const char * inString )
+{
+	if (!inString)
+		return 0;
+	/* Described http://papa.bretmulvey.com/post/124027987928/hash-functions */
+	const uint32_t p = 16777619;
+	uint32_t hash = 0x811c9dc5;
+	while (*inString)
+		hash = (hash ^ tolower(*inString++)) * p;
+	hash += hash << 13;
+	hash ^= hash >> 7;
+	hash += hash << 3;
+	hash ^= hash >> 17;
+	hash += hash << 5;
+	return hash;
+}
 static int
 _mui_stdfile_populate(
 	mui_stdfile_t * std,
@@ -139,10 +170,35 @@ _mui_stdfile_populate(
 		stat(full_path, &st);
 		free(full_path);
 		mui_listbox_elem_t e = {};
-		// usr the regex to filter file names
-		if (std->re_pattern) {
-			if (!S_ISDIR(st.st_mode) && regexec(&std->re, ent->d_name, 0, NULL, 0))
-				e.disabled = 1;
+
+		// default to disable, unless we find a reason to enable
+		e.disabled = S_ISDIR(st.st_mode) ? 0 : 1;
+		// use the regex (if any)  to filter file names
+		if (e.disabled && std->re_pattern) {
+#ifdef MUI_HAS_REGEXP
+			if (regexec(&std->re, ent->d_name, 0, NULL, 0) == 0)
+				e.disabled = 0;
+#endif
+		}
+		// handle case when no regexp is set, and no suffixes was set, this
+		// we enable all the files by default.
+		if (e.disabled && !std->re_pattern)
+			e.disabled = std->suffix[0].s[0] ? 1 : 0;
+		// handle the case we have a list of dot suffixes to filter
+		if (e.disabled) {
+			char *suf = strrchr(ent->d_name, '.');
+			if (std->suffix[0].s[0] && suf) {
+				suf++;
+				uint32_t hash = mui_hash_nocase(suf);
+				for (int i = 0; i < MUI_STDF_MAX_SUFFIX &&
+							std->suffix[i].s[0]; i++) {
+					if (hash == std->suffix[i].hash &&
+							!strcasecmp(suf, std->suffix[i].s)) {
+						e.disabled = 0;
+						break;
+					}
+				}
+			}
 		}
 		e.elem = strdup(ent->d_name);
 		if (S_ISDIR(st.st_mode))
@@ -268,11 +324,12 @@ _mui_stdfile_control_action(
 
 mui_window_t *
 mui_stdfile_get(
-		struct mui_t * ui,
-		c2_pt_t where,
-		const char * prompt,
-		const char * regexp,
-		const char * start_path )
+		struct mui_t * 	ui,
+		c2_pt_t 		where,
+		const char * 	prompt,
+		const char * 	pattern,
+		const char * 	start_path,
+		uint16_t 		flags )
 {
 	c2_rect_t wpos = C2_RECT_WH(where.x, where.y, 700, 400);
 	if (where.x == 0 && where.y == 0)
@@ -285,9 +342,10 @@ mui_stdfile_get(
 					prompt, sizeof(mui_stdfile_t));
 	mui_window_set_action(w, _mui_stdfile_window_action, NULL);
 	mui_stdfile_t *std = (mui_stdfile_t *)w;
-	if (regexp) {
-		std->re_pattern = strdup(regexp);
-		int re = regcomp(&std->re, std->re_pattern, REG_EXTENDED);
+	if (pattern && *pattern && (flags & MUI_STDF_FLAG_REGEXP)) {
+#ifdef MUI_HAS_REGEXP
+		std->re_pattern = strdup(pattern);
+		int re = regcomp(&std->re, std->re_pattern, REG_EXTENDED|REG_ICASE);
 		if (re) {
 			char * msg = NULL;
 			asprintf(&msg, "%s\n%s", std->re_pattern,
@@ -298,6 +356,26 @@ mui_stdfile_get(
 						MUI_ALERT_FLAG_OK);
 			free(std->re_pattern);
 			std->re_pattern = NULL;
+		}
+#else
+		printf("%s: Regexp not supported\n", __func__);
+#endif
+	} else if (pattern && *pattern) {
+		char * dup = strdup(pattern);
+		char * w = dup;
+		char * suf;
+		int di = 0;
+		while ((suf = strsep(&w, ",")) != NULL) {
+			if (!*suf)
+				continue;
+			if (di >= MUI_STDF_MAX_SUFFIX) {
+				printf("%s Too many suffixes, ignoring: %s\n", __func__, suf);
+				break;
+			}
+			uint32_t hash = mui_hash_nocase(suf);
+			snprintf(std->suffix[di].s, sizeof(std->suffix[di].s), "%s", suf);
+			std->suffix[di].hash = hash;
+			di++;
 		}
 	}
 	mui_control_t * c = NULL;
@@ -349,7 +427,7 @@ mui_stdfile_get(
 		mui_control_set_action(c, _mui_stdfile_control_action, std);
 	}
 	int dopop = 1; // populate to start_path by default
-	if (ui->pref_directory) {
+	if (!(flags & MUI_STDF_FLAG_NOPREF) && ui->pref_directory) {
 		uint32_t hash = std->re_pattern ? mui_hash(std->re_pattern) : 0;
 		asprintf(&std->pref_file, "%s/std_path_%04x", ui->pref_directory, hash);
 		printf("%s pref file: %s\n", __func__, std->pref_file);

@@ -187,8 +187,8 @@ _init(
 	mui_stdfile_get(ui,
 				C2_PT(0, 0),
 				"Select image for SmartPort card",
-				"\\.(hdv|po|2mg)$",
-				getenv("HOME"));
+				"hdv,po,2mg",
+				getenv("HOME"), 0);
 #endif
 
 	return g;

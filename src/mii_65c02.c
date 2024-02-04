@@ -1,3 +1,10 @@
+/*
+ * mui_65c02.c
+ *
+ * Copyright (C) 2023 Michel Pollet <buserror@gmail.com>
+ *
+ * SPDX-License-Identifier: MIT
+ */
 
 #include <stdint.h>
 #include <stdio.h>

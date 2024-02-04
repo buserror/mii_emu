@@ -18,8 +18,12 @@ void
 mui_init(
 		mui_t *ui)
 {
+	// do NOT clear we rely on screen_size being set, this is temporary we'll
+	// eventually use an 'option' struct to pass that sort of data (and the
+	// colors)
 	//memset(ui, 0, sizeof(*ui));
-	ui->clear_color = MUI_COLOR(0xccccccff);
+	ui->color.clear 	= MUI_COLOR(0xccccccff);
+	ui->color.highlight = MUI_COLOR(0xd6fcc0ff);
 	TAILQ_INIT(&ui->windows);
 	TAILQ_INIT(&ui->zombies);
 	TAILQ_INIT(&ui->fonts);
@@ -95,9 +99,9 @@ mui_draw(
 	mui_drawable_clip_push_region(dr, &sect);
 
 	pixman_image_fill_boxes(
-			ui->clear_color.value ? PIXMAN_OP_SRC : PIXMAN_OP_CLEAR,
+			ui->color.clear.value ? PIXMAN_OP_SRC : PIXMAN_OP_CLEAR,
 			mui_drawable_get_pixman(dr),
-			&PIXMAN_COLOR(ui->clear_color), 1, (pixman_box32_t*)&desk);
+			&PIXMAN_COLOR(ui->color.clear), 1, (pixman_box32_t*)&desk);
 	pixman_region32_fini(&sect);
 	pixman_region32_fini(&done);
 
@@ -226,6 +230,28 @@ mui_timer_register(
 	ui->timer.timers[ti].param = param;
 	ui->timer.timers[ti].when = mui_get_time() + delay;
 	return 0;
+}
+
+mui_time_t
+mui_timer_reset(
+		struct mui_t *	ui,
+		uint8_t 		id,
+		mui_timer_p 	cb,
+		mui_time_t 		delay)
+{
+	if (id >= MUI_TIMER_COUNT)
+		return 0;
+	if (!(ui->timer.map & (1 << id)) ||
+				ui->timer.timers[id].cb != cb)
+		return 0;
+	mui_time_t res = 0;
+	uint64_t now = mui_get_time();
+	if (ui->timer.timers[id].when > now)
+		res = ui->timer.timers[id].when - now;
+	ui->timer.timers[id].when = now + delay;
+	if (delay == 0)
+		ui->timer.map &= ~(1 << id);
+	return res;
 }
 
 void

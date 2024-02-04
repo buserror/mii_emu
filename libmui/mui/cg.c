@@ -151,7 +151,8 @@ void cg_matrix_multiply(struct cg_matrix_t * m, struct cg_matrix_t * m1, struct 
 		t.tx += m1->ty * m2->c;
 		t.ty += m1->tx * m2->b;
 	}
-	memcpy(m, &t, sizeof(struct cg_matrix_t));
+	*m = t;
+//	memcpy(m, &t, sizeof(struct cg_matrix_t));
 }
 
 void cg_matrix_invert(struct cg_matrix_t * m)

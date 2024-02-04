@@ -216,7 +216,7 @@ typedef bool (*mui_wdef_p)(
 			struct mui_window_t * win,
 			uint8_t 		what,
 			void * 			param);
-enum {
+enum mui_cdef_e {
 	MUI_CDEF_INIT = 0,
 	MUI_CDEF_DISPOSE,
 	MUI_CDEF_DRAW,
@@ -308,6 +308,16 @@ DECLARE_C_ARRAY(mui_region_t, mui_clip_stack, 2);
  * image, AND also the context for the 'cg' vectorial library.
  * Furthermore it keeps track of a stack of clipping rectangles, and is able
  * to 'sync' the current clipping area for either (or both) cg and libpixman.
+ *
+ * Important note: the cg vectorial library coordinate system is placed on the
+ * space *between* pixels, ie, if you moveto(1,1) and draw a line down, you
+ * will light up pixels in columns zero AND one. This differs significantly from
+ * for example, pixman that is uses pixel coordinates on hard pixels.
+ * It's worth remembering as if you draw for example around the border of a
+ * control, it will very likely be 'clipped' somewhat because half the pixels
+ * are technically outside the control bounding/clipping rectangle.
+ * You can easily adjust for this by adding 0.5 to the coordinates, if you
+ * require it.
  */
 typedef struct mui_drawable_t {
 	mui_pixmap_t				pix;	// *has* to be first in struct
@@ -604,7 +614,7 @@ DECLARE_C_ARRAY(mui_menu_item_t, mui_menu_items, 2,
 				bool read_only; );
 IMPLEMENT_C_ARRAY(mui_menu_items);
 
-enum {
+enum mui_menubar_action_e {
 	// parameter is a mui_menu_item_t* for the first item of the menu,
 	// this is exactly the parameter passed to add_simple()
 	// you can use this to disable/enable menu items etc
@@ -658,14 +668,14 @@ enum mui_control_type_e {
 	MUI_CONTROL_POPUP,
 };
 
-enum {
+enum mui_button_style_e {
 	MUI_BUTTON_STYLE_NORMAL = 0,
 	MUI_BUTTON_STYLE_DEFAULT = 1,
 	MUI_BUTTON_STYLE_RADIO,
 	MUI_BUTTON_STYLE_CHECKBOX,
 };
 
-enum {
+enum mui_control_state_e {
 	MUI_CONTROL_STATE_NORMAL = 0,
 	MUI_CONTROL_STATE_HOVER,
 	MUI_CONTROL_STATE_CLICKED,
@@ -673,7 +683,7 @@ enum {
 	MUI_CONTROL_STATE_COUNT
 };
 
-enum {
+enum mui_control_action_e {
 	MUI_CONTROL_ACTION_NONE = 0,
 	MUI_CONTROL_ACTION_VALUE_CHANGED	= FCC('c','v','a','l'),
 	MUI_CONTROL_ACTION_CLICKED			= FCC('c','l','k','d'),
@@ -854,14 +864,42 @@ enum mui_std_action_e {
 	MUI_STDF_ACTION_SELECT 		= FCC('s','t','d','s'),
 	MUI_STDF_ACTION_CANCEL 		= FCC('s','t','d','c'),
 };
+enum mui_std_flags_e {
+	// 'pattern' is a GNU extended regexp applied to filenames.
+	MUI_STDF_FLAG_REGEXP 	= (1 << 0),
+	// don't use the 'pref_directory', load, or same preference files
+	MUI_STDF_FLAG_NOPREF 	= (1 << 1),
+};
 
+/*
+ * Standard file dialog related
+ *
+ * Presents a standard 'get' file dialog, with optional prompt, regexp and
+ * start path. The return value is a pointer to a window, you can add your own
+ * 'action' function to get MUI_STDF_ACTION_* events.
+ * Once in the action function, you can call mui_stdfile_get_selected_path()
+ * to get the selected path, and free it when done.
+ * NOTE: The dialog does not auto-close, your own action function should close
+ * the dialog using mui_window_dispose().
+ *
+ * The dialog will attempt to remember the last directory used *for this
+ * particular pattern* and will use it as the default start path when called
+ * again. This is optional, it requires a mui->pref_directory to be set.
+ * You can also disable this feature by setting the MUI_STDF_FLAG_NOPREF flag.
+ *
+ * + 'pattern' is a regular expression to filter the files, or NULL for no
+ *    filter.
+ * + if 'start_path' is NULL, the $HOME directory is used.
+ * + 'where' is the location of the dialog, (0,0) will center it.
+ */
 mui_window_t *
 mui_stdfile_get(
 		struct mui_t * 	ui,
 		c2_pt_t 		where,
 		const char * 	prompt,
-		const char * 	regexp,
-		const char * 	start_path );
+		const char * 	pattern,
+		const char * 	start_path,
+		uint16_t 		flags );
 // return the curently selected pathname -- caller must free() it
 char *
 mui_stdfile_get_selected_path(
@@ -870,7 +908,7 @@ mui_stdfile_get_selected_path(
 /*
  * Alert dialog
  */
-enum {
+enum mui_alert_flag_e {
 	MUI_ALERT_FLAG_OK 		= (1 << 0),
 	MUI_ALERT_FLAG_CANCEL 	= (1 << 1),
 
@@ -893,7 +931,7 @@ mui_alert(
 		const char * 	message,
 		uint16_t 		flags );
 
-enum {
+enum mui_time_e {
 	MUI_TIME_RES		= 1,
 	MUI_TIME_SECOND		= 1000000,
 	MUI_TIME_MS			= (MUI_TIME_SECOND/1000),
@@ -901,20 +939,22 @@ enum {
 mui_time_t
 mui_get_time();
 
+#define MUI_TIMER_COUNT 64
+
 typedef struct mui_timer_group_t {
 	uint64_t 					map;
 	struct {
 		mui_time_t 					when;
 		mui_timer_p 				cb;
 		void * 						param;
-	} 						timers[64];
+	} 						timers[MUI_TIMER_COUNT];
 } mui_timer_group_t;
 
 /*
  * Register 'cb' to be called after 'delay'. Returns a timer id (0 to 63)
- * or 0xff if no timer is available. The timer function cb can return 0 for a one
- * shot timer, or another delay that will be added to the current stamp for a further
- * call of the timer.
+ * or 0xff if no timer is available. The timer function cb can return 0 for a
+ * one shot timer, or another delay that will be added to the current stamp
+ * for a further call of the timer.
  * 'param' will be also passed to the timer callback.
  */
 uint8_t
@@ -923,10 +963,25 @@ mui_timer_register(
 		mui_timer_p 	cb,
 		void *			param,
 		uint32_t 		delay);
+/*
+ * Reset timer 'id' if 'cb' matches what was registered. Set a new delay,
+ * or cancel the timer if delay is 0.
+ * Returns the time that was left on the timer, or 0 if the timer was
+ * not found.
+ */
+mui_time_t
+mui_timer_reset(
+		struct mui_t *	ui,
+		uint8_t 		id,
+		mui_timer_p 	cb,
+		mui_time_t 		delay);
 
 typedef struct mui_t {
 	c2_pt_t 					screen_size;
-	mui_color_t 				clear_color;
+	struct {
+		mui_color_t					clear;
+		mui_color_t 				highlight;
+	}							color;
 	uint16_t 					modifier_keys;
 	int 						draw_debug;
 	// this is the sum of all the window's dirty regions, inc moved windows etc

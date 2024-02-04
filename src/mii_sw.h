@@ -78,10 +78,11 @@ enum {
 	B_BSRWRITE 		= (12),
 	B_BSRREAD 		= (13),
 	B_BSRPAGE2 		= (14),
-	B_SWDHIRES	 	= (15),
+	B_BSRPREWRITE 	= (15),
+	B_SWDHIRES	 	= (16),
 	// this is no 'real' softwitch, but a bit to mention a card has
 	// it's secondary rom online in pages c800-cfff
-	B_SLOTAUXROM	= (16),
+	B_SLOTAUXROM	= (17),
 
 	M_SW80STORE 	= (1 << B_SW80STORE),
 	M_SWALTCHARSET 	= (1 << B_SWALTCHARSET),
@@ -98,6 +99,7 @@ enum {
 	M_BSRWRITE 		= (1 << B_BSRWRITE),
 	M_BSRREAD 		= (1 << B_BSRREAD),
 	M_BSRPAGE2 		= (1 << B_BSRPAGE2),
+	M_BSRPREWRITE 	= (1 << B_BSRPREWRITE),
 	M_SWDHIRES	 	= (1 << B_SWDHIRES),
 	M_SLOTAUXROM	= (1 << B_SLOTAUXROM),
 };
@@ -121,6 +123,7 @@ static const char __unused__ *mii_sw_names[] =  {
 	"BSRWRITE",
 	"BSRREAD",
 	"BSRPAGE2",
+	"BSRPREWRITE",
 	"DHIRES",
 	"AUXROMON",
 	NULL,

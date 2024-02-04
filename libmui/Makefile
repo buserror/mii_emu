@@ -72,7 +72,7 @@ $(LIB)/ui_tests.so : $(OBJ)/ui_tests.o $(LIB)/libmui.a | $(O)
 $(BIN)/mui_playground : $(OBJ)/mui_playground.o $(LIB)/libmui.a
 
 $(OBJ)/%.o		: %.c | $(OBJ)
-	@echo "  CC " ${filter -O%, $(CPPFLAGS) $(CFLAGS)} " $<"
+	@echo "  CC" ${filter -O%, $(CPPFLAGS) $(CFLAGS)} "$<"
 	$(Q)$(CC) -MMD $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
 $(BIN)/%			:  | $(BIN)

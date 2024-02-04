@@ -17,8 +17,7 @@
 
 #include <stdint.h>
 
-#include "bsd_queue.h"
-#include "c_array.h"
+#include "mui.h"
 
 #define MII_PATH_SIZE_MAX 256
 

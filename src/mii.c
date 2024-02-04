@@ -322,6 +322,18 @@ mii_access_soft_switches(
 					*byte = on;
 			}
 		}	break;
+/*
+ SATHER-SATHER-SATHER-SATHER-SATHER-SATHER-SATHER-SATHER-SATHER-SATHER
+
+ Writing to high RAM is enabled when the HRAMWRT' soft switch is reset.
+ The controlling MPU program must set the PRE-WRITE soft switch before
+ it can reset HRAMWRT'. PRE-WRITE is set in the by odd read access ub the
+ C08X range. It is reset by even read access or any write access in the
+ $C08X range.
+ HRAMWRT' is reset by odd read access in the $C08X range when PRE-WRITE is
+ set. It is set by even acce.ss in the $C08X range. Any other type of access
+ causes HRAMWRT' to hold its current state.
+*/
 		case 0xc080 ... 0xc08f: {
 			res = true;
 			uint8_t mode = addr & 0x0f;
@@ -329,16 +341,25 @@ mii_access_soft_switches(
 			static const int read_modes[4] = { 1, 0, 0, 1, };
 			uint8_t rd = read_modes[mode & 3];
 			uint8_t wr = write_modes[mode & 3];
+
+			if (write) {
+				SW_SETSTATE(mii, BSRPREWRITE, 0);
+			} else {
+				SW_SETSTATE(mii, BSRPREWRITE, mode & 1);
+			}
+		//	if (SW_GETSTATE(mii, BSRPREWRITE))
+		//		;
 			SW_SETSTATE(mii, BSRWRITE, wr);
 			SW_SETSTATE(mii, BSRREAD, rd);
-			SW_SETSTATE(mii, BSRPAGE2, !(mode & 0x08));
+			SW_SETSTATE(mii, BSRPAGE2, !(mode & 0x08));	// A3
 			mii->mem_dirty = 1;
 //			mii->trace_cpu = 1;
 //			mii->state = MII_STOPPED;
 			if (unlikely(mii->trace_cpu))
-				printf("%04x: BSR mode addr %04x:%02x read:%s write:%s %s altzp:%02x\n",
-					mii->cpu.PC, addr,
-					mode,
+				printf("%04x: BSR mode %c%04x pre:%d read:%s write:%s %s altzp:%02x\n",
+					mii->cpu.PC, write ? 'W' : 'R',
+					addr,
+					SW_GETSTATE(mii, BSRPREWRITE),
 					rd ? "BSR" : "ROM",
 					wr ? "BSR" : "ROM",
 					SW_GETSTATE(mii, BSRPAGE2) ? "page2" : "page1",

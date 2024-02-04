@@ -23,23 +23,6 @@
 #include "mii.h"
 #include "mii_thread.h"
 
-#include <time.h>
-typedef uint64_t mii_time_t;
-enum {
-	MII_TIME_RES		= 1,
-	MII_TIME_SECOND		= 1000000,
-	MII_TIME_MS			= (MII_TIME_SECOND/1000),
-};
-mii_time_t
-mii_get_time()
-{
-	struct timespec tim;
-	clock_gettime(CLOCK_MONOTONIC_RAW, &tim);
-	uint64_t time = ((uint64_t)tim.tv_sec) * (1000000 / MII_TIME_RES) +
-						tim.tv_nsec / (1000 * MII_TIME_RES);
-	return time;
-}
-
 static float default_fps = 60;
 mii_th_fifo_t signal_fifo;
 
@@ -229,7 +212,7 @@ mii_thread_joystick(
 #endif
 
 pthread_t
-mii_thread_start(
+mii_threads_start(
 		mii_t *mii)
 {
 	const mii_th_fifo_t zero = {};

@@ -91,11 +91,12 @@ VPATH 				+= test
 # Base test without the UI, for performance testing
 $(BIN)/mii_test 	: $(TEST_OBJ)
 $(BIN)/mii_test 	: $(OBJ)/mii_test.o $(OBJ)/mii_mish.o
-$(OBJ)/mii_test.o	: CFLAGS += -O0 -Og
+$(OBJ)/mii_test.o	: CFLAGS := -O0 -Og ${filter-out -O%, $(CFLAGS)}
 
-$(OBJ)/mii_cpu_test.o	: CFLAGS += -O0 -Og
+$(OBJ)/mii_cpu_test.o	: CFLAGS := -O0 -Og ${filter-out -O%, $(CFLAGS)}
 $(BIN)/mii_cpu_test : $(OBJ)/mii_cpu_test.o $(TEST_OBJ)
 
+# Assembler for the 6502
 $(BIN)/mii_asm	 	: $(OBJ)/mii_asm.o $(TEST_OBJ)
 
 ifeq ($(V),1)
@@ -105,7 +106,7 @@ Q := @
 endif
 
 $(OBJ)/%.o 			: %.c | $(OBJ)
-	@echo "  CC " ${filter -O%, $(CPPFLAGS) $(CFLAGS)} " $<"
+	@echo "  CC" ${filter -O%, $(CPPFLAGS) $(CFLAGS)} "$<"
 	$(Q)$(CC) -MMD $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
 $(BIN)/%			:  | $(BIN)

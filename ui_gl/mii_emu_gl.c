@@ -877,7 +877,7 @@ mii_x11_reload_config(
 	mii_reset(mii, true);
 
 	/* start the CPU/emulator thread */
-	ui->cpu_thread = mii_thread_start(mii);
+	ui->cpu_thread = mii_threads_start(mii);
 }
 
 mii_x11_t g_mii = {};
@@ -932,7 +932,7 @@ main(
 	mii_x11_init(ui);
 	mui_t * mui = &ui->video.mui; // to move to a function later
 	mui_init(mui);
-	mui->clear_color.value = 0;
+	mui->color.clear.value = 0;
 	asprintf(&mui->pref_directory, "%s/.local/share/mii", getenv("HOME"));
 
 	mii_mui_menus_init((mii_mui_t*)ui);
@@ -957,7 +957,7 @@ main(
 		mii_config_open_slots_dialog(&ui->video);
 	}
 	/* start the CPU/emulator thread */
-	ui->cpu_thread = mii_thread_start(mii);
+	ui->cpu_thread = mii_threads_start(mii);
 
 	while (mii->state != MII_INIT) {
 		/* Input */

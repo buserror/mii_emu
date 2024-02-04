@@ -41,7 +41,7 @@ enum {
  */
 typedef struct mii_color_t {
 	uint32_t 	rgb;
-	uint8_t 	l;
+	uint32_t 	l : 8, index : 8;
 } mii_color_t;
 
 #define HI_LUMA(r,g,b) \
@@ -61,22 +61,22 @@ typedef struct mii_color_t {
  * Well not really, it is just ONE interpreation of many, we could possibly
  * make some sort of color lookup table to allow switching them on the fly?
  */
-#define	C_BLACK		HI_RGB(0x00, 0x00, 0x00)	// black
-#define	C_PURPLE 	HI_RGB(0xff, 0x44, 0xfd)	// purple
-#define	C_GREEN 	HI_RGB(0x14, 0xf5, 0x3c)	// green
-#define	C_BLUE		HI_RGB(0x14, 0xcf, 0xfd)	// blue
-#define	C_ORANGE 	HI_RGB(0xff, 0x6a, 0x3c)	// orange
-#define	C_WHITE		HI_RGB(0xff, 0xff, 0xff)	// white
-#define C_MAGENTA	HI_RGB(0xe3, 0x1e, 0x60)	// magenta
-#define C_DARKBLUE	HI_RGB(0x60, 0x4e, 0xbd)	// dark blue
-#define C_DARKGREEN HI_RGB(0x00, 0xa3, 0x60)	// dark green
-#define C_GRAY1 	HI_RGB(0x9c, 0x9c, 0x9c)	// gray 1
-#define C_GRAY2 	HI_RGB(0x9c, 0x9c, 0x9c)	// gray 2
-#define C_LIGHTBLUE HI_RGB(0xd0, 0xc3, 0xff)	// light blue
-#define C_BROWN 	HI_RGB(0x60, 0x72, 0x03)	// brown
-#define C_PINK  	HI_RGB(0xff, 0xa0, 0xd0)	// pink
-#define C_YELLOW 	HI_RGB(0xd0, 0xdd, 0x8d)	// yellow
-#define C_AQUA  	HI_RGB(0x72, 0xff, 0xd0)	// aqua
+#define	C_BLACK		HI_RGB(0x00, 0x00, 0x00)
+#define	C_PURPLE 	HI_RGB(0xff, 0x44, 0xfd)
+#define	C_GREEN 	HI_RGB(0x14, 0xf5, 0x3c)
+#define	C_BLUE		HI_RGB(0x14, 0xcf, 0xfd)
+#define	C_ORANGE 	HI_RGB(0xff, 0x6a, 0x3c)
+#define	C_WHITE		HI_RGB(0xff, 0xff, 0xff)
+#define C_MAGENTA	HI_RGB(0xe3, 0x1e, 0x60)
+#define C_DARKBLUE	HI_RGB(0x60, 0x4e, 0xbd)
+#define C_DARKGREEN HI_RGB(0x00, 0xa3, 0x60)
+#define C_GRAY1 	HI_RGB(0x9c, 0x9c, 0x9c)
+#define C_GRAY2 	HI_RGB(0x9c, 0x9c, 0x9c)
+#define C_LIGHTBLUE HI_RGB(0xd0, 0xc3, 0xff)
+#define C_BROWN 	HI_RGB(0x60, 0x72, 0x03)
+#define C_PINK  	HI_RGB(0xff, 0xa0, 0xd0)
+#define C_YELLOW 	HI_RGB(0xd0, 0xdd, 0x8d)
+#define C_AQUA  	HI_RGB(0x72, 0xff, 0xd0)
 
 // this is not an official color, just 'my' interpretation of an amber screen
 #define C_AMBER 	HI_RGB(0xfd, 0xcf, 0x14)	// amber
@@ -126,6 +126,7 @@ static inline uint8_t reverse8(uint8_t b) {
 	b = (b & 0b10101010) >> 1 | (b & 0b01010101) << 1;
 	return b;
 }
+// Used for DHRES decoding
 static inline uint8_t reverse4(uint8_t b) {
 	b = (b & 0b0001) << 3 | (b & 0b0010) << 1 |
 		(b & 0b0100) >> 1 | (b & 0b1000) >> 3;
@@ -461,8 +462,31 @@ mii_video_init(
 {
 	mii->video.timer_id = mii_timer_register(mii,
 				mii_video_timer_cb, NULL, MII_VIDEO_H_CYCLES, __func__);
+	// start the DHRES in color
+	mii_bank_t * main = &mii->bank[MII_BANK_MAIN];
+	mii_bank_poke(main, SWAN3_REGISTER, 1);
 }
 
+/* given a RGB color r,g,b, print a table of 16 RGB colors that are graded
+   from luminance 0 to 1 in that particular shade of color.
+*/
+void
+mii_video_print_color_table(
+		uint32_t rgb)
+{
+	uint8_t b = (rgb >> 16) & 0xff;
+	uint8_t g = (rgb >> 8) & 0xff;
+	uint8_t r = (rgb >> 0) & 0xff;
+	uint8_t l = HI_LUMA(r, g, b);
+	printf("// LUMA %d start color %02x %02x %02x\n{ ", l, r, g, b);
+	for (int i = 0; i < 16; i++) {
+		uint8_t ll = (l * i) / 15;
+		uint8_t rr = (r * ll) / l;
+		uint8_t gg = (g * ll) / l;
+		uint8_t bb = (b * ll) / l;
+		printf("%01x: %02x %02x %02x\n", i, rr, gg, bb);
+	}
+}
 
 
 static void
@@ -471,7 +495,7 @@ _mii_mish_video(
 		int argc,
 		const char * argv[])
 {
-	mii_t * mii = param;
+//	mii_t * mii = param;
 
 	if (!argv[1] || !strcmp(argv[1], "list")) {
 		for (int i = 0; i < 16; i++) {
@@ -480,6 +504,11 @@ _mii_mish_video(
 					lores_colors[1][i].rgb,
 					dhires_colors[i].rgb);
 		}
+		return;
+	}
+	if (!strcmp(argv[1], "gradient")) {
+		mii_video_print_color_table(lores_colors[0][1].rgb);
+
 		return;
 	}
 }

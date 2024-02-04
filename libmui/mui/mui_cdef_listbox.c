@@ -24,6 +24,13 @@ typedef struct mui_listbox_control_t {
 	mui_ldef_p			ldef;
 	// to handle double-click
 	mui_time_t			last_click;
+	// typehead search related
+	struct {
+		uint8_t 			enabled;
+		uint8_t 			timer;
+		char 				buf[32];
+		uint8_t 			index;
+	} 					typehead;
 } mui_listbox_control_t;
 
 extern const mui_control_color_t mui_control_color[MUI_CONTROL_STATE_COUNT];
@@ -56,7 +63,7 @@ mui_listbox_draw(
 
 	mui_font_t * icons = mui_font_find(win->ui, "icon_small");
 	mui_font_t * main = mui_font_find(win->ui, "main");
-	mui_color_t highlight = MUI_COLOR(0xd6fcc0ff);
+	mui_color_t highlight = win->ui->color.highlight;
 
 	for (unsigned int ii = top_element;
 					ii < lb->elems.count && ii < bottom_element; ii++) {
@@ -85,13 +92,70 @@ mui_listbox_draw(
 	mui_drawable_clip_pop(dr);
 }
 
+/* mui_timer used to 'cancel' the typehead if a certain delay has lapsed */
+static mui_time_t
+mui_listbox_typehead_timer(
+		struct mui_t * mui,
+		mui_time_t 	now,
+		void * 		param)
+{
+	mui_listbox_control_t *lb = param;
+	lb->typehead.enabled = 0;
+	lb->typehead.timer = 0xff;
+	lb->typehead.index = 0;
+//	printf("typehead: cancelled\n");
+	return 0;
+}
+
+static int32_t
+mui_listbox_typehead(
+		mui_listbox_control_t *lb,
+		mui_event_t * ev)
+{
+	if (ev->key.key < 32 || ev->key.key > 127)
+		return false;
+	if (!lb->typehead.enabled) {
+		lb->typehead.enabled = 1;
+		lb->typehead.index = 0;
+		lb->typehead.timer = mui_timer_register(
+								lb->control.win->ui,
+								mui_listbox_typehead_timer,
+								lb, MUI_TIME_MS * 1000);
+	}
+	// add character to the current prefix
+	if (lb->typehead.index < sizeof(lb->typehead.buf) - 1)
+		lb->typehead.buf[lb->typehead.index++] = ev->key.key;
+	lb->typehead.buf[lb->typehead.index] = 0;
+//	printf("typehead: %d '%s'\n", lb->typehead.index, lb->typehead.buf);
+	// reset cancel timer
+	mui_timer_reset(lb->control.win->ui,
+				lb->typehead.timer, mui_listbox_typehead_timer,
+				MUI_TIME_MS * 1000);
+	// we do the lookup twice, once with the case sensitive test, and if
+	// that find something that matches, we're good. If not, try to match
+	// the prefix in a non-case sensitive way in case the user doesn't know
+	// what he wants...
+	for (unsigned int ii = 0; ii < lb->elems.count; ii++) {
+		mui_listbox_elem_t *e = &lb->elems.e[ii];
+		if (strncmp(e->elem, lb->typehead.buf, lb->typehead.index) == 0)
+			return ii - lb->control.value;
+	}
+	for (unsigned int ii = 0; ii < lb->elems.count; ii++) {
+		mui_listbox_elem_t *e = &lb->elems.e[ii];
+		if (strncasecmp(e->elem, lb->typehead.buf, lb->typehead.index) == 0)
+			return ii - lb->control.value;
+	}
+//	printf("typehead: no match\n");
+	return 0;
+}
+
 static bool
 mui_listbox_key(
 		mui_control_t * c,
 		mui_event_t * ev)
 {
 	mui_listbox_control_t *lb = (mui_listbox_control_t *)c;
-	printf("%s key: %d\n", __func__, ev->key.key);
+//	printf("%s key: %d '%c'\n", __func__, ev->key.key, ev->key.key);
 	c2_rect_t f = c->frame;
 	c2_rect_offset(&f, -f.l, -f.t);
 	uint32_t page_size = (c2_rect_height(&f) / lb->elem_height)-1;
@@ -99,6 +163,8 @@ mui_listbox_key(
 	int delta = 0;
 	if (ev->modifiers & (MUI_MODIFIER_SUPER | MUI_MODIFIER_CTRL))
 		return false;
+	if (isalpha(ev->key.key))
+		delta = mui_listbox_typehead(lb, ev);
 	switch (ev->key.key) {
 		case MUI_KEY_UP:	delta = -1; break;
 		case MUI_KEY_DOWN: 	delta = 1;	break;
@@ -121,17 +187,16 @@ mui_listbox_key(
 				-e.t + (c->value * lb->elem_height));
 		c2_rect_t w = f;
 		c2_rect_offset(&w, 0, lb->scroll);
-		printf("  e:%s f:%s\n", c2_rect_as_str(&e), c2_rect_as_str(&w));
+//		printf("  e:%s f:%s\n", c2_rect_as_str(&e), c2_rect_as_str(&w));
 		if (e.b > w.b) {
 			lb->scroll = (e.b - c2_rect_height(&c->frame));
-			printf("   over %d\n", lb->scroll);
+		//	printf("   over %d\n", lb->scroll);
 		}
 		if (e.t < w.t)
 			lb->scroll = e.t;
-		printf("   scroll:%d\n", lb->scroll);
+//		printf("   scroll:%d\n", lb->scroll);
 		mui_control_set_value(lb->scrollbar, lb->scroll);
 		mui_control_inval(c);
-//		mui_control_inval(lb->scrollbar);
 		mui_control_action(c, MUI_CONTROL_ACTION_VALUE_CHANGED,
 						&lb->elems.e[nsel]);
 		return true;
@@ -177,15 +242,7 @@ mui_cdef_event(
 			}
 			return true;
 		}	break;
-		case MUI_EVENT_KEYUP: {	// ignore keydowns
-			if (ev->key.key == 13) {
-				if (!lb->elems.e[c->value].disabled) {
-					mui_control_action(c,
-								MUI_CONTROL_ACTION_SELECT,
-								&lb->elems.e[c->value]);
-				}
-				return true;
-			}
+		case MUI_EVENT_KEYUP: {
 			if (mui_listbox_key(c, ev))
 				return true;
 		}	break;

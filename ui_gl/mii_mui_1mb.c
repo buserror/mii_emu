@@ -204,7 +204,8 @@ _mii_1mb_action_cb(
 						C2_PT(0, 0),
 						"Select a file (Exactly 1MB in size)",
 						"\\.(po|hdv|bin|rom)$",
-						getenv("HOME"));
+						getenv("HOME"),
+						MUI_STDF_FLAG_REGEXP);
 					mui_window_set_action(w, _mii_1mb_stdfile_cb, m);
 				}	break;
 				case MII_1MB_USE_BIN:

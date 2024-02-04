@@ -89,7 +89,8 @@ _mii_loadbin_action_cb(
 						C2_PT(0, 0),
 						"Select a .bin file to run",
 						"\\.(bin|rom)$",
-						getenv("HOME"));
+						getenv("HOME"),
+						MUI_STDF_FLAG_REGEXP);
 					mui_window_set_action(w, _mii_loadbin_stdfile_cb, m);
 				}	break;
 			}
