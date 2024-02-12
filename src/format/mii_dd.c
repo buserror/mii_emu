@@ -141,10 +141,21 @@ mii_dd_file_load(
 {
 	if (!flags)
 		flags = O_RDONLY;
+	if (flags & O_WRONLY)
+		flags |= O_RDWR;
     int err;
     int fd = open(pathname, flags);
     if (fd < 0) {
-		perror(pathname);
+		printf("%s: %s: Retrying Read only\n", __func__, pathname);
+		if (flags & (O_RDWR | O_WRONLY)) {
+			flags &= ~(O_RDWR | O_WRONLY);
+			flags |= O_RDONLY;
+			fd = open(pathname, flags, 0666);
+		}
+	}
+	if (fd < 0) {
+		printf("%s: %s: Failed to open: %s\n",
+				__func__, pathname, strerror(errno));
         return NULL;
     }
     struct stat st;
@@ -174,10 +185,22 @@ mii_dd_file_load(
 	res->dd 	= NULL;
 	res->next 	= dd->file;
 	dd->file 	= res;
+	res->read_only = (flags & O_RDWR) == 0;
 	char *suffix = strrchr(pathname, '.');
-	if (suffix && !strcasecmp(suffix, ".2mg")) {
-		res->format = MII_DD_FILE_2MG;
-		res->map += 64;
+	if (suffix) {
+		if (!strcasecmp(suffix, ".dsk")) {
+			res->format = MII_DD_FILE_DSK;
+		} else if (!strcasecmp(suffix, ".po") || !strcasecmp(suffix, ".hdv")) {
+			res->format = MII_DD_FILE_PO;
+		} else if (!strcasecmp(suffix, ".nib")) {
+			res->format = MII_DD_FILE_NIB;
+		} else if (!strcasecmp(suffix, ".woz")) {
+			res->format = MII_DD_FILE_WOZ;
+		} else if (!strcasecmp(suffix, ".2mg")) {
+			res->format = MII_DD_FILE_2MG;
+			res->map += 64;
+		}
+		printf("%s: suffix %s, format %d\n", __func__, suffix, res->format);
 	}
 	return res;
 bail:

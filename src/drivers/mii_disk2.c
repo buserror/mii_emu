@@ -6,201 +6,120 @@
  * SPDX-License-Identifier: MIT
  */
 
-//  Shamelesly lifted from periph/disk2.c
-//
-//  Copyright (c) 2023 Micah John Cowan.
-//  This code is licensed under the MIT license.
-//  See the accompanying LICENSE file for details.
-
-#include <errno.h>
-#include <stdbool.h>
-#include <stdint.h>
+#define _GNU_SOURCE // for asprintf
 #include <stdio.h>
 #include <stdlib.h>
-
+#include <string.h>
 #include <fcntl.h>
-#include <sys/mman.h>
-#include <unistd.h>
-
 #include "mii.h"
 #include "mii_bank.h"
 #include "mii_disk2.h"
 #include "mii_rom_disk2.h"
-#include "mii_disk_format.h"
+#include "mii_woz.h"
+#include "mii_floppy.h"
 
-//#define DISK_DEBUG
-#ifdef DISK_DEBUG
-# define D2DBG(...)  do { \
-		if (c->pr_count == 1) \
-			fprintf(stderr, __VA_ARGS__); \
-	} while(0)
-#else
-# define D2DBG(...)
-#endif
+enum {
+	// bits used to address the LSS ROM using lss_mode
+	WRITE_BIT	= 0,
+	LOAD_BIT	= 1,
+	QA_BIT		= 2,
+	RP_BIT		= 3,
+};
 
 typedef struct mii_card_disk2_t {
-	uint32_t timer;
-	bool motor_on;
-	bool drive_two;
-	bool write_mode;
-	union {
-		struct {
-			DiskFormatDesc disk1;
-			DiskFormatDesc disk2;
-		};
-		DiskFormatDesc disk[2];
-	};
-	uint8_t data_register; // only used for write
-	bool steppers[4];
-	int cog1;
-	int cog2;
-//	int pr_count; // debug print
+	mii_dd_t 		drive[2];
+	mii_floppy_t	floppy[2];
+	uint8_t 		selected;
+
+	uint8_t 		timer_off;
+	uint8_t 		timer_lss;
+
+	uint8_t 		write_register;
+	uint8_t 		head : 4;		// bits are shifted in there
+	uint8_t 		clock : 3;		// LSS clock cycles, read a bit when 0
+	uint8_t 		lss_state : 4,	// Sequence state
+					lss_mode : 4;	// WRITE/LOAD/SHIFT/QA/RP etc
+	uint8_t 		lss_prev_state;	// for write bit
+	uint8_t 		lss_skip;
+	uint8_t 		data_register;
 } mii_card_disk2_t;
 
-//static const size_t dsk_disksz = 143360;
 
-int disk2_debug = 0;
+static void
+_mii_disk2_lss_tick(
+	mii_card_disk2_t *c );
 
-static DiskFormatDesc *
-active_disk_obj(
-		mii_card_disk2_t *c)
+// debug, used for mish, only supports one card tho (yet)
+static mii_card_disk2_t *_mish_d2 = NULL;
+
+/*
+ * This timer is used to turn off the motor after a second
+ */
+static uint64_t
+_mii_floppy_motor_off_cb(
+		mii_t * mii,
+		void * param )
 {
-	return c->drive_two ? &c->disk2 : &c->disk1;
-}
-
-#if 0
-bool
-drive_spinning(
-		mii_card_disk2_t *c)
-{
-	return c->motor_on;
-}
-
-int
-active_disk(
-		mii_card_disk2_t *c)
-{
-	return c->drive_two ? 2 : 1;
-}
-int
-eject_disk(
-		mii_card_disk2_t *c,
-		int drive)
-{
-	if (c->motor_on && active_disk(c) == drive) {
-		return -1;
-	}
-	init(c); // to make sure
-
-	if (drive == 1) {
-		c->disk1.eject(&c->disk1);
-		c->disk1 = disk_format_load(NULL);
-	} else if (drive == 2) {
-		c->disk2.eject(&c->disk2);
-		c->disk2 = disk_format_load(NULL);
-	}
+	mii_card_disk2_t *c = param;
+	mii_floppy_t *f 	= &c->floppy[c->selected];
+	printf("%s drive %d off\n", __func__, c->selected);
+	if (c->drive[c->selected].file && f->tracks_dirty)
+		mii_floppy_update_tracks(f, c->drive[c->selected].file);
+	f->motor 		= 0;
 	return 0;
 }
 
-int
-insert_disk(
+/*
+ * This (tries) to be called every cycle, it never happends in practice,
+ * as all the instructions can use multiple cycles by CPU runs.
+ * But I can retreive the overshoot cycles and call the LSS as many times
+ * as needed to 'catch up'
+ */
+static uint64_t
+_mii_floppy_lss_cb(
+		mii_t * mii,
+		void * param )
+{
+	mii_card_disk2_t *c = param;
+	mii_floppy_t *f 	= &c->floppy[c->selected];
+	if (!f->motor)
+		return 0;	// stop timer, motor is now off
+	// delta is ALWAYS negative, or zero here
+	int32_t delta = mii_timer_get(mii, c->timer_lss);
+	uint64_t ret = -delta + 1;
+	do {
+		_mii_disk2_lss_tick(c);
+		_mii_disk2_lss_tick(c);
+	} while (delta++ < 0);
+	return ret;
+}
+
+static uint8_t
+_mii_disk2_switch_track(
+		mii_t *mii,
 		mii_card_disk2_t *c,
-		int drive,
-		const char *path)
+		int delta)
 {
-	int err = eject_disk(c, drive);
-	if (err != 0) return err;
+	mii_floppy_t *f = &c->floppy[c->selected];
+	int qtrack = f->qtrack + delta;
+	if (qtrack < 0) qtrack = 0;
+	if (qtrack >= 35 * 4) qtrack = (35 * 4) -1;
 
-	// Make sure we're inserted to slot 6
-	// XXX should check for error/distinguish if we're already in that slot
-	(void) periph_slot_reg(6, &disk2card);
+	if (qtrack == f->qtrack)
+		return f->qtrack;
 
-	if (err) {
-		return -1; // XXX should be a distinguishable err code
-	}
-	if (drive == 1) {
-		c->disk1 = disk_format_load(path);
-	} else if (drive == 2) {
-		c->disk2 = disk_format_load(path);
-	}
+	uint8_t track_id = f->track_id[f->qtrack];
+	if (track_id != MII_FLOPPY_RANDOM_TRACK_ID)
+		printf("NEW TRACK D%d: %d\n", c->selected, track_id);
+	uint8_t track_id_new = f->track_id[qtrack];
 
-	return 0;
-}
-#endif
-
-// NOTE: cog "left" and "right" refers only to the number line,
-//       and not the physical cog or track head movement.
-static bool
-cogleft(
-		mii_card_disk2_t *c,
-		int *cog)
-{
-	int cl = ((*cog) + 3) % 4; // position to the "left" of cog
-	return (!c->steppers[(*cog)] && c->steppers[cl]);
-}
-
-// NOTE: cog "left" and "right" refers only to the number line,
-//       and not the physical cog or track head movement.
-static bool
-cogright(
-		mii_card_disk2_t *c,
-		int *cog)
-{
-	int cr = ((*cog) + 1) % 4; // position to the "right" of cog
-	return (!c->steppers[(*cog)] && c->steppers[cr]);
-}
-
-static int *
-active_cog(
-		mii_card_disk2_t *c)
-{
-	return c->drive_two? &c->cog2 : &c->cog1;
-}
-
-static void
-adjust_track(
-		mii_card_disk2_t *c)
-{
-	DiskFormatDesc *disk = active_disk_obj(c);
-	int *cog = active_cog(c);
-	D2DBG("halftrack: ");
-	if (cogleft(c, cog)) {
-		*cog = ((*cog) + 3) % 4;
-		if (disk->halftrack > 0) --disk->halftrack;
-		D2DBG("dec to %d", disk->halftrack);
-	} else if (cogright(c, cog)) {
-		*cog = ((*cog) + 1) % 4;
-		if (disk->halftrack < 69) ++disk->halftrack;
-		D2DBG("inc to %d", disk->halftrack);
-	} else {
-		D2DBG("no change (%d)", disk->halftrack);
-	}
-}
-
-static void
-stepper_motor(
-		mii_card_disk2_t *c,
-		uint8_t psw)
-{
-	uint8_t phase = psw >> 1;
-	bool onoff = (psw & 1) != 0;
-
-	D2DBG("phase %d %s ", (int)phase, onoff? "on, " : "off,");
-	c->steppers[phase] = onoff;
-	adjust_track(c);
-}
-
-static inline uint8_t encode4x4(mii_card_disk2_t *c, uint8_t orig)
-{
-	return (orig | 0xAA);
-}
-
-static void turn_off_motor(mii_card_disk2_t *c)
-{
-	c->motor_on = false;
-	DiskFormatDesc *disk = active_disk_obj(c);
-	disk->spin(disk, false);
-//    event_fire_disk_active(0);
+	/* adapt the bit position from one track to the others, from WOZ specs */
+	uint32_t track_size = f->tracks[track_id].bit_count;
+	uint32_t new_size = f->tracks[track_id_new].bit_count;
+	uint32_t new_pos = f->bit_position * new_size / track_size;
+	f->bit_position = new_pos;
+	f->qtrack = qtrack;
+	return f->qtrack;
 }
 
 static int
@@ -209,30 +128,34 @@ _mii_disk2_init(
 		struct mii_slot_t *slot )
 {
 	mii_card_disk2_t *c = calloc(1, sizeof(*c));
-
 	slot->drv_priv = c;
-	c->disk1 = disk_format_load(NULL);
-	c->disk2 = disk_format_load(NULL);
+
 	printf("%s loading in slot %d\n", __func__, slot->id + 1);
 	uint16_t addr = 0xc100 + (slot->id * 0x100);
 	mii_bank_write(
 			&mii->bank[MII_BANK_CARD_ROM],
 			addr, mii_rom_disk2, 256);
 
-	return 0;
-}
-
-static void
-_mii_disk2_run(
-		mii_t * mii,
-		struct mii_slot_t *slot)
-{
-	mii_card_disk2_t *c = slot->drv_priv;
-	if (c->timer && c->timer <= mii->video.frame_count) {
-		printf("%s turning off motor\n", __func__);
-		c->timer = 0;
-		turn_off_motor(c);
+	for (int i = 0; i < 2; i++) {
+		mii_dd_t *dd = &c->drive[i];
+		dd->slot_id = slot->id + 1;
+		dd->drive = i + 1;
+		dd->slot = slot;
+		asprintf((char **)&dd->name, "Disk ][ S:%d D:%d",
+				dd->slot_id, dd->drive);
+		mii_floppy_init(&c->floppy[i]);
+		c->floppy[i].id = i;
 	}
+	mii_dd_register_drives(&mii->dd, c->drive, 2);
+
+	c->timer_off 	= mii_timer_register(mii,
+							_mii_floppy_motor_off_cb, c, 0,
+							"Disk ][ motor off");
+	c->timer_lss 	= mii_timer_register(mii,
+							_mii_floppy_lss_cb, c, 0,
+							"Disk ][ LSS");
+	_mish_d2 = c;
+	return 0;
 }
 
 static uint8_t
@@ -241,99 +164,64 @@ _mii_disk2_access(
 	uint16_t addr, uint8_t byte, bool write)
 {
 	mii_card_disk2_t *c = slot->drv_priv;
+	mii_floppy_t * f = &c->floppy[c->selected];
 	uint8_t ret = 0;
 
+	if (write) {
+	//	printf("WRITE PC:%04x %4.4x: %2.2x\n", mii->cpu.PC, addr, byte);
+		c->write_register = byte;
+	}
 	int psw = addr & 0x0F;
-
-	if (c->timer)
-		c->timer = mii->video.frame_count + 60;
-	uint8_t last = -1;
-	if (disk2_debug && last != psw + (write? 0x10 : 0))
-		printf("disk sw $%02X, PC = $%04X\n", psw, mii->cpu.PC);
-	last = psw + (write? 0x10 : 0);
-	if (write)
-		c->data_register = byte; // ANY write sets data register
-	if (psw < 8) {
-		stepper_motor(c, psw);
-	} else switch (psw) {
-		case 0x08:
-			if (c->motor_on) {
-				c->timer = mii->video.frame_count + 60;
-				//frame_timer(60, turn_off_motor);
+	int p = psw >> 1, on = psw & 1;
+	switch (psw) {
+		case 0x00 ... 0x07: {
+			if (on) {
+				if ((f->stepper + 3) % 4 == p)
+					_mii_disk2_switch_track(mii, c, -2);
+				else if ((f->stepper + 1) % 4 == p)
+					_mii_disk2_switch_track(mii, c, 2);
+				f->stepper = p;
 			}
-			break;
+		}	break;
+		case 0x08:
 		case 0x09: {
-//            frame_timer_cancel(turn_off_motor);
-			c->timer = 0;
-			c->motor_on = true;
-			DiskFormatDesc *disk = active_disk_obj(c);
-			disk->spin(disk, true);
-            if (disk2_debug)
-    			printf("%s turning on motor %d\n", __func__, c->drive_two);
-	   //     event_fire_disk_active(drive_two? 2 : 1);
+			// motor on/off
+			if (on) {
+				mii_timer_set(mii, c->timer_off, 0);
+				mii_timer_set(mii, c->timer_lss, 1);
+				f->motor = 1;
+			} else {
+				if (!mii_timer_get(mii, c->timer_off)) {
+					mii_timer_set(mii, c->timer_off, 1000000); // one second
+				}
+			}
 		}	break;
 		case 0x0A:
-			if (c->motor_on && c->drive_two) {
-				c->disk2.spin(&c->disk2, false);
-				c->disk1.spin(&c->disk1, true);
-			}
-			c->drive_two = false;
-			if (c->motor_on) {
-			//    event_fire_disk_active(1);
-			}
-			break;
-		case 0x0B:
-			if (c->motor_on && !c->drive_two) {
-				c->disk1.spin(&c->disk1, false);
-				c->disk2.spin(&c->disk2, true);
-			}
-			c->drive_two = true;
-			if (c->motor_on) {
-			//    event_fire_disk_active(2);
-			}
-			break;
-		case 0x0C: {
-			DiskFormatDesc *disk = active_disk_obj(c);
-			if (!c->motor_on) {
-				// do nothing
-			} else if (c->write_mode) {
-				// XXX ignores timing
-				disk->write_byte(disk, c->data_register);
-				c->data_register = 0; // "shifted out".
-			} else {
-				// XXX any even-numbered switch can be used
-				//  to read a byte. But for now we do so only
-				//  through the sanctioned switch for that purpose.
-				ret = c->data_register = disk->read_byte(disk);
-			//	printf("read byte %02X\n", ret);
+		case 0x0B: {
+			if (on != c->selected) {
+				c->selected = on;
+				printf("SELECTED DRIVE: %d\n", c->selected);
+				c->floppy[on].motor = f->motor;
+				f->motor = 0;
 			}
 		}	break;
+		case 0x0C:
 		case 0x0D:
-#if 0
-			if (!motor_on || drive_two) {
-				// do nothing
-			} else if (write_mode) {
-				data_register = (val == -1? 0: val);
-			} else {
-				// XXX should return whether disk is write-protected...
-			}
-#endif
+			c->lss_mode = (c->lss_mode & ~(1 << LOAD_BIT)) | (!!on << LOAD_BIT);
 			break;
 		case 0x0E:
-			c->write_mode = false;
-            if (disk2_debug)
-                printf("%s write mode off\n", __func__);
-			break;
 		case 0x0F:
-			c->write_mode = true;
-            if (disk2_debug)
-                printf("%s write mode on\n", __func__);
+			c->lss_mode = (c->lss_mode & ~(1 << WRITE_BIT)) | (!!on << WRITE_BIT);
 			break;
-		default:
-			;
 	}
-
-	D2DBG("\n");
+	/*
+	 * Here we run one LSS cycle ahead of 'schedule', just because it allows
+	 * the write protect bit to be loaded if needed, it *has* to run before
+	 * we return this value, so we marked a skip and run it here.
+	 */
+	_mii_disk2_lss_tick(c);
+	c->lss_skip++;
+	ret = on ? byte : c->data_register;
 
 	return ret;
 }
@@ -353,14 +241,15 @@ _mii_disk2_command(
 			break;
 		case MII_SLOT_DRIVE_LOAD ... MII_SLOT_DRIVE_LOAD + 2 - 1:
 			int drive = cmd - MII_SLOT_DRIVE_LOAD;
-			if (c->disk[drive].privdat) {
-				c->disk[drive].eject(&c->disk[drive]);
-			}
 			const char *filename = param;
-			printf("%s: drive %d loading %s\n", __func__, drive,
-						filename);
-			c->disk[drive] = disk_format_load(
-								filename && *filename ? filename : NULL);
+			mii_dd_file_t *file = NULL;
+			if (filename && *filename) {
+				file = mii_dd_file_load(&mii->dd, filename, O_RDWR);
+				if (!file)
+					return -1;
+			}
+			mii_dd_drive_load(&c->drive[drive], file);
+			mii_floppy_load(&c->floppy[drive], file);
 			break;
 	}
 	return 0;
@@ -371,7 +260,231 @@ static mii_slot_drv_t _driver = {
 	.desc = "Apple Disk ][",
 	.init = _mii_disk2_init,
 	.access = _mii_disk2_access,
-	.run = _mii_disk2_run,
 	.command = _mii_disk2_command,
 };
 MI_DRIVER_REGISTER(_driver);
+
+
+/* Sather Infamous Table, pretty much verbatim
+									WRITE
+	-----------READ PULSE---------		-—------NO READ PULSE--------
+	----SHIFT-----	-----LOAD-----		----SHIFT-----	-----LOAD-----
+SEQ --QA'-	--QA--	--QA'-	--QA--		 --QA'-	--QA--	--QA'-	--QA--
+0-	18-NOP	18-NOP	18-NOP	18-NOP		18-NOP	18-NOP	18-NOP	18-NOP
+1-	28-NOP	28-NOP	28-NOP	28-NOP		28-NOP	28-NOP	28-NOP	28-NOP
+2-	39-SL0	39-SL0	3B-LD	3B-LD		39-SL0	39-SL0	3B-LD	3B-LD
+3-	48-NOP	48-NOP	48-NOP	48-NOP		48-NOP	48-NOP	48-NOP	48-NOP
+4-	58-NOP	58-NOP	58-NOP	58-NOP		58-NOP	58-NOP	58-NOP	58-NOP
+5-	68-NOP	68-NOP	68-NOP	68-NOP		68-NOP	68-NOP	68-NOP	68-NOP
+6-	78-NOP	78-NOP	78-NOP	78-NOP		78-NOP	78-NOP	78-NOP	78-NOP
+7-	08-NOP	88-NOP	08-NOP	88-NOP		08-NOP	88-NOP	08-NOP	88-NOP
+8-	98-NOP	98-NOP	98-NOP	98-NOP		98-NOP	98-NOP	98-NOP	98-NOP
+9-	A8-NOP	A8-NOP	A8-NOP	A8-NOP		A8-NOP	A8-NOP	A8-NOP	A8-NOP
+A-	B9-SL0	B9-SL0	BB-LD	BB-LD		B9-SL0	B9-SL0	BB-LD	BB-LD
+B-	C8-NOP	C8-NOP	C8-NOP	C8-NOP		C8-NOP	C8-NOP	C8-NOP	C8-NOP
+C-	D8-NOP	D8-NOP	D8-NOP	D8-NOP		D8-NOP	D8-NOP	D8-NOP	D8-NOP
+D-	E8-NOP	E8-NOP	E8-NOP	E8-NOP		E8-NOP	E8-NOP	E8-NOP	E8-NOP
+E-	F8-NOP	F8-NOP	F8-NOP	F8-NOP		F8-NOP	F8-NOP	F8-NOP	F8-NOP
+F-	88-NOP	08-NOP	88-NOP	08-NOP		88-NOP	08-NOP	88-NOP	08-NOP
+									READ
+	------------SHIFT------------		-------------LOAD------------
+	-----QA'------	------QA------		-----QA'------	-----QA------
+	--RP--	-NORP-	--RP--	-NORP-		--RP--	-NORP-	--RP--	-NORP-
+0-	18-NOP	18-NOP	18-NOP	18-NOP		0A-SR	0A-SR	0A-SR	0A-SR
+1-	2D-SL1	2D-SL1	38-NOP	38-NOP		0A-SR	0A-SR	0A-SR	0A-SR
+2-	D8-NOP	38-NOP	08-NOP	28-NOP		0A-SR	0A-SR	0A-SR	0A-SR
+3-	D8-NOP	48-NOP	48-NOP	48-NOP		0A-SR	0A-SR	0A-SR	0A-SR
+4-	D8-NOP	58-NOP	D8-NOP	58-NOP		0A-SR	0A-SR	0A-SR	0A-SR
+5-	D8-NOP	68-NOP	D8-NOP	68-NOP		0A-SR	0A-SR	0A-SR	0A-SR
+6-	D8-NOP	78-NOP	D8-NOP	78-NOP		0A-SR	0A-SR	0A-SR	0A-SR
+7-	D8-NOP	88-NOP	D8-NOP	88-NOP		0A-SR	0A-SR	0A-SR	0A-SR
+8-	D8-NOP	98-NOP	D8-NOP	98-NOP		0A-SR	0A-SR	0A-SR	0A-SR
+9-	D8-NOP	29-SL0	D8-NOP	A8-NOP		0A-SR	0A-SR	0A-SR	0A-SR
+A-	CD-SL1	BD-SL1	D8-NOP	B8-NOP		0A-SR	0A-SR	0A-SR	0A-SR
+B-	D9-SL0	59-SL0	D8-NOP	C8-NOP		0A-SR	0A-SR	0A-SR	0A-SR
+C-	D9-SL0	D9-SL0	D8-NOP	A0-CLR		0A-SR	0A-SR	0A-SR	0A-SR
+D-	D8-NOP	08-NOP	E8-NOP	E8-NOP		0A-SR	0A-SR	0A-SR	0A-SR
+E-	FD-SL1	FD-SL1	F8-NOP	F8-NOP		0A-SR	0A-SR	0A-SR	0A-SR
+F-	DD-SL1	4D-SL1	E0-CLR	E0-CLR		0A-SR	0A-SR	0A-SR	0A-SR
+*/
+enum {
+	WRITE 	= (1 << WRITE_BIT),
+	LOAD 	= (1 << LOAD_BIT),
+	QA1 	= (1 << QA_BIT),
+	RP1 	= (1 << RP_BIT),
+	/* This keeps the transposed table more readable, as it looks like the book */
+	READ = 0, SHIFT = 0, QA0 = 0, RP0 = 0,
+};
+// And this is the same Sather table (Figure 9.11, page 9-20) but transposed
+static const uint8_t lss_rom16s[16][16] = {
+[WRITE|RP0|SHIFT|QA0]={	0x18,0x28,0x39,0x48,0x58,0x68,0x78,0x08,0x98,0xA8,0xB9,0xC8,0xD8,0xE8,0xF8,0x88 },
+[WRITE|RP0|SHIFT|QA1]={	0x18,0x28,0x39,0x48,0x58,0x68,0x78,0x88,0x98,0xA8,0xB9,0xC8,0xD8,0xE8,0xF8,0x08 },
+[WRITE|RP0|LOAD|QA0]={	0x18,0x28,0x3B,0x48,0x58,0x68,0x78,0x08,0x98,0xA8,0xBB,0xC8,0xD8,0xE8,0xF8,0x88 },
+[WRITE|RP0|LOAD|QA1]={	0x18,0x28,0x3B,0x48,0x58,0x68,0x78,0x88,0x98,0xA8,0xBB,0xC8,0xD8,0xE8,0xF8,0x08 },
+[WRITE|RP1|SHIFT|QA0]={	0x18,0x28,0x39,0x48,0x58,0x68,0x78,0x08,0x98,0xA8,0xB9,0xC8,0xD8,0xE8,0xF8,0x88 },
+[WRITE|RP1|SHIFT|QA1]={	0x18,0x28,0x39,0x48,0x58,0x68,0x78,0x88,0x98,0xA8,0xB9,0xC8,0xD8,0xE8,0xF8,0x08 },
+[WRITE|RP1|LOAD|QA0]={	0x18,0x28,0x3B,0x48,0x58,0x68,0x78,0x08,0x98,0xA8,0xBB,0xC8,0xD8,0xE8,0xF8,0x88 },
+[WRITE|RP1|LOAD|QA1]={	0x18,0x28,0x3B,0x48,0x58,0x68,0x78,0x88,0x98,0xA8,0xBB,0xC8,0xD8,0xE8,0xF8,0x08 },
+[READ|SHIFT|QA0|RP1]={	0x18,0x2D,0xD8,0xD8,0xD8,0xD8,0xD8,0xD8,0xD8,0xD8,0xCD,0xD9,0xD9,0xD8,0xFD,0xDD },
+[READ|SHIFT|QA0|RP0]={	0x18,0x2D,0x38,0x48,0x58,0x68,0x78,0x88,0x98,0x29,0xBD,0x59,0xD9,0x08,0xFD,0x4D },
+[READ|SHIFT|QA1|RP1]={	0x18,0x38,0x08,0x48,0xD8,0xD8,0xD8,0xD8,0xD8,0xD8,0xD8,0xD8,0xD8,0xE8,0xF8,0xE0 },
+[READ|SHIFT|QA1|RP0]={	0x18,0x38,0x28,0x48,0x58,0x68,0x78,0x88,0x98,0xA8,0xB8,0xC8,0xA0,0xE8,0xF8,0xE0 },
+[READ|LOAD|QA0|RP1]={	0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A },
+[READ|LOAD|QA0|RP0]={	0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A },
+[READ|LOAD|QA1|RP1]={	0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A },
+[READ|LOAD|QA1|RP0]={	0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A },
+};
+
+static void
+_mii_disk2_lss_tick(
+	mii_card_disk2_t *c )
+{
+	if (c->lss_skip) {
+		c->lss_skip--;
+		return;
+	}
+	mii_floppy_t *f = &c->floppy[c->selected];
+
+	c->lss_mode = (c->lss_mode & ~(1 << QA_BIT)) |
+					(!!(c->data_register & 0x80) << QA_BIT);
+	if (c->clock++ == 0) { // clock is clipped to 3 bits
+		uint8_t 	track_id = f->track_id[f->qtrack];
+
+		uint32_t 	byte_index 	= f->bit_position >> 3;
+		uint8_t 	bit_index 	= 7 - (f->bit_position & 7);
+		if (!(c->lss_mode & (1 << WRITE_BIT))) {
+			uint8_t 	bit 	= f->tracks[track_id].data[byte_index];
+			bit = (bit >> bit_index) & 1;
+			c->head = (c->head << 1) | bit;
+			// see WOZ spec for how we do this here
+			if ((c->head & 0xf) == 0) {
+				bit = f->tracks[MII_FLOPPY_RANDOM_TRACK_ID].data[byte_index];
+				bit = (bit >> bit_index) & 1;
+			} else {
+				bit = (c->head >> 1) & 1;
+			}
+			c->lss_mode = (c->lss_mode & ~(1 << RP_BIT)) | (bit << RP_BIT);
+		}
+		if ((c->lss_mode & (1 << WRITE_BIT))) {
+			uint8_t msb = c->data_register >> 7;
+
+			if (!f->tracks[track_id].dirty) {
+				printf("DIRTY TRACK %2d \n", track_id);
+				f->tracks[track_id].dirty = 1;
+				f->tracks_dirty = 1;
+			}
+			f->tracks[track_id].data[byte_index] &= ~(1 << bit_index);
+			f->tracks[track_id].data[byte_index] |= (msb << bit_index);
+		}
+		f->bit_position = (f->bit_position + 1) % f->tracks[track_id].bit_count;
+	}
+	const uint8_t *rom 	= lss_rom16s[c->lss_mode];
+	uint8_t cmd 	= rom[c->lss_state];
+	uint8_t next 	= cmd >> 4;
+	uint8_t action 	= cmd & 0xF;
+
+	if (action & 0b1000) {	// Table 9.3 in Sather's book
+		switch (action & 0b0011) {
+			case 1:	// SL0/1
+				c->data_register <<= 1;
+				c->data_register |= !!(action & 0b0100);
+				break;
+			case 2:	// SR
+				c->data_register = (c->data_register >> 1) |
+									(!!f->write_protected << 7);
+				break;
+			case 3:	// LD
+				c->data_register = c->write_register;
+				break;
+		}
+	} else {	// CLR
+		c->data_register = 0;
+	}
+	c->lss_state = next;
+	// read pulse only last one cycle..
+	c->lss_mode &= ~(1 << RP_BIT);
+}
+
+
+static void
+_mii_mish_d2(
+		void * param,
+		int argc,
+		const char * argv[])
+{
+//	mii_t * mii = param;
+	if (!_mish_d2) {
+		printf("No Disk ][ card installed\n");
+		return;
+	}
+	static int sel = 0;
+	if (!argv[1] || !strcmp(argv[1], "list")) {
+		mii_card_disk2_t *c = _mish_d2;
+		for (int i = 0; i < 2; i++) {
+			mii_floppy_t *f = &c->floppy[i];
+			printf("Drive %d %s\n", f->id, f->write_protected ? "WP" : "RW");
+			printf("\tMotor: %3s qtrack:%d Bit %6d\n",
+					f->motor ? "ON" : "OFF", f->qtrack, f->bit_position);
+		}
+		return;
+	}
+	if (!strcmp(argv[1], "sel")) {
+		if (argv[2]) {
+			sel = atoi(argv[2]);
+		}
+		printf("Selected drive: %d\n", sel);
+		return;
+	}
+	if (!strcmp(argv[1], "wp")) {
+		if (argv[2]) {
+			int wp = atoi(argv[2]);
+			mii_card_disk2_t *c = _mish_d2;
+			mii_floppy_t *f = &c->floppy[sel];
+			f->write_protected = wp;
+		}
+		printf("Drive %d Write protected: %d\n", sel,
+				_mish_d2->floppy[sel].write_protected);
+		return;
+	}
+	// dump a track, specify track number and number of bytes
+	if (!strcmp(argv[1], "track")) {
+		if (argv[2]) {
+			int track = atoi(argv[2]);
+			int count = 256;
+			if (argv[3])
+				count = atoi(argv[3]);
+			mii_card_disk2_t *c = _mish_d2;
+			mii_floppy_t *f = &c->floppy[sel];
+			uint8_t *data = f->tracks[track].data;
+
+			for (int i = 0; i < count; i += 8) {
+				uint8_t *line = data + i;
+			#if 0
+				for (int bi = 0; bi < 8; bi++) {
+					uint8_t b = line[bi];
+					for (int bbi = 0; bbi < 8; bbi++) {
+						printf("%c", (b & 0x80) ? '1' : '0');
+						b <<= 1;
+					}
+				}
+				printf("\n");
+			#endif
+				for (int bi = 0; bi < 8; bi++)
+					printf("%8x", line[bi]);
+				printf("\n");
+			}
+		} else {
+			printf("track <track 0-36> [count]\n");
+		}
+		return;
+	}
+}
+
+#include "mish.h"
+
+MISH_CMD_NAMES(d2, "d2");
+MISH_CMD_HELP(d2,
+		"d2: disk ][ internals",
+		" <default>: dump status"
+		);
+MII_MISH(d2, _mii_mish_d2);

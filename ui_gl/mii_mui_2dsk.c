@@ -142,7 +142,7 @@ _mii_2dsk_action_cb(
 								"Select DSK file to load",
 							m->drive_kind == MII_2DSK_SMARTPORT ?
 									"\\.(po|hdv|2mg)$" :
-									"\\.(dsk)$",
+									"\\.(woz|nib|dsk)$",
 							getenv("HOME"),
 							MUI_STDF_FLAG_REGEXP);
 						mui_window_set_action(w, _mii_2dsk_stdfile_cb, m);

@@ -16,7 +16,11 @@ enum {
 //	MII_DD_FILE_OVERLAY = 1,
 	MII_DD_FILE_RAM,
 	MII_DD_FILE_ROM,
+	MII_DD_FILE_PO,
 	MII_DD_FILE_2MG 	= 5,
+	MII_DD_FILE_DSK,
+	MII_DD_FILE_NIB,
+	MII_DD_FILE_WOZ
 };
 
 // a disk image file (or chunck of ram, if ramdisk is used)
@@ -24,6 +28,7 @@ typedef struct mii_dd_file_t {
 	struct mii_dd_file_t *next;
 	char * 			pathname;
 	uint8_t 		format;
+	uint8_t 		read_only;
 	uint8_t * 		start; 	// start of the file
 	uint8_t * 		map;	// start of the blocks
 
