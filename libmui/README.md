@@ -31,7 +31,7 @@ It could be possible to 'vectorize' the rendering to vertice buffers and stuff, 
 
 # How does it differ from the original?
 Well, in terms of looks, it's kinda like I started with MacOS8/9, but removed all the grayscale bits.
-Bizarelly, I think System 7 'flat' looks has aged better than the 'grayscale' look of 8/9, so I went with that. Most of the 'visible' difference are really related to the dialog's popup menus, which are a lot more 'OS8' than 'OS7'.
+Bizarelly, I think System 7 'flat' looks has aged better than the 'grayscale' look of 8/9, so I went with that. Most of the 'visible' difference are really related to the dialog's popup menus, which are a lot more 'OS8' than 'OS7'. The Scrollbar is definitely more GS/OS though, never understood why it took so long for MacOS to adopt that.
 
 In terms of of the API, one massive change is that it is fully asynchronous, and
 you *can't* just spinloop and draw things in a window or GrafPort whenever you feel like it, like on the original. Instead, you change the state of the UI, and it will redraw itself when it needs to. This is a lot more like modern UI libraries in that respect.
@@ -76,7 +76,9 @@ It has the typical 'Cancel'+'OK' alert.
 ## Standard File
 It has the classic 'Open' a file dialog. Haven't needed the other one. yet.
    - Could do with a 'Save' dialog (TODO).
-   - Maybe a 'period correct' way to handle previously visited folders...
+   - Maybe a 'period correct' way to handle previously visited folders... Currently it can same the last folder you visited *per file type*.
+   - You can use arrow keys, page/up down, and you can even typehead to the file you want, like in the old days.
+   
 ## Resource Manager
 Nope! Not there; I'd need some sort of ResEdit and stuff -- and now that is *ONE* Feature Creep Too Far thank you very much.
 I have a vague idea of making some sort of MessagePack format for resources, but that's for another day.

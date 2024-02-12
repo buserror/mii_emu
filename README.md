@@ -1,4 +1,19 @@
 # MII Version Changelog
+## 1.6
+ * Another big update, yanked the old DiskII driver, and replaced it with a
+   homebrew one, low level, with native support for WOZ (1 & 2) files (*read AND write!*) as well as NIB and DSK (read only).
+ * This is big news, and MII can now boot all kind of copy protected disks, in
+   fact I tried a few hundreds, and they all worked so far!
+ * There is currently no way to create a new disk, but you can use a tool like
+   [CiderPress](https://a2ciderpress.com/) to create them, and then use them in MII. Or just copy your DOS 3.3.woz file and reformat it!
+ * There were a few other minor changes, mostly added some timing measurement
+   tooling, and a couple of (necessary for disk to work) tweaks to the emulator
+   itself as it was not counting cycles correctly for a couple of instructions.
+ * The UI now has support for pure power-of-two textures, for really old OpenGL
+   implementations, it is turned off by default, but could work with some
+   old hardware. Also updated *libmui* to make it less linux-centric.
+ * Fixed some more color issues, mostly DHIRES.
+ * Added 'typeahead' for when you select files in the dialog, like on old Macs
 ## 1.5
  * BIG update, loads of changes, fixes, improvements.
  * New super UI, using home-made libmui, channeling both GS/OS and MacOS 7.x!
