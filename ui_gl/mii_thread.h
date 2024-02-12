@@ -26,6 +26,17 @@ typedef struct mii_th_signal_t {
 DECLARE_FIFO(mii_th_signal_t, mii_th_fifo, 16);
 DEFINE_FIFO(mii_th_signal_t, mii_th_fifo);
 
+DECLARE_FIFO(char*, mii_th_msg_fifo, 16);
+DEFINE_FIFO(char*, mii_th_msg_fifo);
+
+typedef struct  mii_thread_t {
+	pthread_t			thread;
+	uint8_t		 		state;
+	struct mii_t *		mii;
+	mii_th_fifo_t 		signal;
+	mii_th_msg_fifo_t 	msg;
+} mii_thread_t;
+
 struct mii_t;
 
 pthread_t

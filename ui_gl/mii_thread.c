@@ -22,9 +22,11 @@
 
 #include "mii.h"
 #include "mii_thread.h"
+#include "miigl_counter.h"
 
 static float default_fps = 60;
 mii_th_fifo_t signal_fifo;
+
 
 int
 mii_thread_set_fps(
@@ -60,6 +62,9 @@ mii_thread_cpu_regulator(
 	mii_thread_set_fps(timerfd, default_fps);
 	mii->state = MII_RUNNING;
 	uint32_t last_frame = mii->video.frame_count;
+
+//	miigl_counter_t frame_counter = {};
+
 	while (running) {
 		mii_th_signal_t sig;
 		while (!mii_th_fifo_isempty(&signal_fifo)) {
@@ -102,11 +107,13 @@ mii_thread_cpu_regulator(
 						mii->state = MII_STOPPED;
 				}
 				break;
-			case MII_RUNNING:
-				sleep = mii->video.frame_count != last_frame;
-				if (sleep)
-					last_frame = mii->video.frame_count;
-				break;
+			case MII_RUNNING: {
+				uint32_t fi = mii->video.frame_count;
+				sleep = fi != last_frame;
+				if (sleep) {
+					last_frame = fi;
+				}
+			}	break;
 			case MII_TERMINATE:
 				running = 0;
 				break;
@@ -114,6 +121,13 @@ mii_thread_cpu_regulator(
 		if (sleep) {
 			uint64_t timer_v;
 			read(timerfd, &timer_v, sizeof(timer_v));
+/*
+			long current_fps = miigl_counter_tick(&frame_counter,
+										miigl_get_time());
+			if (!(last_frame % 60)) {
+				printf("FPS: %4ld\n", current_fps);
+			}
+*/
 		}
 	}
 	mii_dispose(mii);	// this sets mii->state to MII_INIT

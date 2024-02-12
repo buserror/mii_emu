@@ -27,6 +27,7 @@
 #include "mii_mui.h"
 #include "mii-icon-64.h"
 #include "minipt.h"
+#include "miigl_counter.h"
 
 /*
  * Note: This *assumes* that the GL implementation has support for non-power-of-2
@@ -83,6 +84,8 @@ typedef struct mii_x11_t {
 	Atom 				wm_delete_window;
 	int 				width, height;
 	GLXContext 			glContext;
+
+	miigl_counter_t 	videoc, redrawc, sleepc;
 } mii_x11_t;
 
 
@@ -997,9 +1000,11 @@ main(
 			glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
 			pixman_region32_clear(&mui->redraw);
 		}
-		if (mii->video.frame_count != mii->video.frame_drawn) {
+		uint32_t current_frame = mii->video.frame_count;
+		if (current_frame != mii->video.frame_drawn) {
+			miigl_counter_tick(&ui->videoc, miigl_get_time());
 			draw = true;
-			mii->video.frame_drawn = mii->video.frame_count;
+			mii->video.frame_drawn = current_frame;
 			// update the whole texture
 			glBindTexture(GL_TEXTURE_2D, ui->mii_tex.id);
 			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
@@ -1010,6 +1015,7 @@ main(
 		}
 		/* Draw */
 		if (draw) {
+			miigl_counter_tick(&ui->redrawc, miigl_get_time());
 			XGetWindowAttributes(ui->dpy, ui->win, &ui->attr);
 			glViewport(0, 0, ui->width, ui->height);
 			_mii_transition(ui);
@@ -1023,6 +1029,14 @@ main(
 			perror(__func__);
 			goto cleanup;
 		}
+	#if 0
+		miigl_counter_tick(&ui->sleepc, miigl_get_time());
+		if (!(current_frame % 60))
+			printf("VID: %3d Draw:%3d sleep:%3d\n",
+					miigl_counter_get_read_size(&ui->videoc),
+					miigl_counter_get_read_size(&ui->redrawc),
+					miigl_counter_get_read_size(&ui->sleepc));
+	#endif
 	}
 cleanup:
 	mii_emu_save(&ui->video.cf, &ui->video.config);
