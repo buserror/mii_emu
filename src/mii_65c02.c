@@ -380,6 +380,7 @@ next_instruction:
 		}	break;
 		case 0x4A:
 		{ // LSR
+			_FETCH(cpu->PC);
 			cpu->P.C = !!(cpu->A & 0x01);
 			cpu->A >>= 1;
 			_NZ(cpu->A);
@@ -534,7 +535,7 @@ next_instruction:
 		case 0x85: case 0x95: case 0x8D: case 0x9D:
 		case 0x99: case 0x81: case 0x91: case 0x92:
 		{ // STA
-			cpu->_D = cpu->A;
+			cpu->_D = cpu->A;cpu->cycle++;
 		}	break;
 		case 0x86: case 0x96: case 0x8E:
 		{ // STX
