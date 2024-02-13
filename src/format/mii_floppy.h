@@ -23,13 +23,14 @@ enum {
 };
 
 typedef struct mii_floppy_track_t {
-		uint8_t			dirty : 1;	// track has been written to
-		uint32_t		bit_count;
-		uint8_t 		data[6680];	// max suggested by WOZ spec
+	uint8_t			dirty : 1;	// track has been written to
+	uint32_t		bit_count;
+	uint8_t 		data[6680];	// max suggested by WOZ spec
 } mii_floppy_track_t;
 
 typedef struct mii_floppy_t {
 	uint8_t 		write_protected : 3, id : 2;
+	uint8_t 		bit_timing;		// 0=32 (default)
 	uint8_t			motor;			// motor is on
 	uint8_t 		stepper;		// last step we did...
 	uint8_t 		qtrack;			// quarter track we are on

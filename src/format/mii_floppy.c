@@ -20,8 +20,12 @@ mii_floppy_init(
 {
 	f->motor 		= 0;
 	f->stepper 		= 0;
+	// see spec for this.. 32 is the default for 4us.
+
+	f->bit_timing 	= 32;
 	f->qtrack 		= 15;	// just to see something at seek time
 	f->bit_position = 0;
+	f->tracks_dirty = 0;
 	f->write_protected &= ~MII_FLOPPY_WP_MANUAL;// keep the manual WP bit
 	/* this will look like this; ie half tracks are 'random'
 		0: 0   1: 0   2:35   3: 1
@@ -164,6 +168,13 @@ mii_floppy_write_track_woz(
 	}
 	version += !strncmp((char*)header, "WOZ2", 4);
 
+	/* I don't really want to recalculate the CRC. Seems pointless in a file
+	  like this, and i'd have to walk 250KB+ of data each time I update
+	  anything.
+	  Mark is as cleared, perhapps I need a tool to 'fix' it later, or JUST
+	  at closing time ?*/
+	header->crc_le = 0;
+
 	mii_woz_tmap_t *tmap = NULL;
 	if (version == 1) {
 		mii_woz1_info_t *info = (mii_woz1_info_t *)(header + 1);
@@ -230,7 +241,6 @@ mii_floppy_load_woz(
 			uint8_t *track = trks->track[i].bits;
 			memcpy(f->tracks[i].data, track, le16toh(trks->track[i].byte_count_le));
 			f->tracks[i].bit_count = le32toh(trks->track[i].bit_count_le);
-			f->tracks[i].dirty = 0;
 		}
 	} else {
 		mii_woz2_info_t *info = (mii_woz2_info_t *)(header + 1);
@@ -239,9 +249,10 @@ mii_floppy_load_woz(
 		mii_woz2_trks_t *trks = (mii_woz2_trks_t *)((uint8_t *)tmap +
 					le32toh(tmap->chunk.size_le) + sizeof(mii_woz_chunk_t));
 #if 1
-		printf("WOZ: version %d, type %d, sides %d, largest track %d\n",
+		printf("WOZ: version %d, type %d, sides %d, largest track %d, optimal bit timing: %d\n",
 				info->version, info->disk_type, info->sides,
-				le16toh(info->largest_track_le) * 512);
+				le16toh(info->largest_track_le) * 512,
+				info->optimal_bit_timing);
 		printf("WOZ: creator '%s'\n", info->creator);
 		printf("WOZ: track map %4.4s size %d\n",
 				(char*)&tmap->chunk.id_le,
@@ -249,16 +260,16 @@ mii_floppy_load_woz(
 		printf("WOZ: Track chunk %4.4s size %d\n",
 				(char*)&trks->chunk.id_le, le32toh(trks->chunk.size_le));
 #endif
+		/* TODO: this doesn't work yet... */
+		// f->bit_timing = info->optimal_bit_timing;
 		for (int i = 0; i < 35; i++) {
 			uint8_t *track = file->map +
 						(le16toh(trks->track[i].start_block_le) << 9);
 			uint32_t byte_count = (le32toh(trks->track[i].bit_count_le) + 7) >> 3;
 			memcpy(f->tracks[i].data, track, byte_count);
 			f->tracks[i].bit_count = le32toh(trks->track[i].bit_count_le);
-			f->tracks[i].dirty = 0;
 		}
 	}
-	#if 0
 	// copy the track map from the file to the floppy
 	for (int ti = 0; ti < (int)sizeof(f->track_id); ti++) {
 		f->track_id[ti] = tmap->track_id[ti] == 0xff ?
@@ -268,7 +279,6 @@ mii_floppy_load_woz(
 				__func__, ti, f->track_id[ti]);
 		}
 	}
-	#endif
 	return version;
 }
 

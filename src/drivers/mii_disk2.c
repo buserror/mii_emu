@@ -36,7 +36,7 @@ typedef struct mii_card_disk2_t {
 
 	uint8_t 		write_register;
 	uint8_t 		head : 4;		// bits are shifted in there
-	uint8_t 		clock : 3;		// LSS clock cycles, read a bit when 0
+	uint16_t 		clock;			// LSS clock cycles, read a bit when 0
 	uint8_t 		lss_state : 4,	// Sequence state
 					lss_mode : 4;	// WRITE/LOAD/SHIFT/QA/RP etc
 	uint8_t 		lss_prev_state;	// for write bit
@@ -248,6 +248,8 @@ _mii_disk2_command(
 				if (!file)
 					return -1;
 			}
+			// reinit all tracks, bits, maps etc
+			mii_floppy_init(&c->floppy[drive]);
 			mii_dd_drive_load(&c->drive[drive], file);
 			mii_floppy_load(&c->floppy[drive], file);
 			break;
@@ -347,7 +349,9 @@ _mii_disk2_lss_tick(
 
 	c->lss_mode = (c->lss_mode & ~(1 << QA_BIT)) |
 					(!!(c->data_register & 0x80) << QA_BIT);
-	if (c->clock++ == 0) { // clock is clipped to 3 bits
+	c->clock += 4;	// 4 is 0.5us.. we run at 2MHz
+	if (c->clock >= f->bit_timing) {
+		c->clock -= f->bit_timing;
 		uint8_t 	track_id = f->track_id[f->qtrack];
 
 		uint32_t 	byte_index 	= f->bit_position >> 3;
@@ -360,6 +364,8 @@ _mii_disk2_lss_tick(
 			if ((c->head & 0xf) == 0) {
 				bit = f->tracks[MII_FLOPPY_RANDOM_TRACK_ID].data[byte_index];
 				bit = (bit >> bit_index) & 1;
+//				printf("RANDOM TRACK %2d %2d %2d : %d\n",
+//						track_id, byte_index, bit_index, bit);
 			} else {
 				bit = (c->head >> 1) & 1;
 			}

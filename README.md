@@ -1,3 +1,7 @@
+<p align="center">
+   <img src="contrib/mii-icon-64.png" alt="MII Logo">
+</p>
+
 # MII Version Changelog
 ## 1.6
  * Another big update, yanked the old DiskII driver, and replaced it with a

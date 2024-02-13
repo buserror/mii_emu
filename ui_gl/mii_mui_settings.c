@@ -355,12 +355,18 @@ mii_emu_load(
 				cl = mii_config_get(cf, section, "flags0");
 				if (cl)
 					config->slot[i].conf.disk2.drive[0].flags = strtoul(cl->value, NULL, 0);
+				cl = mii_config_get(cf, section, "wp0");
+				if (cl)
+					config->slot[i].conf.disk2.drive[0].wp = !!strtoul(cl->value, NULL, 0);
 				cl = mii_config_get(cf, section, "image1");
 				if (cl)
 					strcpy(config->slot[i].conf.disk2.drive[1].disk, cl->value);
 				cl = mii_config_get(cf, section, "flags1");
 				if (cl)
 					config->slot[i].conf.disk2.drive[1].flags = strtoul(cl->value, NULL, 0);
+				cl = mii_config_get(cf, section, "wp1");
+				if (cl)
+					config->slot[i].conf.disk2.drive[1].wp = !!strtoul(cl->value, NULL, 0);
 				break;
 			case MII_SLOT_DRIVER_SUPERSERIAL:
 				cl = mii_config_get(cf, section, "device");

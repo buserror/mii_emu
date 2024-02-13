@@ -38,7 +38,8 @@ typedef struct mii_mui_1mb_t {
 	mii_1mb_conf_t 			config;
 } mii_mui_1mb_t;
 
-static void
+// TODO: Dedup that with mii_mui_2dsk.c
+void
 _size_string(
 		size_t s,
 		char *out,

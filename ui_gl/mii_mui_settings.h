@@ -38,7 +38,8 @@ typedef struct mii_config_file_t {
 } mii_config_file_t;
 
 typedef struct mii_drive_conf_t {
-	unsigned long 			flags;
+	unsigned long 			wp : 1, ro_file : 1, ro_format : 1,
+							flags;
 	char 					disk[MII_PATH_SIZE_MAX];
 } mii_drive_conf_t;
 
