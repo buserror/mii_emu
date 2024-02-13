@@ -176,8 +176,8 @@ There are just a few keys that are mapped for anything useful. List is not exaus
 
 ## What it cannot do
  * A2Desktop PT3 player doesn't see keypresses.
- * Thats' about it really, all the other things I tried work
- * Joystick support is a bit limited, no 'mapping' I used a (USB) 8bitdo NES30 Pro, and it works, but it's not perfect. But, I can play choplifter with it, so it's good enough for now... *NOTE* Soon will have it's own config dialog to do mapping.
+ * Thats' about it really, all the other things I tried work.
+ * Joystick support is a bit limited, no 'mapping' I used a (USB) 8bitdo NES30 Pro, and it works, but it's not perfect. But, I can play choplifter with it, so it's good enough for now... *NOTE* Soon will have its own config dialog to do mapping.
 
 ## What it could do with
  * The main window is 1280x720 on purpose, so it could do Full Screen.
