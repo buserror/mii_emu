@@ -247,9 +247,7 @@ mii_mui_load_1mbrom(
 		c2_rect_offset(&wpos,
 			(ui->screen_size.x / 2) - (c2_rect_width(&wpos) / 2),
 			(ui->screen_size.y * 0.4) - (c2_rect_height(&wpos) / 2));
-	w = mui_window_create(mui,
-					wpos,
-					NULL, MUI_WINDOW_LAYER_MODAL,
+	w = mui_window_create(mui, wpos, NULL, MUI_WINDOW_LAYER_MODAL,
 					"1MB ROM Card File",
 					sizeof(mii_mui_1mb_t));
 	mui_window_set_id(w, MII_1MB_WINDOW_ID);

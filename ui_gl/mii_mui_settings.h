@@ -141,6 +141,9 @@ struct mui_window_t *
 mii_mui_load_1mbrom(
 		struct mui_t *mui,
 		mii_1mb_conf_t *config);
+struct mui_window_t *
+mii_mui_about(
+		struct mui_t *mui );
 
 enum mii_mui_2dsk_e {
 	MII_2DSK_DISKII = 0,

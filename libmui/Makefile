@@ -59,6 +59,7 @@ $(LIB)/ui_tests.so : $(OBJ)/mii_mui_slots.o
 $(LIB)/ui_tests.so : $(OBJ)/mii_mui_loadbin.o
 $(LIB)/ui_tests.so : $(OBJ)/mii_mui_1mb.o
 $(LIB)/ui_tests.so : $(OBJ)/mii_mui_2dsk.o
+$(LIB)/ui_tests.so : $(OBJ)/mii_mui_about.o
 
 # use a .temp file, otherwise the playground tries to reload before the file
 # is fully written, and it fails.

@@ -64,7 +64,7 @@ mui_font_from_mem(
 	f->size = size;
 	stb_ttc_LoadFont(&f->ttc, font_data, font_size);
 	TAILQ_INSERT_TAIL(&ui->fonts, f, self);
-	printf("%s: Loaded font %s:%d\n", __func__, name, size);
+//	printf("%s: Loaded font %s:%d\n", __func__, name, size);
 
 	return f;
 }
@@ -73,7 +73,7 @@ void
 mui_font_init(
 		mui_t *ui)
 {
-	printf("%s: Loading fonts\n", __func__);
+//	printf("%s: Loading fonts\n", __func__);
 	mui_font_from_mem(ui, "main", 28,
 			mui_main_font_data, mui_main_font_size);
 	mui_font_from_mem(ui, "icon_large", 96,
@@ -241,7 +241,7 @@ mui_font_measure(
 				break;
 			}
 			line->w += gc->advance;
-			mui_glyph_array_push(line, gc);
+			mui_glyph_array_push(line, gc->index);
 		};
 	} while (text[ch] && ch < text_len);
 	int bh = 0;
@@ -308,7 +308,8 @@ mui_font_measure_draw(
 		mui_glyph_array_t * line = &lines->e[li];
 		int xpos = 0;//where.x / scale;
 		for (int ci = 0; ci < (int)line->count; ci++) {
-			stb_ttc_g *gc = line->e[ci];
+			unsigned int cache_index = line->e[ci];
+			stb_ttc_g *gc = &ttc->glyph[cache_index];
 //			int pxpos = gc->x0 + ((xpos + gc->lsb) * scale);
 			int pxpos = gc->x0 + ((xpos + 0) * scale);
 

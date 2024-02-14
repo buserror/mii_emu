@@ -240,7 +240,6 @@ _mui_stdfile_window_action(
 			for (int i = 0; i < (int)std->pop_path.count; i++)
 				free(std->pop_path.e[i]);
 			std->pop_path.count = 0;
-
 		}	break;
 	}
 	return 0;

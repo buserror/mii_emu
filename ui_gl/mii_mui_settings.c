@@ -252,10 +252,14 @@ mii_emu_save(
 					config->slot[i].conf.disk2.drive[0].disk);
 				sprintf(label, "%lu", config->slot[i].conf.disk2.drive[0].flags);
 				mii_config_set(cf, section, "flags0", label);
+				mii_config_set(cf, section, "wp0",
+					config->slot[i].conf.disk2.drive[0].wp ? "1" : "0");
 				mii_config_set(cf, section, "image1",
 					config->slot[i].conf.disk2.drive[1].disk);
 				sprintf(label, "%lu", config->slot[i].conf.disk2.drive[1].flags);
 				mii_config_set(cf, section, "flags1", label);
+				mii_config_set(cf, section, "wp1",
+					config->slot[i].conf.disk2.drive[1].wp ? "1" : "0");
 				break;
 			case MII_SLOT_DRIVER_SUPERSERIAL:
 				mii_config_set(cf, section, "device",

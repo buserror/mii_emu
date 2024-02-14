@@ -16,6 +16,10 @@
 // track containing random bits
 #define MII_FLOPPY_RANDOM_TRACK_ID		35
 
+/*
+ * Reasons for write protect. Ie checkbox in the UI, or file format
+ * doesn't support writes, or the file has no write permissions.
+ */
 enum {
 	MII_FLOPPY_WP_MANUAL 		= (1 << 0),	// write protect by the user
 	MII_FLOPPY_WP_RO_FILE		= (1 << 1),	// file is read only

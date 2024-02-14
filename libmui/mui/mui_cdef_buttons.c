@@ -127,7 +127,9 @@ mui_check_rad_draw(
 	}
 	mui_font_textbox(main, dr,
 			title, c->title, 0,
-			mui_control_color[0].text,
+			c->state == MUI_CONTROL_STATE_DISABLED ?
+					mui_control_color[c->state].text :
+					mui_control_color[0].text,
 			MUI_TEXT_ALIGN_MIDDLE);
 	mui_drawable_clip_pop(dr);
 }

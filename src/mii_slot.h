@@ -77,6 +77,7 @@ mii_slot_drv_find(
 enum {
 	MII_SLOT_DRIVE_COUNT 	= 0x01,
 	MII_SLOT_DRIVE_LOAD		= 0x20, // + drive index 0...n
+	MII_SLOT_DRIVE_WP		= 0x30, // + drive index 0...n
 
 	MII_SLOT_SSC_SET_TTY	= 0x10, // param is a pathname, or NULL for a pty
 };

@@ -11,6 +11,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <unistd.h>
+#include <execinfo.h>
 
 #include "mui_priv.h"
 #include "cg.h"
@@ -127,7 +128,6 @@ mui_window_create(
 	TAILQ_INIT(&w->zombies);
 	STAILQ_INIT(&w->actions);
 	pixman_region32_init(&w->inval);
-
 	TAILQ_INSERT_HEAD(&ui->windows, w, self);
 	mui_window_select(w); // place it in it's own layer
 	mui_font_t * main = mui_font_find(ui, "main");
@@ -351,8 +351,8 @@ mui_window_inval(
 		pixman_region32_reset(&win->inval, (pixman_box32_t*)&frame);
 		forward = frame;
 
-		mui_window_t * w;
-		TAILQ_FOREACH(w, &win->ui->windows, self) {
+		mui_window_t * w, *save;
+		TAILQ_FOREACH_SAFE(w, &win->ui->windows, self, save) {
 			if (w == win || !c2_rect_intersect_rect(&w->frame, &forward))
 				continue;
 			pixman_region32_union_rect(&w->inval, &w->inval,
@@ -381,8 +381,8 @@ mui_window_front(
 {
 	if (!ui)
 		return NULL;
-	mui_window_t * w;
-	TAILQ_FOREACH_REVERSE(w, &ui->windows, windows, self) {
+	mui_window_t * w, *save;
+	TAILQ_FOREACH_REVERSE_SAFE(w, &ui->windows, windows, self, save) {
 		if (w->flags.hidden)
 			continue;
 		if (w->flags.layer < MUI_WINDOW_MENUBAR_LAYER)

@@ -25,9 +25,10 @@
 #include "mii_thread.h"
 
 #include "mii_mui.h"
-#include "mii-icon-64.h"
 #include "minipt.h"
 #include "miigl_counter.h"
+#define MII_ICON64_DEFINE
+#include "mii-icon-64.h"
 
 /*
  * Note: This *assumes* that the GL implementation has support for non-power-of-2
@@ -348,7 +349,10 @@ mii_x11_init(
 		}
 		{
 			Atom net_wm_icon_atom = XInternAtom(ui->dpy, "_NET_WM_ICON", False);
-			XChangeProperty(ui->dpy, ui->win, net_wm_icon_atom, XA_CARDINAL, 32, PropModeReplace, (unsigned char *)mii_icon64, sizeof(mii_icon64) / sizeof(mii_icon64[0]));
+			XChangeProperty(ui->dpy, ui->win, net_wm_icon_atom, XA_CARDINAL,
+						32, PropModeReplace,
+						(unsigned char *)mii_icon64,
+						sizeof(mii_icon64) / sizeof(mii_icon64[0]));
 			XFlush(ui->dpy);
 		}
 		XMapWindow(ui->dpy, ui->win);
@@ -808,12 +812,15 @@ mii_ui_reconfigure_slot(
 					(void*)config->slot[i].conf.smartport.drive[1].disk);
 		}	break;
 		case MII_SLOT_DRIVER_DISK2: {
-			mii_slot_command(mii, slot,
-					MII_SLOT_DRIVE_LOAD,
-					(void*)config->slot[i].conf.disk2.drive[0].disk);
-			mii_slot_command(mii, slot,
-					MII_SLOT_DRIVE_LOAD + 1,
-					(void*)config->slot[i].conf.disk2.drive[1].disk);
+			for (int di = 0; di < 2; di++) {
+				mii_slot_command(mii, slot,
+						MII_SLOT_DRIVE_LOAD + di,
+						(void*)config->slot[i].conf.disk2.drive[di].disk);
+				int wp = config->slot[i].conf.disk2.drive[di].wp;
+				mii_slot_command(mii, slot,
+						MII_SLOT_DRIVE_WP + di,
+						(void*)&wp);
+			}
 		}	break;
 		case MII_SLOT_DRIVER_ROM1MB: {
 			mii_slot_command(mii, slot,

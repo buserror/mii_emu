@@ -176,6 +176,7 @@ _init(
 //	mii_mui_load_1mbrom(g->ui, &g_machine_conf.slot[0].conf.rom1mb);
 //	mii_mui_load_2dsk(g->ui,
 //				&g_machine_conf.slot[0].conf.disk2, MII_2DSK_DISKII);
+	mii_mui_about(g->ui);
 #if 0
 	mui_alert(ui, C2_PT(0,0),
 					"Testing one Two",
@@ -183,7 +184,7 @@ _init(
 					"This operation cannot be cancelled.",
 					MUI_ALERT_WARN);
 #endif
-#if 1
+#if 0
 	mui_stdfile_get(ui,
 				C2_PT(0, 0),
 				"Select image for SmartPort card",

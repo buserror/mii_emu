@@ -239,12 +239,31 @@ _mii_disk2_command(
 			if (param)
 				*(int *)param = 2;
 			break;
-		case MII_SLOT_DRIVE_LOAD ... MII_SLOT_DRIVE_LOAD + 2 - 1:
+		case MII_SLOT_DRIVE_WP ... MII_SLOT_DRIVE_WP + 2 - 1: {
+			int drive = cmd - MII_SLOT_DRIVE_WP;
+			int *wp = param;
+			if (wp) {
+				printf("Drive %d WP: 0x%x set %s\n", drive,
+							c->floppy[drive].write_protected,
+							*wp ? "ON" : "OFF");
+				c->floppy[drive].write_protected =
+						(c->floppy[drive].write_protected &
+											~(MII_FLOPPY_WP_MANUAL))|
+						(*wp ? MII_FLOPPY_WP_MANUAL : 0);
+			}
+		}	break;
+		case MII_SLOT_DRIVE_LOAD ... MII_SLOT_DRIVE_LOAD + 2 - 1: {
 			int drive = cmd - MII_SLOT_DRIVE_LOAD;
-			const char *filename = param;
+			const char *pathname = param;
 			mii_dd_file_t *file = NULL;
-			if (filename && *filename) {
-				file = mii_dd_file_load(&mii->dd, filename, O_RDWR);
+			if (pathname && *pathname) {
+				if (c->drive[drive].file &&
+						!strcmp(c->drive[drive].file->pathname, pathname)) {
+					printf("%s D%d Same file, not reloading\n",
+							__func__, drive);
+					return 0;
+				}
+				file = mii_dd_file_load(&mii->dd, pathname, O_RDWR);
 				if (!file)
 					return -1;
 			}
@@ -252,7 +271,7 @@ _mii_disk2_command(
 			mii_floppy_init(&c->floppy[drive]);
 			mii_dd_drive_load(&c->drive[drive], file);
 			mii_floppy_load(&c->floppy[drive], file);
-			break;
+		}	break;
 	}
 	return 0;
 }

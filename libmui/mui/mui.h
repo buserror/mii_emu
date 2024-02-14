@@ -458,7 +458,7 @@ mui_font_textbox(
 		mui_color_t 	color,
 		uint16_t 		flags );
 
-DECLARE_C_ARRAY(stb_ttc_g*, mui_glyph_array, 8, int x, y, w; );
+DECLARE_C_ARRAY(unsigned int, mui_glyph_array, 8, int x, y, w; );
 DECLARE_C_ARRAY(mui_glyph_array_t, mui_glyph_line_array, 8);
 
 /*
@@ -521,6 +521,15 @@ typedef struct mui_window_t {
 
 /*
  * Window related
+ */
+/*
+ * This is the main function to create a window. The
+ * * 'wdef' is the window definition (or NULL for a default window).
+ *   see mui_wdef_p for the callback definition.
+ * * 'layer' layer to put it in (default to zero for normal windows)
+ * * 'instance_size' zero (for default) or the size of the window instance
+ *   object that is returned, you can therefore have your own custom field
+ *   attached to a window.
  */
 mui_window_t *
 mui_window_create(

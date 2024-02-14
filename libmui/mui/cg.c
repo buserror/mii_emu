@@ -1009,6 +1009,7 @@ static struct cg_rle_t * cg_rle_intersection(struct cg_rle_t * a, struct cg_rle_
 	struct cg_span_t * a_end = a_spans + a->spans.size;
 	struct cg_span_t * b_spans = b->spans.data;
 	struct cg_span_t * b_end = b_spans + b->spans.size;
+	int overflow = 0;
 	while((a_spans < a_end) && (b_spans < b_end))
 	{
 		if(b_spans->y > a_spans->y)
@@ -1040,6 +1041,24 @@ static struct cg_rle_t * cg_rle_intersection(struct cg_rle_t * a, struct cg_rle_
 		if(len)
 		{
 			struct cg_span_t * span = result->spans.data + result->spans.size;
+			if (result->spans.size >= result->spans.capacity)
+			{
+				/* This is a workaround, I've had a case where the size
+				   overflows by quite a bit. See note at the end of this
+				   function. In any case this doesn't hurt, and it prevents
+				   a crash in this situation.
+				   Not familiar enough with the codebase to know if this
+				   is a bug or not.  */
+				#if 0
+				printf("cg_array_ensure detected overflow!!\na:%d b:%d r:%d/%d (len %d)\n",
+						a->spans.size, b->spans.size,
+						result->spans.size,
+						result->spans.capacity, len);
+				#endif
+				cg_array_ensure(result->spans, result->spans.size + 1);
+				span = result->spans.data + result->spans.size;
+				overflow = 1;
+			}
 			span->x = x;
 			span->len = len;
 			span->y = a_spans->y;
@@ -1079,7 +1098,15 @@ static struct cg_rle_t * cg_rle_intersection(struct cg_rle_t * a, struct cg_rle_
 	result->y = y1;
 	result->w = x2 - x1;
 	result->h = y2 - y1 + 1;
-
+	if (overflow) {
+		/* I have a case which displays this
+				cg_rle_intersection detected overflow!!
+					a:960 b:524 r:1098/4096
+		printf("cg_rle_intersection detected overflow!!\n\ta:%d b:%d r:%d/%d\n",
+				a->spans.size, b->spans.size,
+				result->spans.size, result->spans.capacity);
+		*/
+	}
 	return result;
 }
 

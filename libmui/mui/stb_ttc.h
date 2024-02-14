@@ -41,6 +41,7 @@ typedef struct stb_ttc_measure {
  * scales in one cache.
  */
 typedef struct stb_ttc_g {
+	unsigned int 	index;		// index in global table
 	unsigned int	intscale;	// for comparison purpose
 	float			scale;
 	unsigned int 	glyph;
@@ -296,6 +297,7 @@ stb_ttc__ScaledGlyphGetCache(
 			.glyph = glyph,
 			.index = ttc->g_count
 	};
+	gc.index = ttc->g_count;
 	ttc->g_count++;
 
 	unsigned int hash = glyph + (glyph * gc.intscale);
