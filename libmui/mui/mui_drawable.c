@@ -36,6 +36,8 @@ mui_drawable_clear(
 	for (int i = 0; i < (int)dr->clip.count; i++)
 		pixman_region32_fini(&dr->clip.e[i]);
 	mui_clip_stack_clear(&dr->clip);
+	if (dr->pix.pixels && dr->dispose_pixels)
+		free(dr->pix.pixels);
 	dr->_pix_hash = NULL;
 }
 

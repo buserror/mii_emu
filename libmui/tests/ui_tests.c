@@ -172,11 +172,10 @@ _init(
 								m_cpu_menu);
 
 //	mii_mui_configure_slots(g->ui, &g_machine_conf);
-//	mii_mui_load_binary(g->ui, &g_loadbin_conf);
+	mii_mui_load_binary(g->ui, &g_loadbin_conf);
 //	mii_mui_load_1mbrom(g->ui, &g_machine_conf.slot[0].conf.rom1mb);
-//	mii_mui_load_2dsk(g->ui,
-//				&g_machine_conf.slot[0].conf.disk2, MII_2DSK_DISKII);
-	mii_mui_about(g->ui);
+//	mii_mui_load_2dsk(g->ui, &g_machine_conf.slot[0].conf.disk2, MII_2DSK_DISKII);
+//	mii_mui_about(g->ui);
 #if 0
 	mui_alert(ui, C2_PT(0,0),
 					"Testing one Two",

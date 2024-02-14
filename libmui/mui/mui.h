@@ -326,9 +326,15 @@ typedef struct mui_drawable_t {
 	struct cg_ctx_t *			cg;
 	union pixman_image *		pixman;	// (try) not to use these directly
 	unsigned int				pixman_clip_dirty: 1,
-								cg_clip_dirty : 1;
+								cg_clip_dirty : 1,
+								dispose_pixels : 1;
+	// (default) position in destination when drawing
+	c2_pt_t 					origin;
 	mui_clip_stack_t			clip;
 } mui_drawable_t;
+
+// Use IMPLEMENT_C_ARRAY(mui_drawable_array); if you need this
+DECLARE_C_ARRAY(mui_drawable_t *, mui_drawable_array, 4);
 
 /*
  * Drawable related
@@ -425,6 +431,13 @@ mui_font_t *
 mui_font_find(
 		struct mui_t *	ui,
 		const char *	name);
+mui_font_t *
+mui_font_from_mem(
+		struct mui_t *	ui,
+		const char *name,
+		unsigned int size,
+		const void *font_data,
+		unsigned int font_size );
 void
 mui_font_text_draw(
 		mui_font_t *	font,
@@ -473,6 +486,15 @@ mui_font_measure(
 		unsigned int 	text_len,
 		mui_glyph_line_array_t *lines,
 		uint16_t 		flags);
+// to be used exclusively with mui_font_measure
+void
+mui_font_measure_draw(
+		mui_font_t *font,
+		mui_drawable_t *dr,
+		c2_rect_t bbox,
+		mui_glyph_line_array_t *lines,
+		mui_color_t color,
+		uint16_t flags);
 // clear all the lines, and glyph lists. Use it after mui_font_measure
 void
 mui_font_measure_clear(

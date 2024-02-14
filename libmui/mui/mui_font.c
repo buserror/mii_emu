@@ -24,6 +24,7 @@
 INCBIN(main_font, "fonts/Charcoal_mui.ttf");
 INCBIN(icon_font, "fonts/typicon.ttf");
 INCBIN(dingbat_font, "fonts/Dingbat.ttf");
+INCBIN(geneva_font, "fonts/Geneva.ttf");
 
 #include "mui.h"
 

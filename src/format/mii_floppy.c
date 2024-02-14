@@ -205,6 +205,24 @@ mii_floppy_write_track_woz(
 	return 0;
 }
 
+static uint64_t
+mii_floppy_woz_load_tmap(
+	mii_floppy_t *f,
+	mii_woz_tmap_t *tmap )
+{
+	uint64_t used_tracks = 0;
+	int tmap_size = le32toh(tmap->chunk.size_le);
+	for (int ti = 0; ti < (int)sizeof(f->track_id) && ti < tmap_size; ti++) {
+		if (tmap->track_id[ti] == 0xff) {
+			f->track_id[ti] = MII_FLOPPY_RANDOM_TRACK_ID;
+			continue;
+		}
+		f->track_id[ti] = tmap->track_id[ti];
+		used_tracks |= 1L << f->track_id[ti];
+	}
+	return used_tracks;
+}
+
 static int
 mii_floppy_load_woz(
 	mii_floppy_t *f,
@@ -221,12 +239,15 @@ mii_floppy_load_woz(
 	}
 	version += !strncmp((char*)header, "WOZ2", 4);
 	mii_woz_tmap_t *tmap = NULL;
+	uint64_t used_tracks = 0;
+
 	if (version == 1) {
 		mii_woz1_info_t *info = (mii_woz1_info_t *)(header + 1);
 		tmap = (mii_woz_tmap_t *)((uint8_t *)info +
 					le32toh(info->chunk.size_le) + sizeof(mii_woz_chunk_t));
 		mii_woz1_trks_t *trks = (mii_woz1_trks_t *)((uint8_t *)tmap +
 					le32toh(tmap->chunk.size_le) + sizeof(mii_woz_chunk_t));
+		used_tracks = mii_floppy_woz_load_tmap(f, tmap);
 #if 1
 		printf("WOZ: version %d, type %d\n",
 				info->version, info->disk_type );
@@ -237,8 +258,13 @@ mii_floppy_load_woz(
 		printf("WOZ: Track chunk %4.4s size %d\n",
 				(char*)&trks->chunk.id_le, le32toh(trks->chunk.size_le));
 #endif
-		for (int i = 0; i < 35; i++) {
+		int max_track = le32toh(trks->chunk.size_le) / sizeof(trks->track[0]);
+		for (int i = 0; i < 35 && i < max_track; i++) {
 			uint8_t *track = trks->track[i].bits;
+			if (!(used_tracks & (1L << i))) {
+		//		printf("WOZ: Track %d not used\n", i);
+				continue;
+			}
 			memcpy(f->tracks[i].data, track, le16toh(trks->track[i].byte_count_le));
 			f->tracks[i].bit_count = le32toh(trks->track[i].bit_count_le);
 		}
@@ -248,6 +274,7 @@ mii_floppy_load_woz(
 					le32toh(info->chunk.size_le) + sizeof(mii_woz_chunk_t));
 		mii_woz2_trks_t *trks = (mii_woz2_trks_t *)((uint8_t *)tmap +
 					le32toh(tmap->chunk.size_le) + sizeof(mii_woz_chunk_t));
+		used_tracks = mii_floppy_woz_load_tmap(f, tmap);
 #if 1
 		printf("WOZ: version %d, type %d, sides %d, largest track %d, optimal bit timing: %d\n",
 				info->version, info->disk_type, info->sides,
@@ -263,20 +290,15 @@ mii_floppy_load_woz(
 		/* TODO: this doesn't work yet... */
 		// f->bit_timing = info->optimal_bit_timing;
 		for (int i = 0; i < 35; i++) {
+			if (!(used_tracks & (1L << i))) {
+			//	printf("WOZ: Track %d not used\n", i);
+				continue;
+			}
 			uint8_t *track = file->map +
 						(le16toh(trks->track[i].start_block_le) << 9);
 			uint32_t byte_count = (le32toh(trks->track[i].bit_count_le) + 7) >> 3;
 			memcpy(f->tracks[i].data, track, byte_count);
 			f->tracks[i].bit_count = le32toh(trks->track[i].bit_count_le);
-		}
-	}
-	// copy the track map from the file to the floppy
-	for (int ti = 0; ti < (int)sizeof(f->track_id); ti++) {
-		f->track_id[ti] = tmap->track_id[ti] == 0xff ?
-				MII_FLOPPY_RANDOM_TRACK_ID : tmap->track_id[ti];
-		if (f->tracks[f->track_id[ti]].bit_count == 0) {
-			printf("%s Invalid qtrack %d (points to track %d) has zero bits!\n",
-				__func__, ti, f->track_id[ti]);
 		}
 	}
 	return version;

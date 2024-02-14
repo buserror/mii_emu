@@ -242,15 +242,20 @@ mui_timer_reset(
 	if (id >= MUI_TIMER_COUNT)
 		return 0;
 	if (!(ui->timer.map & (1 << id)) ||
-				ui->timer.timers[id].cb != cb)
+				ui->timer.timers[id].cb != cb) {
+					printf("%s: timer %d not active\n", __func__, id);
 		return 0;
+	}
 	mui_time_t res = 0;
 	uint64_t now = mui_get_time();
 	if (ui->timer.timers[id].when > now)
 		res = ui->timer.timers[id].when - now;
 	ui->timer.timers[id].when = now + delay;
-	if (delay == 0)
+	if (delay == 0) {
 		ui->timer.map &= ~(1 << id);
+		printf("%s: timer %d removed\n", __func__, id);
+	}
+
 	return res;
 }
 

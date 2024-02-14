@@ -209,7 +209,8 @@ mii_menubar_action(
 		//			(char*)&item->uid, item->title);
 			switch (item->uid) {
 				case FCC('a','b','o','t'): {
-					_mii_show_about(ui);
+//					_mii_show_about(ui);
+					mii_mui_about(&ui->mui);
 				}	break;
 				case FCC('q','u','i','t'): {
 //					printf("%s Quit?\n", __func__);

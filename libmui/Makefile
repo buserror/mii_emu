@@ -61,6 +61,8 @@ $(LIB)/ui_tests.so : $(OBJ)/mii_mui_1mb.o
 $(LIB)/ui_tests.so : $(OBJ)/mii_mui_2dsk.o
 $(LIB)/ui_tests.so : $(OBJ)/mii_mui_about.o
 
+$(OBJ)/mii_mui_about.o : CPPFLAGS+=-DMII_ICON64_DEFINE
+
 # use a .temp file, otherwise the playground tries to reload before the file
 # is fully written, and it fails.
 # the ${filter} are there to make the sure object files are linked before the .a
