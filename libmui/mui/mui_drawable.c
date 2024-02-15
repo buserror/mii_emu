@@ -8,8 +8,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
 
 #include <pixman.h>
 #include "mui.h"
@@ -17,6 +15,43 @@
 
 
 IMPLEMENT_C_ARRAY(mui_clip_stack);
+
+// create a new mui_draware of size w x h, bpp depth.
+// optionally allocate the pixels if pixels is NULL
+mui_drawable_t *
+mui_drawable_init(
+		mui_drawable_t * d,
+		c2_pt_t size,
+		uint8_t bpp,
+		void * pixels, // if NULL, will allocate
+		uint32_t row_bytes)
+{
+	static const mui_drawable_t zero = {};
+	*d = zero;
+	d->pix.bpp = bpp;
+	d->pix.size = size;
+	d->pix.row_bytes = row_bytes == 0 ?
+				(uint32_t)((size.x * (bpp / 8)) + 3) & ~3 :
+						row_bytes;
+	d->pix.pixels = pixels ? pixels : malloc(d->pix.row_bytes * size.y);
+	d->dispose_pixels = pixels == NULL;
+	return d;
+}
+
+// create a new mui_draware of size w x h, bpp depth.
+// optionally allocate the pixels if pixels is NULL
+mui_drawable_t *
+mui_drawable_new(
+		c2_pt_t size,
+		uint8_t bpp,
+		void * pixels, // if NULL, will allocate
+		uint32_t row_bytes)
+{
+	mui_drawable_t *d = malloc(sizeof(mui_drawable_t));
+	mui_drawable_init(d, size, bpp, pixels, row_bytes);
+	d->dispose_drawable = 1;
+	return d;
+}
 
 void
 mui_drawable_clear(
@@ -49,7 +84,8 @@ mui_drawable_dispose(
 		return;
 	mui_drawable_clear(dr);
 	mui_clip_stack_free(&dr->clip);
-//	free(dr);
+	if (dr->dispose_drawable)
+		free(dr);
 }
 
 static struct cg_ctx_t *

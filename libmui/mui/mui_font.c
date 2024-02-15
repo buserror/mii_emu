@@ -8,9 +8,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <ctype.h>
-#include <unistd.h>
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #define STB_TTC_IMPLEMENTATION

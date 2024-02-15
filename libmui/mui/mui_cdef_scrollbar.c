@@ -8,13 +8,13 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
-#include <unistd.h>
 
 #include "mui.h"
 #include "cg.h"
 
+enum {
+	MUI_CONTROL_SCROLLBAR			= FCC('s','b','a','r'),
+};
 
 extern const mui_control_color_t mui_control_color[MUI_CONTROL_STATE_COUNT];
 

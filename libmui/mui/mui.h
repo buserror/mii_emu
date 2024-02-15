@@ -327,7 +327,10 @@ typedef struct mui_drawable_t {
 	union pixman_image *		pixman;	// (try) not to use these directly
 	unsigned int				pixman_clip_dirty: 1,
 								cg_clip_dirty : 1,
-								dispose_pixels : 1;
+								dispose_pixels : 1,
+								dispose_drawable : 1;
+	// not used internally, but useful for the application
+	unsigned int				texture_id;
 	// (default) position in destination when drawing
 	c2_pt_t 					origin;
 	mui_clip_stack_t			clip;
@@ -339,6 +342,25 @@ DECLARE_C_ARRAY(mui_drawable_t *, mui_drawable_array, 4);
 /*
  * Drawable related
  */
+/* create a new mui_draware of size w x h, bpp depth.
+ * Optionally allocate the pixels if pixels is NULL. Allocated pixels
+ * are not cleared. */
+mui_drawable_t *
+mui_drawable_new(
+		c2_pt_t size,
+		uint8_t bpp,
+		void * pixels, // if NULL, will allocate
+		uint32_t row_bytes);
+/* initialize a mui_drawable_t structure with the given parameters
+ * note it is not assumed 'd' contains anything valid, it will be
+ * overwritten */
+mui_drawable_t *
+mui_drawable_init(
+		mui_drawable_t * d,
+		c2_pt_t size,
+		uint8_t bpp,
+		void * pixels, // if NULL, will allocate
+		uint32_t row_bytes);
 void
 mui_drawable_dispose(
 		mui_drawable_t * dr);
@@ -684,20 +706,6 @@ mui_menubar_highlight(
 		mui_window_t *	win,
 		bool 			ignored );
 
-enum mui_control_type_e {
-	MUI_CONTROL_NONE = 0,
-	MUI_CONTROL_BUTTON,
-	MUI_CONTROL_GROUP,
-	MUI_CONTROL_SEPARATOR,
-	MUI_CONTROL_TEXTBOX,
-	MUI_CONTROL_GROUPBOX,
-	MUI_CONTROL_LISTBOX,
-	MUI_CONTROL_SCROLLBAR,
-	MUI_CONTROL_MENUTITLE,
-	MUI_CONTROL_MENUITEM,
-	MUI_CONTROL_SUBMENUITEM,
-	MUI_CONTROL_POPUP,
-};
 
 enum mui_button_style_e {
 	MUI_BUTTON_STYLE_NORMAL = 0,
@@ -750,10 +758,16 @@ typedef struct mui_control_t {
 /*
  * Control related
  */
+/*
+ * This is the 'low level' control creation function, you can pass the
+ * 'cdef' function pointer and a control 'type' that will be passed to it,
+ * so you can implement variants of controls.
+ * The instance_size is the size of the extended control record, if any.
+ */
 mui_control_t *
 mui_control_new(
 		mui_window_t * 	win,
-		uint8_t 		type,
+		uint32_t 		type,	// specific to the CDEF
 		mui_cdef_p 		cdef,
 		c2_rect_t 		frame,
 		const char *	title,
@@ -812,11 +826,23 @@ mui_control_set_title(
 		mui_control_t * c,
 		const char * 	text );
 
+/* Drawable control is just an offscreen buffer (icon, pixel view) */
+mui_control_t *
+mui_drawable_control_new(
+		mui_window_t * 	win,
+		c2_rect_t 		frame,
+		mui_drawable_t * dr,
+		mui_drawable_t * mask,
+		uint16_t 		flags);
+mui_drawable_t *
+mui_drawable_control_get_drawable(
+		mui_control_t * c);
+
 mui_control_t *
 mui_button_new(
 		mui_window_t * 	win,
 		c2_rect_t 		frame,
-		uint8_t			style,
+		uint8_t			style,	// one of mui_button_style_e
 		const char *	title,
 		uint32_t 		uid );
 /*

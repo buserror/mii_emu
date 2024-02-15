@@ -8,9 +8,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
-#include <unistd.h>
 
 #include "mui.h"
 #include "mui_priv.h"
@@ -19,6 +16,13 @@
 #ifndef D
 #define D(_x) //_x
 #endif
+
+enum {
+	MUI_CONTROL_MENUTITLE			= FCC('m','t','i','t'),
+	MUI_CONTROL_MENUITEM			= FCC('m','i','t','m'),
+	MUI_CONTROL_SUBMENUITEM			= FCC('s','m','i','t'),
+	MUI_CONTROL_POPUP				= FCC('p','o','p','u'),
+};
 
 /* These are *window action* -- parameter 'target' is a mui_menu_t* */
 enum mui_menu_action_e {

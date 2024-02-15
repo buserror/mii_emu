@@ -8,12 +8,16 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
-#include <unistd.h>
 
 #include "mui.h"
 #include "cg.h"
+
+enum {
+	MUI_CONTROL_GROUP				= FCC('g','r','o','p'),
+	MUI_CONTROL_SEPARATOR			= FCC('s','e','p','r'),
+	MUI_CONTROL_TEXTBOX				= FCC('t','b','o','x'),
+	MUI_CONTROL_GROUPBOX			= FCC('g','b','o','x'),
+};
 
 typedef struct mui_textbox_control_t {
 	mui_control_t 		control;
@@ -156,7 +160,7 @@ mui_textbox_new(
 	mui_control_t * c = mui_control_new(
 				win, MUI_CONTROL_TEXTBOX, mui_cdef_boxes,
 				frame,  text, 0, sizeof(mui_textbox_control_t));
-	mui_textbox_control_t *tb = (mui_textbox_control_t *)c; 
+	mui_textbox_control_t *tb = (mui_textbox_control_t *)c;
 	tb->font = mui_font_find(win->ui, font ? font : "main");
 	tb->flags = flags;
 	return c;
@@ -182,7 +186,7 @@ mui_groupbox_new(
 	mui_control_t * c = mui_control_new(
 				win, MUI_CONTROL_GROUPBOX, mui_cdef_boxes,
 				frame,  title, 0, sizeof(mui_textbox_control_t));
-	mui_textbox_control_t *tb = (mui_textbox_control_t *)c; 
+	mui_textbox_control_t *tb = (mui_textbox_control_t *)c;
 	tb->flags = flags;
 	return c;
 }

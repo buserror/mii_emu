@@ -9,13 +9,9 @@
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <ctype.h>
-#include <unistd.h>
 #include <errno.h>
 #include <sys/stat.h>
-#include <glob.h>
-#include <libgen.h>
 
 #ifdef __linux__
 #define MUI_HAS_REGEXP
@@ -26,7 +22,7 @@
 #include "mui.h"
 #include "c2_geometry.h"
 
-#include <sys/types.h>
+#include <libgen.h>
 #include <dirent.h>
 
 DECLARE_C_ARRAY(char*, string_array, 2);

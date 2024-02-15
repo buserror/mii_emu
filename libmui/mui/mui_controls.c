@@ -8,9 +8,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
-#include <unistd.h>
 
 #include "mui.h"
 
@@ -53,7 +50,7 @@ mui_control_draw(
 mui_control_t *
 mui_control_new(
 		mui_window_t * 	win,
-		uint8_t 		type,
+		uint32_t 		type,
 		mui_cdef_p 		cdef,
 		c2_rect_t 		frame,
 		const char *	title,
@@ -198,7 +195,7 @@ mui_control_event(
 		return res;
 	switch (ev->type) {
 		case MUI_EVENT_KEYDOWN:
-			if (c->state != MUI_CONTROL_STATE_DISABLED && 
+			if (c->state != MUI_CONTROL_STATE_DISABLED &&
 					mui_event_match_key(ev, c->key_equ)) {
 				mui_control_set_state(c, MUI_CONTROL_STATE_CLICKED);
 				mui_timer_register(

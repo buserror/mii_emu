@@ -679,7 +679,7 @@ mii_x11_prepare_textures(
 
 	glTexImage2D(GL_TEXTURE_2D, 0, 4,
 			MII_VRAM_WIDTH,
-			MII_VRAM_HEIGHT, 0, GL_RGBA,
+			MII_VRAM_HEIGHT, 0, GL_BGRA,	// note BGRA here, not RGBA
 	        GL_UNSIGNED_BYTE,
 	        mii->video.pixels);
 	// bind the mui texture using the GL_ARB_texture_rectangle as well
@@ -1000,7 +1000,7 @@ main(
 					glPixelStorei(GL_UNPACK_ROW_LENGTH, ui->dr.pix.row_bytes / 4);
 					glTexSubImage2D(GL_TEXTURE_2D, 0, r.l, r.t,
 							c2_rect_width(&r), c2_rect_height(&r),
-							GL_RGBA, GL_UNSIGNED_BYTE,
+							GL_BGRA, GL_UNSIGNED_BYTE,
 							ui->dr.pix.pixels + (r.t * ui->dr.pix.row_bytes) + (r.l * 4));
 				}
 			}

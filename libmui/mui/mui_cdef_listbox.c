@@ -8,12 +8,14 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <ctype.h>
-#include <unistd.h>
 
 #include "mui.h"
 #include "cg.h"
+
+enum {
+	MUI_CONTROL_LISTBOX				= FCC('l','b','o','x'),
+};
 
 typedef struct mui_listbox_control_t {
 	mui_control_t 		control;

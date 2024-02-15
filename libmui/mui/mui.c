@@ -8,9 +8,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <ctype.h>
-#include <unistd.h>
 
 #include "mui_priv.h"
 
@@ -220,7 +218,7 @@ mui_timer_register(
 		void *param,
 		uint32_t delay)
 {
-	if (ui->timer.map == (uint64_t)-1) {
+	if (ui->timer.map == (uint64_t)-1L) {
 		fprintf(stderr, "%s ran out of timers\n", __func__);
 		return -1;
 	}
@@ -241,7 +239,7 @@ mui_timer_reset(
 {
 	if (id >= MUI_TIMER_COUNT)
 		return 0;
-	if (!(ui->timer.map & (1 << id)) ||
+	if (!(ui->timer.map & (1L << id)) ||
 				ui->timer.timers[id].cb != cb) {
 					printf("%s: timer %d not active\n", __func__, id);
 		return 0;
@@ -252,7 +250,7 @@ mui_timer_reset(
 		res = ui->timer.timers[id].when - now;
 	ui->timer.timers[id].when = now + delay;
 	if (delay == 0) {
-		ui->timer.map &= ~(1 << id);
+		ui->timer.map &= ~(1L << id);
 		printf("%s: timer %d removed\n", __func__, id);
 	}
 
