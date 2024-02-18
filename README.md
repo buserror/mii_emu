@@ -3,6 +3,16 @@
 </p>
 
 # MII Version Changelog
+## 1.7
+ * New animated about box, because, everyone loves a good about box.
+ * Added support for Write Protect of floppy disks; disk can be write protected manually, or if the file lacks write permissions, OR if the file format (NIB, DSK) doesn't support writes.
+ * New fancypants 'bit view' of the floppy are they are read/written, with a
+   heat map to show where the head was last. Drive 1 appears left of the screen,
+   drive 2 on the right. It fades out after the drive motor stops.
+
+![Heat map disk viewq](docs/heat_map.png)
+*DOS 3.3 Disk 'bitstream view' on the left, the green trace shows what's just be read.*
+
 ## 1.6
  * Another big update, yanked the old DiskII driver, and replaced it with a
    homebrew one, low level, with native support for WOZ (1 & 2) files (*read AND write!*) as well as NIB and DSK (read only).

@@ -129,8 +129,13 @@ lsp:
 -include $(O)/*.d
 -include $(O)/obj/*.d
 
+DESTDIR		:= /usr/local
 
 install:
 	mkdir -p $(DESTDIR)/bin
-	mkdir -p $(DESTDIR)/share/games/mii/
 	cp $(BIN)/mii_emu_gl $(DESTDIR)/bin/
+
+avail:
+	mkdir -p $(DESTDIR)/bin
+	rm -f $(DESTDIR)/bin/mii_emu_gl && \
+		ln -sf $(realpath $(BIN)/mii_emu_gl) $(DESTDIR)/bin/mii_emu_gl

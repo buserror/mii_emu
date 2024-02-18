@@ -13,7 +13,7 @@
 #include <fcntl.h>
 #include "mii.h"
 #include "mii_bank.h"
-#include "mii_disk2.h"
+
 #include "mii_rom_disk2.h"
 #include "mii_woz.h"
 #include "mii_floppy.h"
@@ -62,8 +62,8 @@ _mii_floppy_motor_off_cb(
 {
 	mii_card_disk2_t *c = param;
 	mii_floppy_t *f 	= &c->floppy[c->selected];
-	printf("%s drive %d off\n", __func__, c->selected);
-	if (c->drive[c->selected].file && f->tracks_dirty)
+//	printf("%s drive %d off\n", __func__, c->selected);
+	if (c->drive[c->selected].file && f->seed_dirty != f->seed_saved)
 		mii_floppy_update_tracks(f, c->drive[c->selected].file);
 	f->motor 		= 0;
 	return 0;
@@ -103,21 +103,25 @@ _mii_disk2_switch_track(
 	mii_floppy_t *f = &c->floppy[c->selected];
 	int qtrack = f->qtrack + delta;
 	if (qtrack < 0) qtrack = 0;
-	if (qtrack >= 35 * 4) qtrack = (35 * 4) -1;
+	if (qtrack >= MII_FLOPPY_TRACK_COUNT * 4)
+			qtrack = (MII_FLOPPY_TRACK_COUNT * 4) -1;
 
 	if (qtrack == f->qtrack)
 		return f->qtrack;
 
 	uint8_t track_id = f->track_id[f->qtrack];
-	if (track_id != MII_FLOPPY_RANDOM_TRACK_ID)
-		printf("NEW TRACK D%d: %d\n", c->selected, track_id);
+//	if (track_id != 0xff)
+//		printf("NEW TRACK D%d: %d\n", c->selected, track_id);
 	uint8_t track_id_new = f->track_id[qtrack];
-
+	if (track_id_new >= MII_FLOPPY_TRACK_COUNT)
+		track_id_new = MII_FLOPPY_NOISE_TRACK;
 	/* adapt the bit position from one track to the others, from WOZ specs */
-	uint32_t track_size = f->tracks[track_id].bit_count;
-	uint32_t new_size = f->tracks[track_id_new].bit_count;
-	uint32_t new_pos = f->bit_position * new_size / track_size;
-	f->bit_position = new_pos;
+	if (track_id_new != MII_FLOPPY_NOISE_TRACK) {
+		uint32_t track_size = f->tracks[track_id].bit_count;
+		uint32_t new_size = f->tracks[track_id_new].bit_count;
+		uint32_t new_pos = f->bit_position * new_size / track_size;
+		f->bit_position = new_pos;
+	}
 	f->qtrack = qtrack;
 	return f->qtrack;
 }
@@ -208,6 +212,13 @@ _mii_disk2_access(
 		case 0x0C:
 		case 0x0D:
 			c->lss_mode = (c->lss_mode & ~(1 << LOAD_BIT)) | (!!on << LOAD_BIT);
+			if (!(c->lss_mode & (1 << WRITE_BIT)) && f->heat) {
+				uint8_t 	track_id = f->track_id[f->qtrack];
+				uint32_t 	byte_index 	= f->bit_position >> 3;
+				unsigned int dstb = byte_index / MII_FLOPPY_HM_HIT_SIZE;
+				f->heat->read.map[track_id][dstb] = 255;
+				f->heat->read.seed++;
+			}
 			break;
 		case 0x0E:
 		case 0x0F:
@@ -230,19 +241,23 @@ static int
 _mii_disk2_command(
 		mii_t * mii,
 		struct mii_slot_t *slot,
-		uint8_t cmd,
+		uint32_t cmd,
 		void * param)
 {
 	mii_card_disk2_t *c = slot->drv_priv;
+	int res = -1;
 	switch (cmd) {
 		case MII_SLOT_DRIVE_COUNT:
-			if (param)
+			if (param) {
 				*(int *)param = 2;
+				res = 0;
+			}
 			break;
 		case MII_SLOT_DRIVE_WP ... MII_SLOT_DRIVE_WP + 2 - 1: {
 			int drive = cmd - MII_SLOT_DRIVE_WP;
 			int *wp = param;
 			if (wp) {
+				res = 0;
 				printf("Drive %d WP: 0x%x set %s\n", drive,
 							c->floppy[drive].write_protected,
 							*wp ? "ON" : "OFF");
@@ -271,9 +286,18 @@ _mii_disk2_command(
 			mii_floppy_init(&c->floppy[drive]);
 			mii_dd_drive_load(&c->drive[drive], file);
 			mii_floppy_load(&c->floppy[drive], file);
+			res = 0;
+		}	break;
+		case MII_SLOT_D2_GET_FLOPPY: {
+			if (param) {
+				mii_floppy_t ** fp = param;
+				fp[0] = &c->floppy[0];
+				fp[1] = &c->floppy[1];
+				res = 0;
+			}
 		}	break;
 	}
-	return 0;
+	return res;
 }
 
 static mii_slot_drv_t _driver = {
@@ -372,16 +396,16 @@ _mii_disk2_lss_tick(
 	if (c->clock >= f->bit_timing) {
 		c->clock -= f->bit_timing;
 		uint8_t 	track_id = f->track_id[f->qtrack];
-
+		uint8_t * 	track = f->track_data[track_id];
 		uint32_t 	byte_index 	= f->bit_position >> 3;
 		uint8_t 	bit_index 	= 7 - (f->bit_position & 7);
 		if (!(c->lss_mode & (1 << WRITE_BIT))) {
-			uint8_t 	bit 	= f->tracks[track_id].data[byte_index];
+			uint8_t 	bit 	= track[byte_index];
 			bit = (bit >> bit_index) & 1;
 			c->head = (c->head << 1) | bit;
 			// see WOZ spec for how we do this here
 			if ((c->head & 0xf) == 0) {
-				bit = f->tracks[MII_FLOPPY_RANDOM_TRACK_ID].data[byte_index];
+				bit = f->track_data[MII_FLOPPY_NOISE_TRACK][byte_index];
 				bit = (bit >> bit_index) & 1;
 //				printf("RANDOM TRACK %2d %2d %2d : %d\n",
 //						track_id, byte_index, bit_index, bit);
@@ -390,16 +414,20 @@ _mii_disk2_lss_tick(
 			}
 			c->lss_mode = (c->lss_mode & ~(1 << RP_BIT)) | (bit << RP_BIT);
 		}
-		if ((c->lss_mode & (1 << WRITE_BIT))) {
+		if ((c->lss_mode & (1 << WRITE_BIT)) && track_id != 0xff) {
 			uint8_t msb = c->data_register >> 7;
-
+#if 0
+			printf("WRITE %2d %4d %d : %d LSS State %x mode %x\n",
+					track_id, byte_index, bit_index, msb,
+					c->lss_state, c->lss_mode);
+#endif
 			if (!f->tracks[track_id].dirty) {
-				printf("DIRTY TRACK %2d \n", track_id);
+			//	printf("DIRTY TRACK %2d \n", track_id);
 				f->tracks[track_id].dirty = 1;
-				f->tracks_dirty = 1;
+				f->seed_dirty++;
 			}
-			f->tracks[track_id].data[byte_index] &= ~(1 << bit_index);
-			f->tracks[track_id].data[byte_index] |= (msb << bit_index);
+			f->track_data[track_id][byte_index] &= ~(1 << bit_index);
+			f->track_data[track_id][byte_index] |= (msb << bit_index);
 		}
 		f->bit_position = (f->bit_position + 1) % f->tracks[track_id].bit_count;
 	}
@@ -418,9 +446,17 @@ _mii_disk2_lss_tick(
 				c->data_register = (c->data_register >> 1) |
 									(!!f->write_protected << 7);
 				break;
-			case 3:	// LD
+			case 3:	{// LD
+				uint8_t 	track_id = f->track_id[f->qtrack];
 				c->data_register = c->write_register;
-				break;
+				f->seed_dirty++;
+				if (f->heat) {
+					uint32_t 	byte_index 	= f->bit_position >> 3;
+					unsigned int dstb = byte_index/MII_FLOPPY_HM_HIT_SIZE;
+					f->heat->write.map[track_id][dstb] = 255;
+					f->heat->write.seed++;
+				}
+			}	break;
 		}
 	} else {	// CLR
 		c->data_register = 0;
@@ -448,8 +484,9 @@ _mii_mish_d2(
 		for (int i = 0; i < 2; i++) {
 			mii_floppy_t *f = &c->floppy[i];
 			printf("Drive %d %s\n", f->id, f->write_protected ? "WP" : "RW");
-			printf("\tMotor: %3s qtrack:%d Bit %6d\n",
-					f->motor ? "ON" : "OFF", f->qtrack, f->bit_position);
+			printf("\tMotor: %3s qtrack:%3d Bit %6d/%6d\n",
+					f->motor ? "ON" : "OFF", f->qtrack,
+					f->bit_position, f->tracks[0].bit_count);
 		}
 		return;
 	}
@@ -480,7 +517,7 @@ _mii_mish_d2(
 				count = atoi(argv[3]);
 			mii_card_disk2_t *c = _mish_d2;
 			mii_floppy_t *f = &c->floppy[sel];
-			uint8_t *data = f->tracks[track].data;
+			uint8_t *data = f->track_data[track];
 
 			for (int i = 0; i < count; i += 8) {
 				uint8_t *line = data + i;
@@ -501,6 +538,12 @@ _mii_mish_d2(
 		} else {
 			printf("track <track 0-36> [count]\n");
 		}
+		return;
+	}
+	if (!strcmp(argv[1], "dirty")) {
+		mii_card_disk2_t *c = _mish_d2;
+		mii_floppy_t *f = &c->floppy[sel];
+		f->seed_dirty = f->seed_saved = rand();
 		return;
 	}
 }

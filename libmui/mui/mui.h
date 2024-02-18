@@ -64,6 +64,7 @@ enum mui_key_e {
 	MUI_KEY_RALT,
 	MUI_KEY_RSUPER,
 	MUI_KEY_LSUPER,
+	MUI_KEY_CAPSLOCK,
 	MUI_KEY_MODIFIERS_LAST,
 	MUI_KEY_F1 		= 0x100,
 	MUI_KEY_F2,
@@ -330,7 +331,11 @@ typedef struct mui_drawable_t {
 								dispose_pixels : 1,
 								dispose_drawable : 1;
 	// not used internally, but useful for the application
-	unsigned int				texture_id;
+	struct {
+		float 						opacity;
+		c2_pt_t 					size;
+		unsigned int				id;
+	}							texture;
 	// (default) position in destination when drawing
 	c2_pt_t 					origin;
 	mui_clip_stack_t			clip;
@@ -364,6 +369,11 @@ mui_drawable_init(
 void
 mui_drawable_dispose(
 		mui_drawable_t * dr);
+// Clear, but do not dispose of the drawable
+void
+mui_drawable_clear(
+		mui_drawable_t * dr);
+
 // get/allocate a pixman structure for this drawable
 union pixman_image *
 mui_drawable_get_pixman(

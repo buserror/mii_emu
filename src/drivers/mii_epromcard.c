@@ -103,14 +103,17 @@ static int
 _mii_ee_command(
 		mii_t * mii,
 		struct mii_slot_t *slot,
-		uint8_t cmd,
+		uint32_t cmd,
 		void * param)
 {
 	mii_card_ee_t *c = slot->drv_priv;
+	int res = -1;
 	switch (cmd) {
 		case MII_SLOT_DRIVE_COUNT:
-			if (param)
+			if (param) {
 				*(int *)param = 1;
+				res = 0;
+			}
 			break;
 		case MII_SLOT_DRIVE_LOAD:
 			const char *filename = param;
@@ -122,9 +125,10 @@ _mii_ee_command(
 			}
 			mii_dd_drive_load(&c->drive[0], file);
 			c->file = file ? file->map : (uint8_t*)mii_1mb_rom_data;
+			res = 0;
 			break;
 	}
-	return 0;
+	return res;
 }
 
 static mii_slot_drv_t _driver = {

@@ -292,14 +292,17 @@ static int
 _mii_sm_command(
 		mii_t * mii,
 		struct mii_slot_t *slot,
-		uint8_t cmd,
+		uint32_t cmd,
 		void * param)
 {
 	mii_card_sm_t *c = slot->drv_priv;
+	int res = -1;
 	switch (cmd) {
 		case MII_SLOT_DRIVE_COUNT:
-			if (param)
+			if (param) {
 				*(int *)param = MII_SM_DRIVE_COUNT;
+				res = 0;
+			}
 			break;
 		case MII_SLOT_DRIVE_LOAD ... MII_SLOT_DRIVE_LOAD + MII_SM_DRIVE_COUNT - 1:
 			int drive = cmd - MII_SLOT_DRIVE_LOAD;
@@ -311,9 +314,10 @@ _mii_sm_command(
 					return -1;
 			}
 			mii_dd_drive_load(&c->drive[drive], file);
+			res = 0;
 			break;
 	}
-	return 0;
+	return res;
 }
 
 static uint8_t

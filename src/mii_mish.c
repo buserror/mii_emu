@@ -51,7 +51,8 @@ _mii_mish_cmd(
 		int argc,
 		const char * argv[])
 {
-	const char * state[] = { "RUNNING", "STOPPED", "STEP" };
+	const char * state[] = {
+			"INIT", "RUNNING", "STOPPED", "STEP", "TERMINATE"};
 	mii_t * mii = param;
 	if (!argv[1]) {
 show_state:

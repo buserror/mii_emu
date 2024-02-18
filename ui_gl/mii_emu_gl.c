@@ -5,6 +5,9 @@
  *
  * SPDX-License-Identifier: MIT
  */
+/*
+ * This is the main file for the X11/GLX version of the MII emulator
+ */
 #define _GNU_SOURCE // for asprintf
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,7 +15,6 @@
 #include <stdbool.h>
 #include <stdarg.h>
 #include <locale.h>
-#include <time.h>
 #include <pthread.h>
 #include <sys/timerfd.h>
 #include <sys/stat.h>
@@ -24,69 +26,38 @@
 #include "mish.h"
 #include "mii_thread.h"
 
-#include "mii_mui.h"
-#include "minipt.h"
+#include "mii_mui_gl.h"
 #include "miigl_counter.h"
 #define MII_ICON64_DEFINE
 #include "mii-icon-64.h"
 
 /*
- * Note: This *assumes* that the GL implementation has support for non-power-of-2
- * textures, which is not a given for older implementations. However, I think
- * (by 2024) that's a safe assumption.
+ * Note: This *assumes* that the GL implementation has support for
+ * non-power-of-2 * textures, which is not a given for older
+ * implementations. However, I think (by 2024) that's a safe assumption.
  */
 #define WINDOW_WIDTH 		1280
 #define WINDOW_HEIGHT		720
 
-#define POWER_OF_TWO 		0
-
-typedef struct mii_gl_tex_t {
-//	c2_rect_t 			frame;
-	GLuint 				id;
-}	mii_gl_tex_t;
+#define MII_MUI_GL_POW2 	0
 
 typedef struct mii_x11_t {
 	mii_mui_t			video;
 	pthread_t 			cpu_thread;
 
-	mui_drawable_t 		dr;		// drawable
-	uint32_t 			dr_padded_y;
-
-	union {
-		struct {
-			mii_gl_tex_t		mii_tex, mui_tex;
-		};
-		mii_gl_tex_t		tex[2];
-	};
-
-	c2_rect_t			video_frame; // current video frame
-	float				mui_alpha;
-	void *				transision_state;
-	struct {
-		mui_time_t			start, end;
-		c2_rect_t 			from, to;
-	} 					transition;
-
 	Cursor 				cursor;
 	Display *			dpy;
 	Window 				win;
-	long				last_button_click;
-	struct {
-		int 			ungrab, grab, grabbed, down;
-		c2_pt_t 		pos;
-	} 					mouse;
-	mui_event_t 		key;
 
 	XVisualInfo *		vis;
 	Colormap 			cmap;
 	XSetWindowAttributes swa;
-	XWindowAttributes 	attr;
 	GLXFBConfig 		fbc;
 	Atom 				wm_delete_window;
 	int 				width, height;
 	GLXContext 			glContext;
 
-	miigl_counter_t 	videoc, redrawc, sleepc;
+//	miigl_counter_t 	videoc, redrawc, sleepc;
 } mii_x11_t;
 
 
@@ -118,97 +89,6 @@ has_gl_extension(
 		string += l;
 	}
 	return false;
-}
-
-c2_rect_t
-c2_rect_interpolate(
-		c2_rect_t *a,
-		c2_rect_t *b,
-		float t)
-{
-	c2_rect_t r = {};
-	r.l = 0.5 + a->l + (b->l - a->l) * t;
-	r.r = 0.5 + a->r + (b->r - a->r) * t;
-	r.t = 0.5 + a->t + (b->t - a->t) * t;
-	r.b = 0.5 + a->b + (b->b - a->b) * t;
-	return r;
-}
-
-static c2_rect_t
-_mii_get_video_position(
-		mii_x11_t * ui,
-		bool ui_visible )
-{
-	c2_rect_t r = C2_RECT(0, 0, MII_VIDEO_WIDTH, MII_VIDEO_HEIGHT);
-	if (ui_visible) {
-		float fac = (ui->attr.height - 38) / (float)MII_VIDEO_HEIGHT;
-		c2_rect_scale(&r, fac);
-		c2_rect_offset(&r,
-				(ui->attr.width / 2) - (c2_rect_width(&r) / 2), 36);
-	} else {
-		float fac = (ui->attr.height) / (float)MII_VIDEO_HEIGHT;
-		c2_rect_scale(&r, fac);
-		c2_rect_offset(&r,
-				(ui->attr.width / 2) - (c2_rect_width(&r) / 2),
-				(ui->attr.height / 2) - (c2_rect_height(&r) / 2));
-		c2_rect_inset(&r, 10, 10);
-	}
-	return r;
-}
-
-static void
-_mii_transition(
-		mii_x11_t * ui )
-{
-	pt_start(ui->transision_state);
-
-	while (ui->video.transition == MII_MUI_TRANSITION_NONE)
-		pt_yield(ui->transision_state);
-
-	ui->transition.start = mui_get_time();
-	ui->transition.end = ui->transition.start + (MUI_TIME_SECOND / 2);
-	ui->transition.from = ui->video_frame;
-
-	switch (ui->video.transition) {
-		case MII_MUI_TRANSITION_HIDE_UI:
-			ui->transition.to = _mii_get_video_position(ui, false);
-			ui->video.mui_visible = true;
-			break;
-		case MII_MUI_TRANSITION_SHOW_UI:
-			ui->transition.to = _mii_get_video_position(ui, true);
-			ui->video.mui_visible = true;
-			break;
-	}
-	while (1) {
-		mui_time_t now = mui_get_time();
-		float t = (now - ui->transition.start) /
-						(float)(ui->transition.end - ui->transition.start);
-		if (t >= 1.0f)
-			break;
-		switch (ui->video.transition) {
-			case MII_MUI_TRANSITION_HIDE_UI:
-				ui->mui_alpha = 1.0f - t;
-				break;
-			case MII_MUI_TRANSITION_SHOW_UI:
-				ui->mui_alpha = t;
-				break;
-		}
-		ui->video_frame = c2_rect_interpolate(
-							&ui->transition.from, &ui->transition.to, t);
-		pt_yield(ui->transision_state);
-	}
-	switch (ui->video.transition) {
-		case MII_MUI_TRANSITION_HIDE_UI:
-			ui->video.mui_visible = false;
-			ui->mui_alpha = 0.0f;
-			break;
-		case MII_MUI_TRANSITION_SHOW_UI:
-			ui->mui_alpha = 1.0f;
-			break;
-	}
-	ui->video.transition = MII_MUI_TRANSITION_NONE;
-
-	pt_end(ui->transision_state);
 }
 
 /*
@@ -244,6 +124,7 @@ _mii_x11_convert_keycode(
 		case XK_Alt_R: out->key.key = MUI_KEY_RALT; break;
 		case XK_Super_L: out->key.key = MUI_KEY_LSUPER; break;
 		case XK_Super_R: out->key.key = MUI_KEY_RSUPER; break;
+		case XK_Caps_Lock: out->key.key = MUI_KEY_CAPSLOCK; break;
 		default:
 			out->key.key = sym & 0xff;
 			break;
@@ -256,7 +137,7 @@ static int
 mii_x11_init(
 		struct mii_x11_t *ui )
 {
-	mui_t * mui = &ui->video.mui;
+//	mui_t * mui = &ui->video.mui;
 
 	if (!setlocale(LC_ALL,"") ||
 			!XSupportsLocale() ||
@@ -355,6 +236,18 @@ mii_x11_init(
 						sizeof(mii_icon64) / sizeof(mii_icon64[0]));
 			XFlush(ui->dpy);
 		}
+		{
+			XSizeHints *hints = XAllocSizeHints();
+			hints->flags = PMinSize | PAspect;// | PMaxSize;
+			hints->min_width = WINDOW_WIDTH / 2;
+			hints->min_height = WINDOW_HEIGHT / 2;
+			hints->max_aspect.x = WINDOW_WIDTH;
+			hints->max_aspect.y = WINDOW_HEIGHT;
+			hints->min_aspect.x = WINDOW_WIDTH;
+			hints->min_aspect.y = WINDOW_HEIGHT;
+			XSetWMNormalHints(ui->dpy, ui->win, hints);
+			XFree(hints);
+		}
 		XMapWindow(ui->dpy, ui->win);
 		ui->wm_delete_window = XInternAtom(ui->dpy, "WM_DELETE_WINDOW", False);
 		XSetWMProtocols(ui->dpy, ui->win, &ui->wm_delete_window, 1);
@@ -401,90 +294,13 @@ mii_x11_init(
 				ui->glContext = create_context(ui->dpy, ui->fbc, 0, True, attr);
 			}
 		}
-
 		XSync(ui->dpy, False);
 		XSetErrorHandler(old_handler);
 		if (gl_err || !ui->glContext)
 			die("[X11]: Failed to create an OpenGL context\n");
 		glXMakeCurrent(ui->dpy, ui->win, ui->glContext);
 	}
-	{	// create the MUI 'screen' at the window size
-		mui_pixmap_t* pix = &ui->dr.pix;
-		pix->size.y = WINDOW_HEIGHT;
-		pix->size.x = WINDOW_WIDTH;
-		// annoyingly I have to make it a LOT bigger to handle that the
-		// non-power-of-2 texture extension is not avialable everywhere
-		// textures, which is a bit of a waste of memory, but oh well.
-
-#if POWER_OF_TWO
-		int padded_x = 1;
-		int padded_y = 1;
-		while (padded_x < pix->size.x)
-			padded_x <<= 1;
-		while (padded_y < pix->size.y)
-			padded_y <<= 1;
-#else
-		int padded_x = pix->size.x;
-		int padded_y = pix->size.y;
-#endif
-		pix->row_bytes = padded_x * 4;
-		pix->bpp = 32;
-
-		ui->dr_padded_y = padded_y;
-		printf("MUI Padded UI size is %dx%d\n", padded_x, padded_y);
-
-		pix->pixels = malloc(pix->row_bytes * ui->dr_padded_y);
-		mui->screen_size = pix->size;
-	}
-	{
-		XGetWindowAttributes(ui->dpy, ui->win, &ui->attr);
-		ui->mui_alpha = 1.0f;
-		ui->video.mui_visible = true;
-		ui->video_frame = _mii_get_video_position(ui, ui->video.mui_visible);
-	}
 	return 0;
-}
-
-static void
-mii_x11_update_mouse_card(
-		mii_x11_t * ui)
-{
-	mii_t * mii = &ui->video.mii;
-	mui_t * mui = &ui->video.mui;
-	/*
-	 * We can grab the mouse if it is enabled by the driver, it is in the
-	 * video frame, and there is no active MUI windows (or menus).
-	 */
-	if (mii->mouse.enabled &&
-			c2_rect_contains_pt(&ui->video_frame, &ui->mouse.pos) &&
-			!(ui->video.mui_visible && mui_has_active_windows(mui))) {
-		if (!ui->mouse.grabbed) {
-			ui->mouse.grab = 1;
-			ui->mouse.grabbed = 1;
-		//	printf("Grab mouse\n");
-		}
-	} else {
-		if (ui->mouse.grabbed) {
-			ui->mouse.ungrab = 1;
-			ui->mouse.grabbed = 0;
-		//	printf("Ungrab mouse\n");
-		}
-	}
-	if (!ui->mouse.grabbed)
-		return;
-	double x = ui->mouse.pos.x - ui->video_frame.l;
-	double y = ui->mouse.pos.y - ui->video_frame.t;
-	// get mouse button state
-	int button = ui->mouse.down;
-	// clamp coordinates inside bounds
-	double vw = c2_rect_width(&ui->video_frame);
-	double vh = c2_rect_height(&ui->video_frame);
-	double mw = mii->mouse.max_x - mii->mouse.min_x;
-	double mh = mii->mouse.max_y - mii->mouse.min_y;
-	// normalize mouse coordinates
-	mii->mouse.x = mii->mouse.min_x	+ (x * mw / vw) + 0.5;
-	mii->mouse.y = mii->mouse.min_y	+ (y * mh / vh) + 0.5;
-	mii->mouse.button = button;
 }
 
 static int
@@ -496,15 +312,16 @@ mii_x11_handle_event(
 
 	/* We don't actually 'grab' as in warp the pointer, we just show/hide it
 	 * dynamically when we enter/leave the video rectangle */
-	if (ui->mouse.grab) {
+	if (ui->video.mouse.grab) {
 		XDefineCursor(ui->dpy, ui->win, ui->cursor);
-		ui->mouse.grab = 0;
-	} else if (ui->mouse.ungrab) {
+		ui->video.mouse.grab = 0;
+	} else if (ui->video.mouse.ungrab) {
 		XUndefineCursor(ui->dpy, ui->win);
-		ui->mouse.ungrab = 0;
+		ui->video.mouse.ungrab = 0;
 	}
 	mui_t * mui = &ui->video.mui;
 	mii_t * mii = &ui->video.mii;
+
 	switch (evt->type) {
 		case FocusIn:
 		case FocusOut:
@@ -517,28 +334,31 @@ mii_x11_handle_event(
 		case KeyRelease:
 		case KeyPress: {
 			int ret, down = (evt->type == KeyPress);
-			KeySym *code = XGetKeyboardMapping(ui->dpy, (
-						KeyCode)evt->xkey.keycode, 1, &ret);
-			ui->key.type = down ? MUI_EVENT_KEYDOWN : MUI_EVENT_KEYUP;
-			ui->key.key.up = 0;
+			KeySym *code = XGetKeyboardMapping(ui->dpy,
+						(KeyCode)evt->xkey.keycode, 1, &ret);
+			ui->video.key.type = down ? MUI_EVENT_KEYDOWN : MUI_EVENT_KEYUP;
+			ui->video.key.key.up = 0;
 			bool handled = false;
-			bool converted = _mii_x11_convert_keycode(ui, *code, &ui->key);
-			bool is_modifier = ui->key.key.key >= MUI_KEY_MODIFIERS &&
-						ui->key.key.key <= MUI_KEY_MODIFIERS_LAST;
+			bool converted = _mii_x11_convert_keycode(ui, *code,
+											&ui->video.key);
+			bool is_modifier = ui->video.key.key.key >= MUI_KEY_MODIFIERS &&
+						ui->video.key.key.key <= MUI_KEY_MODIFIERS_LAST;
 			if (converted) {
 				// convert keycodes into a bitfields of current modifiers
-				if (ui->key.key.key >= MUI_KEY_MODIFIERS &&
-						ui->key.key.key <= MUI_KEY_MODIFIERS_LAST) {
+				if (ui->video.key.key.key >= MUI_KEY_MODIFIERS &&
+						ui->video.key.key.key <= MUI_KEY_MODIFIERS_LAST) {
 					if (down)
-						mui->modifier_keys |= (1 << (ui->key.key.key - MUI_KEY_MODIFIERS));
+						mui->modifier_keys |= (1 <<
+								(ui->video.key.key.key - MUI_KEY_MODIFIERS));
 					else
-						mui->modifier_keys &= ~(1 << (ui->key.key.key - MUI_KEY_MODIFIERS));
+						mui->modifier_keys &= ~(1 <<
+								(ui->video.key.key.key - MUI_KEY_MODIFIERS));
 				}
-				ui->key.modifiers = mui->modifier_keys;
-				switch (ui->key.key.key) {
+				ui->video.key.modifiers = mui->modifier_keys;
+				switch (ui->video.key.key.key) {
 					case MUI_KEY_RSUPER:
 					case MUI_KEY_LSUPER: {
-						int apple = ui->key.key.key - MUI_KEY_RSUPER;
+						int apple = ui->video.key.key.key - MUI_KEY_RSUPER;
 						mii_bank_t *bank = &mii->bank[MII_BANK_MAIN];
 						uint8_t old = mii_bank_peek(bank, 0xc061 + apple);
 						mii_bank_poke(bank, 0xc061 + apple, down ? 0x80 : 0);
@@ -548,7 +368,7 @@ mii_x11_handle_event(
 						}
 					}	break;
 				}
-				handled = mui_handle_event(mui, &ui->key);
+				handled = mui_handle_event(mui, &ui->video.key);
 				// if not handled and theres a window visible, assume
 				// it's a dialog and it OUGHT to eat the key
 				if (!handled)
@@ -556,7 +376,7 @@ mii_x11_handle_event(
 			//	printf("%s key handled %d\n", __func__, handled);
 			}
 			if (!handled && down && !is_modifier) {
-				uint16_t mii_key = ui->key.key.key;
+				uint16_t mii_key = ui->video.key.key.key;
                 char buf[32] = "";
                 KeySym keysym = 0;
                 if (XLookupString((XKeyEvent*)evt, buf, 32, &keysym, NULL) != NoSymbol) {
@@ -583,23 +403,23 @@ mii_x11_handle_event(
 		case ButtonRelease: {
 		//	printf("%s %s button %d grabbed:%d\n", __func__,
 		//			evt->type == ButtonPress ? "Down":"Up  ",
-		//			evt->xbutton.button, ui->mouse.grabbed);
+		//			evt->xbutton.button, ui->video.mouse.grabbed);
 			switch (evt->xbutton.button) {
 				case Button1: {
-					ui->mouse.down = evt->type == ButtonPress;
-					ui->mouse.pos.x = evt->xbutton.x;
-					ui->mouse.pos.y = evt->xbutton.y;
+					ui->video.mouse.down = evt->type == ButtonPress;
+					ui->video.mouse.pos.x = evt->xbutton.x;
+					ui->video.mouse.pos.y = evt->xbutton.y;
 					if (ui->video.mui_visible) {
 						mui_event_t ev = {
-							.type = ui->mouse.down ?
+							.type = ui->video.mouse.down ?
 										MUI_EVENT_BUTTONDOWN :
 										MUI_EVENT_BUTTONUP,
-							.mouse.where = ui->mouse.pos,
+							.mouse.where = ui->video.mouse.pos,
 							.modifiers = mui->modifier_keys, // | MUI_MODIFIER_EVENT_TRACE,
 						};
 						mui_handle_event(mui, &ev);
 					}
-					mii_x11_update_mouse_card(ui);
+					mii_mui_update_mouse_card(&ui->video);
 				}	break;
 				case Button4:
 				case Button5: {
@@ -609,7 +429,7 @@ mii_x11_handle_event(
 						mui_event_t ev = {
 							.type = MUI_EVENT_WHEEL,
 							.modifiers = mui->modifier_keys,// | MUI_MODIFIER_EVENT_TRACE,
-							.wheel.where = ui->mouse.pos,
+							.wheel.where = ui->video.mouse.pos,
 							.wheel.delta = evt->xbutton.button == Button4 ? -1 : 1,
 						};
 						mui_handle_event(mui, &ev);
@@ -617,16 +437,27 @@ mii_x11_handle_event(
 				}	break;
 			}
 		}	break;
+		case ConfigureNotify:
+			if (evt->xconfigure.width != ui->video.window_size.x ||
+				evt->xconfigure.height != ui->video.window_size.y) {
+				// Window is being resized
+				// Handle the resize event here
+				ui->video.window_size.x = evt->xconfigure.width;
+				ui->video.window_size.y = evt->xconfigure.height;
+				ui->video.video_frame = mii_mui_get_video_position(&ui->video);
+				mii_mui_update_mouse_card(&ui->video);
+			}
+			break;
 		case MotionNotify: {
-			ui->mouse.pos.x = evt->xmotion.x;
-			ui->mouse.pos.y = evt->xmotion.y;
-			mii_x11_update_mouse_card(ui);
-			if (ui->mouse.grabbed)
+			ui->video.mouse.pos.x = evt->xmotion.x;
+			ui->video.mouse.pos.y = evt->xmotion.y;
+			mii_mui_update_mouse_card(&ui->video);
+			if (ui->video.mouse.grabbed)
 				break;
 			if (ui->video.mui_visible) {
 				mui_event_t ev = {
 					.type = MUI_EVENT_DRAG,
-					.mouse.where = ui->mouse.pos,
+					.mouse.where = ui->video.mouse.pos,
 					.modifiers = mui->modifier_keys,
 				};
 				mui_handle_event(mui, &ev);
@@ -653,133 +484,6 @@ mii_x11_terminate(
 	XFreeColormap(ui->dpy, ui->cmap);
 	XDestroyWindow(ui->dpy, ui->win);
 	XCloseDisplay(ui->dpy);
-}
-
-void
-mii_x11_prepare_textures(
-		mii_x11_t *ui)
-{
-	mii_t * mii = &ui->video.mii;
-//	mui_t * mui = &ui->video.mui;
-	GLuint tex[2];
-	glGenTextures(2, tex);
-	for (int i = 0; i < 2; i++) {
-		mii_gl_tex_t * t = &ui->tex[i];
-		memset(t, 0, sizeof(*t));
-		t->id = tex[i];
-	}
-	glEnable(GL_TEXTURE_2D);
-	// bind the mii texture using the GL_ARB_texture_rectangle extension
-	glBindTexture(GL_TEXTURE_2D, ui->mii_tex.id);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	// disable the repeat of textures
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-	glTexImage2D(GL_TEXTURE_2D, 0, 4,
-			MII_VRAM_WIDTH,
-			MII_VRAM_HEIGHT, 0, GL_BGRA,	// note BGRA here, not RGBA
-	        GL_UNSIGNED_BYTE,
-	        mii->video.pixels);
-	// bind the mui texture using the GL_ARB_texture_rectangle as well
-	glEnable(GL_TEXTURE_2D);
-	glBindTexture(GL_TEXTURE_2D, ui->mui_tex.id);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-
-	glTexImage2D(GL_TEXTURE_2D, 0, 4,
-			ui->dr.pix.row_bytes / 4,	// already power of two.
-			ui->dr_padded_y, 0, GL_RGBA,
-			GL_UNSIGNED_BYTE,
-			ui->dr.pix.pixels);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-//	printf("%s texture created %d\n", __func__, mii_apple_screen_tex);
-// display opengl error
-	GLenum err = glGetError();
-	if (err != GL_NO_ERROR) {
-		printf("Error creating texture: %d\n", err);
-	}
-}
-
-void
-mii_x11_render(
-		mii_x11_t *ui)
-{
-	glClearColor(
-		.6f * ui->mui_alpha,
-		.6f * ui->mui_alpha,
-		.6f * ui->mui_alpha,
-		1.0f);
-	glClear(GL_COLOR_BUFFER_BIT);
-	glPushAttrib(GL_ENABLE_BIT|GL_COLOR_BUFFER_BIT|GL_TRANSFORM_BIT);
-	glDisable(GL_CULL_FACE);
-	glDisable(GL_DEPTH_TEST);
-	glDisable(GL_SCISSOR_TEST);
-	glEnable(GL_BLEND);
-	glEnable(GL_TEXTURE_2D);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-	/* setup viewport/project */
-	glViewport(0, 0, (GLsizei)ui->attr.width, (GLsizei)ui->attr.height);
-	glMatrixMode(GL_PROJECTION);
-	glPushMatrix();
-	glLoadIdentity();
-	glOrtho(0.0f, ui->attr.width, ui->attr.height, 0.0f, -1.0f, 1.0f);
-	glMatrixMode(GL_MODELVIEW);
-	glPushMatrix();
-	glLoadIdentity();
-	// This (was) the recommended way to handle pixel alignment in glOrtho
-	// mode, but this seems to have changed -- now it looks like Linear filtering
-//	glTranslatef(0.375f, 0.375f, 0.0f);
-	{
-		/* draw mii texture */
-		glColor3f(1.0f, 1.0f, 1.0f);
-		glBindTexture(GL_TEXTURE_2D, ui->mii_tex.id);
-		glBegin(GL_QUADS);
-		c2_rect_t r = ui->video_frame;
-		glTexCoord2f(0, 0);
-				glVertex2f(r.l, r.t);
-		glTexCoord2f(MII_VIDEO_WIDTH / (double)MII_VRAM_WIDTH, 0);
-				glVertex2f(r.r, r.t);
-		glTexCoord2f(MII_VIDEO_WIDTH / (double)MII_VRAM_WIDTH,
-					MII_VIDEO_HEIGHT / (double)MII_VRAM_HEIGHT);
-				glVertex2f(r.r, r.b);
-		glTexCoord2f(0,
-					MII_VIDEO_HEIGHT / (double)MII_VRAM_HEIGHT);
-				glVertex2f(r.l, r.b);
-		glEnd();
-		/* draw mui texture */
-		if (ui->mui_alpha > 0.0f) {
-			glColor4f(1.0f, 1.0f, 1.0f, ui->mui_alpha);
-			glBindTexture(GL_TEXTURE_2D, ui->mui_tex.id);
-			glBegin(GL_QUADS);
-			glTexCoord2f(0, 0); glVertex2f(0, 0);
-			glTexCoord2f(ui->attr.width / (double)(ui->dr.pix.row_bytes / 4), 0);
-					glVertex2f(ui->attr.width, 0);
-			glTexCoord2f(ui->attr.width / (double)(ui->dr.pix.row_bytes / 4),
-						ui->attr.height / (double)(ui->dr_padded_y));
-					glVertex2f(ui->attr.width, ui->attr.height);
-			glTexCoord2f(0,
-						ui->attr.height / (double)(ui->dr_padded_y));
-					glVertex2f(0, ui->attr.height);
-			glEnd();
-		}
-	}
-	glDisable(GL_CULL_FACE);
-	glDisable(GL_DEPTH_TEST);
-	glDisable(GL_SCISSOR_TEST);
-	glDisable(GL_BLEND);
-	glDisable(GL_TEXTURE_2D);
-
-	glBindTexture(GL_TEXTURE_2D, 0);
-	glMatrixMode(GL_MODELVIEW);
-	glPopMatrix();
-	glMatrixMode(GL_PROJECTION);
-	glPopMatrix();
-	glPopAttrib();
 }
 
 // TODO factor this into a single table, this is dupped from mii_mui_settings.c!
@@ -885,6 +589,7 @@ mii_x11_reload_config(
 	_mii_ui_load_config(mii, config, &flags);
 	mii_prepare(mii, flags);
 	mii_reset(mii, true);
+	mii_mui_gl_prepare_textures(&ui->video);
 
 	/* start the CPU/emulator thread */
 	ui->cpu_thread = mii_threads_start(mii);
@@ -902,7 +607,8 @@ main(
 	mkdir(conf_path, 0755);
 
 	mii_x11_t * ui = &g_mii;
-	mii_t * mii = &g_mii.video.mii;
+	mii_t * 	mii = &g_mii.video.mii;
+	mui_t * 	mui = &g_mii.video.mui;
 	bool no_config_found = false;
 
 	if (mii_settings_load(
@@ -940,16 +646,10 @@ main(
 		printf("MISH_TELNET_PORT = %s\n", getenv("MISH_TELNET_PORT"));
 	}
 	mii_x11_init(ui);
-	mui_t * mui = &ui->video.mui; // to move to a function later
-	mui_init(mui);
-	mui->color.clear.value = 0;
+	mii_mui_init(&ui->video, C2_PT(WINDOW_WIDTH, WINDOW_HEIGHT));
+	mii_mui_gl_init(&ui->video);
+
 	asprintf(&mui->pref_directory, "%s/.local/share/mii", getenv("HOME"));
-
-	mii_mui_menus_init((mii_mui_t*)ui);
-	ui->video.mui_visible = 1;
-	mii_mui_menu_slot_menu_update(&ui->video);
-
-	mii_x11_prepare_textures(ui);
 
 	// use a 60fps timerfd here as well
 	int timerfd = timerfd_create(CLOCK_MONOTONIC, 0);
@@ -980,53 +680,13 @@ main(
 				continue;
 			mii_x11_handle_event(ui, &evt);
 		}
-		mui_run(mui);
-		bool draw = false;
-		if (pixman_region32_not_empty(&mui->inval)) {
-			draw = true;
-			mui_draw(mui, &ui->dr, 0);
-			glBindTexture(GL_TEXTURE_2D, ui->mui_tex.id);
-
-			pixman_region32_intersect_rect(&mui->redraw, &mui->redraw,
-					0, 0, ui->dr.pix.size.x, ui->dr.pix.size.y);
-			int rc = 0;
-			c2_rect_t *ra = (c2_rect_t*)pixman_region32_rectangles(&mui->redraw, &rc);
-		//	rc = 1; ra = &C2_RECT(0, 0, mui->screen_size.x, mui->screen_size.y);
-			if (rc) {
-		//		printf("GL: %d rects to redraw\n", rc);
-				for (int i = 0; i < rc; i++) {
-					c2_rect_t r = ra[i];
-		//			printf("GL: %d,%d %dx%d\n", r.l, r.t, c2_rect_width(&r), c2_rect_height(&r));
-					glPixelStorei(GL_UNPACK_ROW_LENGTH, ui->dr.pix.row_bytes / 4);
-					glTexSubImage2D(GL_TEXTURE_2D, 0, r.l, r.t,
-							c2_rect_width(&r), c2_rect_height(&r),
-							GL_BGRA, GL_UNSIGNED_BYTE,
-							ui->dr.pix.pixels + (r.t * ui->dr.pix.row_bytes) + (r.l * 4));
-				}
-			}
-			glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
-			pixman_region32_clear(&mui->redraw);
-		}
-		uint32_t current_frame = mii->video.frame_count;
-		if (current_frame != mii->video.frame_drawn) {
-			miigl_counter_tick(&ui->videoc, miigl_get_time());
-			draw = true;
-			mii->video.frame_drawn = current_frame;
-			// update the whole texture
-			glBindTexture(GL_TEXTURE_2D, ui->mii_tex.id);
-			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
-					MII_VRAM_WIDTH,
-					MII_VIDEO_HEIGHT, GL_RGBA,
-					GL_UNSIGNED_BYTE,
-					mii->video.pixels);
-		}
-		/* Draw */
+		bool draw = mii_mui_gl_run(&ui->video);
 		if (draw) {
-			miigl_counter_tick(&ui->redrawc, miigl_get_time());
-			XGetWindowAttributes(ui->dpy, ui->win, &ui->attr);
-			glViewport(0, 0, ui->width, ui->height);
-			_mii_transition(ui);
-			mii_x11_render(ui);
+		//	miigl_counter_tick(&ui->redrawc, miigl_get_time());
+		//	XGetWindowAttributes(ui->dpy, ui->win, &ui->attr);
+			glViewport(0, 0, ui->video.window_size.x, ui->video.window_size.y);
+			mii_mui_showhide_ui_machine(&ui->video);
+			mii_mui_gl_render(&ui->video);
 			glFlush();
 			glXSwapBuffers(ui->dpy, ui->win);
 		}

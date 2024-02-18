@@ -6,7 +6,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,7 +32,7 @@ static void *
 mii_thread_loadbin(
 		void *arg)
 {
-	
+
 	return NULL;
 }
 

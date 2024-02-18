@@ -13,9 +13,7 @@
 
 // for NIB and others. can be bigger on .WOZ
 #define MII_FLOPPY_DEFAULT_TRACK_SIZE	6656
-// track containing random bits
-#define MII_FLOPPY_RANDOM_TRACK_ID		35
-
+#define MII_FLOPPY_TRACK_COUNT			35
 /*
  * Reasons for write protect. Ie checkbox in the UI, or file format
  * doesn't support writes, or the file has no write permissions.
@@ -29,8 +27,30 @@ enum {
 typedef struct mii_floppy_track_t {
 	uint8_t			dirty : 1;	// track has been written to
 	uint32_t		bit_count;
-	uint8_t 		data[6680];	// max suggested by WOZ spec
 } mii_floppy_track_t;
+
+
+// 32 bytes of track data corresponds to one byte of heatmap
+#define MII_FLOPPY_HM_HIT_SIZE 32
+// thats 208 bytes per track or about 7KB*2 for the whole disk for read+write
+// we align it on 16 bytes to make it easier to use in a shader
+#define MII_FLOPPY_HM_TRACK_SIZE \
+		(((MII_FLOPPY_DEFAULT_TRACK_SIZE / MII_FLOPPY_HM_HIT_SIZE) + 15) & ~15)
+
+typedef struct mii_track_heatmap_t {
+	// 32 bytes of track data corresponds to one byte of heatmap
+	uint32_t 		seed, tex, cleared;
+	// this needs to be aligned, otherwise SSE code will die horribly
+	uint8_t 		map[MII_FLOPPY_TRACK_COUNT][MII_FLOPPY_HM_TRACK_SIZE]
+			__attribute__((aligned(16)));
+} mii_track_heatmap_t;
+
+typedef struct mii_floppy_heatmap_t {
+	mii_track_heatmap_t read, write;
+} mii_floppy_heatmap_t;
+
+//
+#define MII_FLOPPY_NOISE_TRACK		MII_FLOPPY_TRACK_COUNT
 
 typedef struct mii_floppy_t {
 	uint8_t 		write_protected : 3, id : 2;
@@ -39,9 +59,16 @@ typedef struct mii_floppy_t {
 	uint8_t 		stepper;		// last step we did...
 	uint8_t 		qtrack;			// quarter track we are on
 	uint32_t		bit_position;
-	uint8_t			tracks_dirty;	// needs saving
-	uint8_t 		track_id[35 * 4];
-	mii_floppy_track_t tracks[36];
+	// this is incremented each time a track is marked dirty
+	uint32_t 		seed_dirty;
+	uint32_t		seed_saved;		// last seed we saved at
+	uint8_t 		track_id[MII_FLOPPY_TRACK_COUNT * 4];
+	mii_floppy_track_t tracks[MII_FLOPPY_TRACK_COUNT + 1];
+	// keep all the data together, we'll use it to make a texture
+	// the last track is used for noise
+	uint8_t 		track_data[MII_FLOPPY_TRACK_COUNT + 1][MII_FLOPPY_DEFAULT_TRACK_SIZE];
+	/* This is set by the UI to trakc the head movements, no functional use */
+	mii_floppy_heatmap_t * heat;	// optional heatmap
 } mii_floppy_t;
 
 /*
@@ -54,8 +81,8 @@ mii_floppy_init(
 
 int
 mii_floppy_load(
-	mii_floppy_t *f,
-	mii_dd_file_t *file );
+		mii_floppy_t *f,
+		mii_dd_file_t *file );
 
 int
 mii_floppy_update_tracks(

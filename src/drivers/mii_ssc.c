@@ -119,17 +119,19 @@ static int
 _mii_ssc_command(
 		mii_t * mii,
 		struct mii_slot_t *slot,
-		uint8_t cmd,
+		uint32_t cmd,
 		void * param)
 {
 //	mii_card_ssc_t *c = slot->drv_priv;
+	int res = -1;
 	switch (cmd) {
 		case MII_SLOT_SSC_SET_TTY: {
 			const char * tty = param;
 			printf("%s: set tty %s\n", __func__, tty);
+			res = 0;
 		}	break;
 	}
-	return -1;
+	return res;
 }
 
 static mii_slot_drv_t _driver = {

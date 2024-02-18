@@ -43,12 +43,12 @@ typedef struct mii_mui_2dsk_t {
 #include <errno.h>
 #include <fcntl.h>
 
-typedef struct mii_floppy_check_t {
+typedef struct mii_imagefile_check_t {
 	char * 	error;
 	char * 	warning;
 	int 	file_ro;
 	int		file_ro_format;
-} mii_floppy_check_t;
+} mii_imagefile_check_t;
 
 #define NIB_SIZE  	232960;
 #define DSK_SIZE	143360;
@@ -64,7 +64,7 @@ _size_string(
 static int
 _mii_floppy_check_file(
 		const char * path,
-		mii_floppy_check_t * out)
+		mii_imagefile_check_t * out)
 {
 	char *filename = basename((char*)path);
 
@@ -162,13 +162,15 @@ mii_mui_2dsk_load_conf(
 	for (int i = 0; i < 2; i++) {
 		if (config->drive[i].disk[0]) {
 			ok = 1;
-			mii_floppy_check_t check = {};
-			if (_mii_floppy_check_file(config->drive[i].disk, &check) < 0) {
-				mui_alert(m->win.ui, C2_PT(0,0),
-							"Invalid Disk Image",
-							check.error, MUI_ALERT_FLAG_OK);
-				free(check.error);
-				ok = 0;
+			mii_imagefile_check_t check = {};
+			if (m->drive_kind == MII_2DSK_DISKII) {
+				if (_mii_floppy_check_file(config->drive[i].disk, &check) < 0) {
+					mui_alert(m->win.ui, C2_PT(0,0),
+								"Invalid Disk Image",
+								check.error, MUI_ALERT_FLAG_OK);
+					free(check.error);
+					ok = 0;
+				}
 			}
 			config->drive[i].ro_file = check.file_ro;
 			config->drive[i].ro_format = check.file_ro_format;
@@ -389,6 +391,9 @@ mii_mui_load_2dsk(
 						cf, MUI_BUTTON_STYLE_CHECKBOX,
 						"Write Protect",
 						i == 0 ? MII_2DSK_WP1 : MII_2DSK_WP2);
+		// Smartport don't support write protect right now
+		if (drive_kind == MII_2DSK_SMARTPORT)
+			c->state = MUI_CONTROL_STATE_DISABLED;
 		c2_rect_right_of(&cf, cf.r, margin * 0.5);
 		cf.r = c2_rect_width(&w->frame) - margin * 1.2;
 		m->drive[i].warning = c = mui_textbox_new(w, cf,

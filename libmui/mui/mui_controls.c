@@ -148,7 +148,7 @@ _mui_control_highlight_timer_cb(
 {
 	mui_control_t * c = param;
 
-	printf("%s: %s\n", __func__, c->title);
+//	printf("%s: %s\n", __func__, c->title);
 	mui_control_set_state(c, MUI_CONTROL_STATE_NORMAL);
 	if (c->cdef)
 		c->cdef(c, MUI_CDEF_SELECT, NULL);

@@ -53,7 +53,7 @@ typedef struct mii_slot_drv_t {
 	int (*command)(
 			mii_t * mii,
 			struct mii_slot_t *slot,
-			uint8_t cmd,
+			uint32_t cmd,
 			void * param);
 } mii_slot_drv_t;
 
@@ -80,6 +80,8 @@ enum {
 	MII_SLOT_DRIVE_WP		= 0x30, // + drive index 0...n
 
 	MII_SLOT_SSC_SET_TTY	= 0x10, // param is a pathname, or NULL for a pty
+	// + drive index 0..1. Param is a mii_floppy_t **
+	MII_SLOT_D2_GET_FLOPPY	= 0x40,
 };
 
 // send a command to a slot/driver. Return >=0 if ok, -1 if error

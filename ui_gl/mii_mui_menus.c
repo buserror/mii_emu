@@ -39,12 +39,12 @@ mii_quit_confirm_cb(
 		void * param)
 {
 	mii_mui_t * ui = cb_param;
-	printf("%s %4.4s\n", __func__, (char*)&what);
+//	printf("%s %4.4s\n", __func__, (char*)&what);
 	if (what == MUI_CONTROL_ACTION_SELECT) {
 		mui_control_t * c = param;
-		printf("%s %4.4s\n", __func__, (char*)&c->uid);
+//		printf("%s %4.4s\n", __func__, (char*)&c->uid);
 		if (c->uid == MUI_ALERT_BUTTON_OK) {
-			printf("%s Quit\n", __func__);
+//			printf("%s Quit\n", __func__);
 			mii_t * mii = &ui->mii;
 			mii->state = MII_TERMINATE;
 		}
@@ -90,25 +90,6 @@ mii_config_open_slots_dialog(
 	mui_window_set_action(
 		mii_mui_configure_slots(&ui->mui, &ui->config),
 		mii_config_save_cb, ui);
-}
-
-
-static void
-_mii_show_about(
-		mii_mui_t * ui)
-{
-	mui_t * mui = &ui->mui;
-	mui_window_t *w = mui_window_get_by_id(mui, FCC('a','b','o','t'));
-	if (w) {
-		mui_window_select(w);
-		return;
-	}
-	w = mui_alert(mui, C2_PT(0,0),
-					"About MII",
-					"Version " MII_VERSION "\n"
-					"Build " __DATE__ " " __TIME__,
-					MUI_ALERT_INFO);
-	mui_window_set_id(w, FCC('a','b','o','t'));
 }
 
 static int
@@ -198,7 +179,7 @@ mii_menubar_action(
 					case FCC('s','h','m','b'): {
 						items[i].disabled =
 								(mui_window_front(mui) != NULL) ||
-								(ui->transition != MII_MUI_TRANSITION_NONE);
+								(ui->transition.state != MII_MUI_TRANSITION_NONE);
 					}	break;
 				}
 			}
@@ -209,14 +190,12 @@ mii_menubar_action(
 		//			(char*)&item->uid, item->title);
 			switch (item->uid) {
 				case FCC('a','b','o','t'): {
-//					_mii_show_about(ui);
 					mii_mui_about(&ui->mui);
 				}	break;
 				case FCC('q','u','i','t'): {
-//					printf("%s Quit?\n", __func__);
 					if (!ui->mui_visible &&
-								ui->transition == MII_MUI_TRANSITION_NONE)
-						ui->transition = MII_MUI_TRANSITION_SHOW_UI;
+								ui->transition.state == MII_MUI_TRANSITION_NONE)
+						ui->transition.state = MII_MUI_TRANSITION_SHOW_UI;
 					mui_window_t * really = mui_window_get_by_id(
 											&ui->mui, FCC('q','u','i','t'));
 					if (really)
@@ -231,12 +210,12 @@ mii_menubar_action(
 					}
 				}	break;
 				case FCC('s','h','m','b'): {
-					if (ui->transition != MII_MUI_TRANSITION_NONE)
+					if (ui->transition.state != MII_MUI_TRANSITION_NONE)
 						break;
 					if (ui->mui_visible) {
-						ui->transition = MII_MUI_TRANSITION_HIDE_UI;
+						ui->transition.state = MII_MUI_TRANSITION_HIDE_UI;
 					} else {
-						ui->transition = MII_MUI_TRANSITION_SHOW_UI;
+						ui->transition.state = MII_MUI_TRANSITION_SHOW_UI;
 					}
 				}	break;
 				case FCC('d','s','k','0'):
