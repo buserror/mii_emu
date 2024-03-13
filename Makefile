@@ -19,7 +19,10 @@ CFLAGS			+= -Wno-unused-parameter -Wno-unused-function
 LDLIBS			+= -lX11 -lGL -lGLU
 LDLIBS			+= -lpthread -lutil -lm
 
-VERSION			:= ${shell git log -1 --date=short --pretty="%h %cd"}
+VERSION			:= ${shell \
+						echo $$(git describe --tags --abbrev=0 2>/dev/null || \
+							echo "(dev)") \
+						$$(git log -1 --date=short --pretty="%h %cd")}
 CPPFLAGS		+= -DMII_VERSION="\"$(VERSION)\""
 
 HAS_ALSA		:= $(shell pkg-config --exists alsa && echo 1)

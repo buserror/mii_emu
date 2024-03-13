@@ -22,8 +22,9 @@ mui_init(
 	//memset(ui, 0, sizeof(*ui));
 	ui->color.clear 	= MUI_COLOR(0xccccccff);
 	ui->color.highlight = MUI_COLOR(0xd6fcc0ff);
+	ui->timer.map = 0;
+	ui->carret_timer = 0xff;
 	TAILQ_INIT(&ui->windows);
-	TAILQ_INIT(&ui->zombies);
 	TAILQ_INIT(&ui->fonts);
 	mui_font_init(ui);
 	pixman_region32_init(&ui->redraw);
@@ -37,6 +38,7 @@ mui_dispose(
 {
 	pixman_region32_fini(&ui->inval);
 	pixman_region32_fini(&ui->redraw);
+	mui_utf8_free(&ui->clipboard);
 	mui_font_dispose(ui);
 	mui_window_t *w;
 	while ((w = TAILQ_FIRST(&ui->windows))) {
@@ -121,7 +123,6 @@ mui_handle_event(
 	bool res = false;
 	if (!ev->when)
 		ev->when = mui_get_time();
-	ui->action_active++;
 	switch (ev->type) {
 		case MUI_EVENT_KEYUP:
 		case MUI_EVENT_KEYDOWN: {
@@ -156,20 +157,44 @@ mui_handle_event(
 				printf("%s %d mouse %d %3dx%3d capture:%s\n", __func__,
 								ev->type, ev->mouse.button,
 								ev->mouse.where.x, ev->mouse.where.y,
-								ui->event_capture ?
-										ui->event_capture->title : "(none)");
-			if (ui->event_capture) {
-				res = mui_window_handle_mouse(ui->event_capture, ev);
+								ui->event_capture.window ?
+										ui->event_capture.window->title :
+										"(none)");
+			/* Handle double click detection */
+			if (ev->mouse.button < MUI_EVENT_BUTTON_MAX &&
+					ev->type == MUI_EVENT_BUTTONDOWN) {
+				int click_delta = ev->when - ui->last_click_stamp[ev->mouse.button];
+				if (ui->last_click_stamp[ev->mouse.button] &&
+						click_delta < (500 * MUI_TIME_MS)) {
+					ui->last_click_stamp[ev->mouse.button] = 0;
+					ev->mouse.count = 2;
+				} else {
+					ui->last_click_stamp[ev->mouse.button] = ev->when;
+				}
+			}
+			if (ui->event_capture.window) {
+				res = mui_window_handle_mouse(
+						ui->event_capture.window, ev);
 				break;
 			} else {
-				mui_window_t *w, *safe;
-				TAILQ_FOREACH_REVERSE_SAFE(w, &ui->windows, windows, self, safe) {
+				/* We can't use the REVERSE_SAFE macro here, as the window
+				 * list can change quite a bit, especially when menus are involved*/
+				mui_window_t *w, *prev;
+				w = TAILQ_LAST(&ui->windows, windows);
+				while (w) {
+					mui_window_lock(w);
+					int done = 0;
 					if ((res = mui_window_handle_mouse(w, ev))) {
 						if (ev->modifiers & MUI_MODIFIER_EVENT_TRACE)
 							printf("    window:%s handled it\n",
 											w->title);
-						break;
+						done = 1;
 					}
+					prev = TAILQ_PREV(w, windows, self);
+					mui_window_unlock(w);
+					if (done)
+						break;
+					w = prev;
 				}
 			}
 			if (ev->modifiers & MUI_MODIFIER_EVENT_TRACE)
@@ -177,7 +202,6 @@ mui_handle_event(
 					printf("    no window handled it\n");
 		}	break;
 	}
-	ui->action_active--;
 	return res;
 }
 
@@ -206,7 +230,8 @@ mui_event_match_key(
 		return false;
 	if (toupper(ev->key.key) != toupper(key_equ.key))
 		return false;
-	if (_mui_simplify_mods(ev->modifiers) != _mui_simplify_mods(key_equ.mod))
+	if (_mui_simplify_mods(ev->modifiers) !=
+				_mui_simplify_mods(key_equ.mod))
 		return false;
 	return true;
 }
@@ -222,6 +247,7 @@ mui_timer_register(
 		fprintf(stderr, "%s ran out of timers\n", __func__);
 		return -1;
 	}
+	//printf("%s: delay %d\n", __func__, delay);
 	int ti = ffsl(~ui->timer.map) - 1;
 	ui->timer.map |= 1 << ti;
 	ui->timer.timers[ti].cb = cb;
@@ -241,7 +267,7 @@ mui_timer_reset(
 		return 0;
 	if (!(ui->timer.map & (1L << id)) ||
 				ui->timer.timers[id].cb != cb) {
-					printf("%s: timer %d not active\n", __func__, id);
+	//	printf("%s: timer %d not active\n", __func__, id);
 		return 0;
 	}
 	mui_time_t res = 0;
@@ -251,9 +277,8 @@ mui_timer_reset(
 	ui->timer.timers[id].when = now + delay;
 	if (delay == 0) {
 		ui->timer.map &= ~(1L << id);
-		printf("%s: timer %d removed\n", __func__, id);
+	//	printf("%s: timer %d removed\n", __func__, id);
 	}
-
 	return res;
 }
 
@@ -268,8 +293,7 @@ mui_timers_run(
 		map &= ~(1 << ti);
 		if (ui->timer.timers[ti].when > now)
 			continue;
-		mui_time_t r = ui->timer.timers[ti].cb(
-							ui, now,
+		mui_time_t r = ui->timer.timers[ti].cb(ui, now,
 							ui->timer.timers[ti].param);
 		if (r == 0)
 			ui->timer.map &= ~(1 << ti);
@@ -279,26 +303,10 @@ mui_timers_run(
 }
 
 void
-_mui_window_free(
-		mui_window_t *win);
-
-void
-mui_garbage_collect(
-		mui_t * ui)
-{
-	mui_window_t *win, *safe;
-	TAILQ_FOREACH_SAFE(win, &ui->zombies, self, safe) {
-		TAILQ_REMOVE(&ui->zombies, win, self);
-		_mui_window_free(win);
-	}
-}
-
-void
 mui_run(
 		mui_t *ui)
 {
 	mui_timers_run(ui);
-	mui_garbage_collect(ui);
 }
 
 bool
@@ -312,4 +320,166 @@ mui_has_active_windows(
 		return true;
 	}
 	return false;
+}
+
+void
+mui_clipboard_set(
+		mui_t * 		ui,
+		const uint8_t * utf8,
+		uint		 	len)
+{
+	len = len ? len : strlen((char*)utf8);
+	mui_utf8_clear(&ui->clipboard);
+	mui_utf8_insert(&ui->clipboard, 0, utf8, len);
+	mui_utf8_add(&ui->clipboard, 0);
+	mui_window_action(
+			ui->menubar.window, MUI_CLIPBOARD_CHANGED, NULL);
+}
+
+const uint8_t *
+mui_clipboard_get(
+		mui_t * 		ui,
+		uint		 *	len)
+{
+	mui_window_action(
+			ui->menubar.window, MUI_CLIPBOARD_REQUEST, NULL);
+	if (len)
+		*len = ui->clipboard.count > 1 ? ui->clipboard.count - 1 : 0;
+	return ui->clipboard.count ? ui->clipboard.e : NULL;
+}
+
+
+void
+mui_refqueue_init(
+		mui_refqueue_t *queue)
+{
+	TAILQ_INIT(&queue->head);
+}
+
+uint
+mui_refqueue_dispose(
+		mui_refqueue_t *queue)
+{
+	uint res = 0;
+	struct mui_ref_t *ref, *safe;
+	TAILQ_FOREACH_SAFE(ref, &queue->head, self, safe) {
+		if (ref->count) {
+			ref->count--;
+			if (ref->count) {
+			//	printf("%s: ref %4.4s count %2d\n", __func__,
+			//				(char*)&ref->kind, ref->count);
+				res++;
+				continue;
+			}
+		}
+		TAILQ_REMOVE(&queue->head, ref, self);
+		ref->queue = NULL;
+		if (ref->deref)
+			ref->deref(ref);
+	}
+	return res;
+}
+
+/* Remove reference 'ref' from it's reference queue */
+void
+mui_ref_deref(
+		struct mui_ref_t *	ref)
+{
+	if (!ref)
+		return;
+	if (ref->queue)
+		TAILQ_REMOVE(&ref->queue->head, ref, self);
+	if (ref->alloc) {
+		free(ref);
+		return;
+	}
+	ref->queue = NULL;
+	ref->deref = NULL;
+	ref->count = 0;
+}
+
+static void
+mui_ref_deref_control(
+		struct mui_ref_t *	_ref)
+{
+	mui_control_ref_t *		ref = (mui_control_ref_t*)_ref;
+	ref->control = NULL;
+}
+
+mui_control_ref_t *
+mui_control_ref(
+		mui_control_ref_t *		ref,
+		struct mui_control_t *	control,
+		uint32_t 				kind)
+{
+	if (!control)
+		return NULL;
+	if (ref && ref->ref.queue) {
+		printf("%s Warning: ref %p %4.4s already in queue\n",
+				__func__, ref, (char*)&kind);
+		if (ref->control != control) {
+			printf("%s ERROR: ref %p control %p != %p\n",
+					__func__, ref, ref->control, control);
+		}
+		return NULL;
+	}
+	struct mui_ref_t * res = ref ? ref : calloc(1, sizeof(*ref));
+	res->alloc = !ref;
+	res->queue = &control->refs;
+	res->kind = kind;
+	res->deref = mui_ref_deref_control;
+	res->count = 1;
+	ref = (mui_control_ref_t*)res;
+	ref->control = control;
+	TAILQ_INSERT_TAIL(&control->refs.head, res, self);
+	return ref;
+}
+
+void
+mui_control_deref(
+		mui_control_ref_t *		ref)
+{
+	ref->control = NULL;
+	mui_ref_deref(&ref->ref);
+}
+
+static void
+mui_ref_deref_window(
+		struct mui_ref_t *	_ref)
+{
+	mui_window_ref_t *		ref = (mui_window_ref_t*)_ref;
+	ref->window = NULL;
+}
+
+mui_window_ref_t *
+mui_window_ref(
+		mui_window_ref_t *		ref,
+		struct mui_window_t * 	win,
+		uint32_t 				kind)
+{
+	if (!win)
+		return NULL;
+	if (ref && ref->ref.queue) {
+		printf("%s Warning: ref %p %4.4s already in queue\n",
+				__func__, ref, (char*)&kind);
+		return NULL;
+	}
+	struct mui_ref_t * res = ref ? ref : calloc(1, sizeof(*ref));
+	res->alloc = !ref;
+	res->queue = &win->refs;
+	res->kind = kind;
+	res->deref = mui_ref_deref_window;
+	res->count = 1;
+	ref = (mui_window_ref_t*)res;
+	ref->window = win;
+	TAILQ_INSERT_TAIL(&win->refs.head, res, self);
+	return ref;
+}
+
+void
+mui_window_deref(
+		mui_window_ref_t *		ref)
+{
+	ref->window = NULL;
+	mui_ref_deref(&ref->ref);
 }

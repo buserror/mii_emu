@@ -32,7 +32,7 @@ static const mii_machine_config_t _default_config = {
 	.titan_accelerator = 0,
 	.slot = {
 		[0] = {
-		//	.driver = MII_SLOT_DRIVER_SUPERSERIAL,
+//			.driver = MII_SLOT_DRIVER_SSC,
 			.conf.ssc = {
 				.kind = 0,
 				.socket_port = 1969,
@@ -40,7 +40,7 @@ static const mii_machine_config_t _default_config = {
 				.baud = 9600,
 				.bits = 8,
 				.parity = 0,
-				.stop = 1,
+				.stop = 0,
 			}
 		},
 		[1] = { .driver = 0, },
@@ -63,7 +63,6 @@ enum {
 	MII_SLOT_SAVE 			= FCC('s','a','v','e'),
 	MII_SLOT_CANCEL 		= FCC('c','a','n','c'),
 	MII_SLOT_DEFAULT 		= FCC('d','e','f','a'),
-//	MII_SLOT_REBOOT 		= FCC('r','b','o','o'),
 	MII_SLOT_NSC 			= FCC('n','s','c','l'),
 	MII_SLOT_TITAN 			= FCC('t','i','t','a'),
 	MII_SLOT_DRIVER_POP 	= FCC('d','r','v','p'),
@@ -78,7 +77,7 @@ static const struct {
 	[MII_SLOT_DRIVER_SMARTPORT]	= { "SmartPort", 1 },
 	[MII_SLOT_DRIVER_DISK2] 	= { "Disk II", 1 },
 	[MII_SLOT_DRIVER_MOUSE] 	= { "Mouse", 0 },
-	[MII_SLOT_DRIVER_SUPERSERIAL] = { "Super Serial", 1 },
+	[MII_SLOT_DRIVER_SSC] 		= { "Super Serial", 1 },
 	[MII_SLOT_DRIVER_ROM1MB]	= { "ROM 1MB", 1 },
 	{ NULL, 0 },
 };
@@ -90,8 +89,6 @@ _mii_config_win_to_conf(
 	mui_window_t * w = &m->win;
 	mii_machine_config_t	* cf = &m->config;
 
-//	cf->reboot_on_load = !!mui_control_get_value(
-//					mui_control_get_by_id(w, MII_SLOT_REBOOT));
 	cf->titan_accelerator = !!mui_control_get_value(
 					mui_control_get_by_id(w, MII_SLOT_TITAN));
 	cf->no_slot_clock = !!mui_control_get_value(
@@ -191,12 +188,10 @@ mii_mui_configure_slot(
 			res = mii_mui_load_1mbrom(mui,
 						&config->slot[slot_id].conf.rom1mb);
 		}	break;
-		case MII_SLOT_DRIVER_SUPERSERIAL: {
-			mui_alert(mui, C2_PT(0,0),
-						"Not implemented yet",
-						"SSC is not implemented yet!\n"
-						"Driver is present just a placeholder, sorry.",
-						MUI_ALERT_FLAG_OK);
+		case MII_SLOT_DRIVER_SSC: {
+			config->slot[slot_id].conf.ssc.slot_id = slot_id;
+			res = mii_mui_configure_ssc(mui,
+						&config->slot[slot_id].conf.ssc);
 		}	break;
 	}
 	return res;
@@ -282,12 +277,12 @@ _mii_config_slot_action_cb(
 										&m->config.slot[slot_id].conf.rom1mb),
 								_mii_config_sub_save_cb, m);
 						}	break;
-						case MII_SLOT_DRIVER_SUPERSERIAL: {
-							mui_alert(m->win.ui, C2_PT(0,0),
-										"Not implemented yet",
-										"SSC is not implemented yet!\n"
-										"Driver is present just a placeholder, sorry.",
-										MUI_ALERT_FLAG_OK);
+						case MII_SLOT_DRIVER_SSC: {
+							m->config.slot[slot_id].conf.ssc.slot_id = slot_id;
+							mui_window_set_action(
+								mii_mui_configure_ssc(m->win.ui,
+										&m->config.slot[slot_id].conf.ssc),
+								_mii_config_sub_save_cb, m);
 						}	break;
 					}
 				}	break;
@@ -312,6 +307,8 @@ mii_mui_configure_slots(
 		mii_machine_config_t *config)
 {
 	mui_t *ui = mui;
+	float base_size = mui_font_find(ui, "main")->size;
+	float margin = base_size * 0.7;
 
 	mui_window_t *w = mui_window_get_by_id(mui, MII_SLOT_WINDOW_ID);
 	if (w) {
@@ -360,13 +357,15 @@ mii_mui_configure_slots(
 					cf, MUI_BUTTON_STYLE_NORMAL,
 					"Default", MII_SLOT_DEFAULT);
 	c2_rect_right_of(&cf, cf.r, 30);
+	c2_rect_t rad = cf;
+	rad.b += 5;
 	c = mui_button_new(w,
-					cf, MUI_BUTTON_STYLE_CHECKBOX,
+					rad, MUI_BUTTON_STYLE_CHECKBOX,
 					"No Slot Clock", MII_SLOT_NSC);
-	c2_rect_right_of(&cf, cf.r, 30);
-	cf.r = cf.l + 200;
+	c2_rect_right_of(&rad, rad.r, margin);
+	rad.r = rad.l + 180;
 	c = mui_button_new(w,
-					cf, MUI_BUTTON_STYLE_CHECKBOX,
+					rad, MUI_BUTTON_STYLE_CHECKBOX,
 					"Titan Accelerator", MII_SLOT_TITAN);
 
 	c2_rect_bottom_of(&cf, cf.b, 16);
@@ -377,17 +376,20 @@ mii_mui_configure_slots(
 
 	c2_rect_t slot_line_rect = C2_RECT_WH(0, 0, 500, 34);
 	cf = slot_line_rect;
-	cf.r = cf.l + 50;
+	cf.r = cf.l + 56;
 	c = mui_textbox_new(w, cf, "Slot", NULL,
-				MUI_TEXT_ALIGN_RIGHT | MUI_TEXT_ALIGN_MIDDLE);
-	c2_rect_right_of(&cf, cf.r, 6);
+				MUI_TEXT_ALIGN_RIGHT | MUI_TEXT_ALIGN_MIDDLE |
+				MUI_TEXT_STYLE_ULINE);
+	c2_rect_right_of(&cf, cf.r, 0);
 	cf.r = cf.l + 240;
 	c = mui_textbox_new(w, cf, "Driver", NULL,
-				MUI_TEXT_ALIGN_CENTER | MUI_TEXT_ALIGN_MIDDLE);
+				MUI_TEXT_ALIGN_CENTER | MUI_TEXT_ALIGN_MIDDLE |
+				MUI_TEXT_STYLE_ULINE);
 	c2_rect_right_of(&cf, cf.r, 30);
 	cf.r = cf.l + 150;
 	c = mui_textbox_new(w, cf, "Config", NULL,
-				MUI_TEXT_ALIGN_CENTER | MUI_TEXT_ALIGN_MIDDLE);
+				MUI_TEXT_ALIGN_CENTER | MUI_TEXT_ALIGN_MIDDLE |
+				MUI_TEXT_STYLE_ULINE);
 
 	c2_rect_offset(&slot_line_rect, 0, 36);
 	for (int i = 1; i < 8; i++) {
@@ -396,7 +398,8 @@ mii_mui_configure_slots(
 		char idx[16];
 		sprintf(idx, "%d:", i);
 		c = mui_textbox_new(w, cf, idx, NULL,
-				MUI_TEXT_ALIGN_RIGHT | MUI_TEXT_ALIGN_MIDDLE);
+				MUI_TEXT_ALIGN_RIGHT | MUI_TEXT_ALIGN_MIDDLE |
+				MUI_TEXT_STYLE_ULINE);
 		c2_rect_right_of(&cf, cf.r, 6);
 		cf.r = cf.l + 240;
 		c = mui_popupmenu_new(w, cf,
@@ -405,7 +408,8 @@ mii_mui_configure_slots(
 		mui_menu_items_clear(items);
 		for (int j = 0; _mii_slot_drivers[j].label; j++) {
 			mui_menu_item_t i = {
-				.title = strdup(_mii_slot_drivers[j].label),
+//				.title = strdup(_mii_slot_drivers[j].label),
+				.title = _mii_slot_drivers[j].label,
 				.uid = j,
 			};
 			mui_menu_items_push(items, i);

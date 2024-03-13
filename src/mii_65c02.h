@@ -98,6 +98,7 @@ typedef struct mii_cpu_t {
 	// last 4 instructions, as a shift register, used for traps or debug
 	uint32_t	ir_log;
 
+	uint64_t 	total_cycle;
 	/* Debug only; Only used by the test units. */
 	uint8_t * 	ram; 	// DEBUG
 } mii_cpu_t;

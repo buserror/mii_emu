@@ -33,6 +33,9 @@ enum {
 
 struct mii_t;
 
+typedef void (*mii_video_line_drawing_cb)(
+						mii_t *mii, uint8_t mode, bool page2 );
+
 typedef struct mii_video_t {
 	void *			state;	// protothread state in mii_video.c
 	uint8_t 		timer_id;	// timer id for the video thread
@@ -41,6 +44,8 @@ typedef struct mii_video_t {
 	uint32_t		frame_count; // incremented every frame
 	uint32_t		frame_drawn;
 	uint8_t 		color_mode;	// color, green, amber
+	// function pointer to the line drawing function
+	mii_video_line_drawing_cb	line_drawing;
 } mii_video_t;
 
 bool

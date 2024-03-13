@@ -57,6 +57,7 @@ mui_listbox_draw(
 		c2_rect_inset(&clip, 1, 1);
 		mui_drawable_clip_push(dr, &clip);
 	}
+	cg = mui_drawable_get_cg(dr);
 	mui_listbox_control_t *lb = (mui_listbox_control_t *)c;
 	uint32_t top_element = lb->scroll / lb->elem_height;
 	uint32_t bottom_element = top_element + 1 +
@@ -67,7 +68,7 @@ mui_listbox_draw(
 	mui_font_t * main = mui_font_find(win->ui, "main");
 	mui_color_t highlight = win->ui->color.highlight;
 
-	for (unsigned int ii = top_element;
+	for (uint ii = top_element;
 					ii < lb->elems.count && ii < bottom_element; ii++) {
 		c2_rect_t ef = f;
 		ef.b = ef.t + lb->elem_height;
@@ -137,12 +138,12 @@ mui_listbox_typehead(
 	// that find something that matches, we're good. If not, try to match
 	// the prefix in a non-case sensitive way in case the user doesn't know
 	// what he wants...
-	for (unsigned int ii = 0; ii < lb->elems.count; ii++) {
+	for (uint ii = 0; ii < lb->elems.count; ii++) {
 		mui_listbox_elem_t *e = &lb->elems.e[ii];
 		if (strncmp(e->elem, lb->typehead.buf, lb->typehead.index) == 0)
 			return ii - lb->control.value;
 	}
-	for (unsigned int ii = 0; ii < lb->elems.count; ii++) {
+	for (uint ii = 0; ii < lb->elems.count; ii++) {
 		mui_listbox_elem_t *e = &lb->elems.e[ii];
 		if (strncasecmp(e->elem, lb->typehead.buf, lb->typehead.index) == 0)
 			return ii - lb->control.value;
@@ -272,10 +273,13 @@ mui_cdef_listbox(
 		uint8_t 				what,
 		void * 					param)
 {
+	mui_listbox_control_t *lb = (mui_listbox_control_t *)c;
 	switch (what) {
 		case MUI_CDEF_INIT:
 			break;
 		case MUI_CDEF_DISPOSE:
+			// strings for the elements are not owned by the listbox
+			mui_listbox_elems_free(&lb->elems);
 			break;
 		case MUI_CDEF_DRAW: {
 			mui_drawable_t * dr = param;

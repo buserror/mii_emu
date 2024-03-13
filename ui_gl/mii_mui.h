@@ -30,6 +30,15 @@ enum mii_mui_transition_e {
 
 #define MII_PIXEL_LAYERS	8
 
+DECLARE_C_ARRAY(float, float_array, 16);
+IMPLEMENT_C_ARRAY(float_array);
+
+typedef struct mii_vtx_t {
+	unsigned int 		kind;	// TRIANGLES, QUADS, etc
+	float_array_t		pos;
+	float_array_t		tex;
+} mii_vtx_t;
+
 typedef struct mii_mui_t {
 	mui_t 					mui;		// mui interface
 	mii_t 					mii;		// apple II emulator
@@ -67,7 +76,10 @@ typedef struct mii_mui_t {
 		mii_floppy_t * 				floppy;
 		uint32_t 					seed_load;
 		float 						max_width;
+		/* technically speaking we'd only need one set of vertices, but hey */
+		mii_vtx_t					vtx;
 	}							floppy[2];
+	float_array_t 				floppy_base;
 
 	mii_machine_config_t	config;
 	mii_loadbin_conf_t		loadbin_conf;

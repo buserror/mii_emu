@@ -99,6 +99,7 @@ mii_speaker_init(
 	s->timer_id = mii_timer_register(mii,
 			_mii_speaker_timer_cb, s, 0, __func__);
 #ifdef HAS_ALSA
+	printf("%s audio is %s\n", __func__, s->off ? "off" : "on");
 	if (!s->off)
 		_alsa_init(s);	// this can/will change fsize
 #endif
@@ -107,7 +108,6 @@ mii_speaker_init(
 	s->findex = 0;
 	for (int i = 0; i < MII_SPEAKER_FRAME_COUNT; i++)
 		s->frame[i].audio = calloc(sizeof(s->frame[i].audio[0]), s->fsize);
-//	s->frame[0].start = mii->cycles;
 }
 
 void

@@ -68,7 +68,7 @@ mui_drawable_clear(
 	if (dr->pixman)
 		pixman_image_unref(dr->pixman);
 	dr->pixman = NULL;
-	for (int i = 0; i < (int)dr->clip.count; i++)
+	for (uint i = 0; i < dr->clip.count; i++)
 		pixman_region32_fini(&dr->clip.e[i]);
 	mui_clip_stack_clear(&dr->clip);
 	if (dr->pix.pixels && dr->dispose_pixels)
@@ -209,7 +209,7 @@ mui_drawable_set_clip(
 {
 	if (!dr)
 		return;
-	for (int i = 0; i < (int)dr->clip.count; i++)
+	for (uint i = 0; i < dr->clip.count; i++)
 		pixman_region32_fini(&dr->clip.e[i]);
 	mui_clip_stack_clear(&dr->clip);
 	if (clip && clip->count) {

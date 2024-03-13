@@ -90,7 +90,7 @@ show_state:
 	}
 
 	if (!strcmp(argv[1], "mem")) {
-		printf("mii: memory map: ");
+		printf("mii: memory map:\n");
 		for (int i = 0; i < MII_BANK_COUNT; i++)
 			printf("%0d:%s ", i, mii->bank[i].name);
 		printf("\n");
@@ -346,6 +346,38 @@ _mii_mish_dm(
 
 
 static void
+_mii_mish_sr(
+		void * param,
+		int argc,
+		const char * argv[])
+{
+	// set register
+	mii_t * mii = param;
+	if (argc < 3) {
+		printf("sr: missing argument <A,X,Y,S,PC,P> <Value>)\n");
+		return;
+	}
+	uint16_t val = strtol(argv[2], NULL, 16);
+	if (!strcasecmp(argv[1], "A"))
+		mii->cpu.A = val;
+	else if (!strcasecmp(argv[1], "X"))
+		mii->cpu.X = val;
+	else if (!strcasecmp(argv[1], "Y"))
+		mii->cpu.Y = val;
+	else if (!strcasecmp(argv[1], "S"))
+		mii->cpu.S = val;
+	else if (!strcasecmp(argv[1], "PC"))
+		mii->cpu.PC = val;
+	else if (!strcasecmp(argv[1], "P")) {
+		MII_SET_P(&mii->cpu, val);
+	} else {
+		printf("sr: unknown register %s\n", argv[1]);
+		return;
+	}
+	mii_dump_trace_state(mii);
+}
+
+static void
 _mii_mish_step(
 		void * param,
 		int argc,
@@ -467,7 +499,7 @@ MISH_CMD_NAMES(mii, "mii");
 MISH_CMD_HELP(mii,
 		"mii: access internals, trace, reset, speed, etc",
 		" <default> : dump current state",
-		" rgb <val>: Set RGB mode to <val>(0:color,1:green,2:amber)"
+		" rgb <val>: Set RGB mode to <val>(0:color,1:green,2:amber)",
 		" reset : reset the cpu",
 		" t|trace : toggle trace_cpu (WARNING HUGE traces!))",
 		" mem : dump memory and bank map",
@@ -526,6 +558,14 @@ MISH_CMD_HELP(step,
 		" cont   :  continue execution."
 		);
 MII_MISH(step, _mii_mish_step);
+
+MISH_CMD_NAMES(sr, "sr");
+MISH_CMD_HELP(sr,
+		"mii: set register",
+		" <reg> <val>: set register to value",
+		"    <reg>: A, X, Y, S, PC, P"
+		);
+MII_MISH(sr, _mii_mish_sr);
 
 MISH_CMD_NAMES(text, "text");
 MISH_CMD_HELP(text,

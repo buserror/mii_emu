@@ -10,7 +10,7 @@
 #include <stdlib.h>
 
 #include "mui.h"
-
+#include "mui_priv.h"
 
 const mui_control_color_t mui_control_color[MUI_CONTROL_STATE_COUNT] = {
 	[MUI_CONTROL_STATE_NORMAL] = {
@@ -34,6 +34,10 @@ const mui_control_color_t mui_control_color[MUI_CONTROL_STATE_COUNT] = {
 		.text = MUI_COLOR(0xccccccff),
 	},
 };
+
+static void
+mui_control_dispose_actions(
+		mui_control_t * 	c);
 
 void
 mui_control_draw(
@@ -67,6 +71,7 @@ mui_control_new(
 	c->title = title ? strdup(title) : NULL;
 	c->win = win;
 	c->uid = uid;
+	mui_refqueue_init(&c->refs);
 	STAILQ_INIT(&c->actions);
 	TAILQ_INSERT_TAIL(&win->controls, c, self);
 	if (c->cdef)
@@ -83,10 +88,9 @@ _mui_control_free(
 	if (c->title)
 		free(c->title);
 	c->title = NULL;
-	if (c->cdef)
-		c->cdef(c, MUI_CDEF_DISPOSE, NULL);
 	free(c);
 }
+
 
 void
 mui_control_dispose(
@@ -94,16 +98,19 @@ mui_control_dispose(
 {
 	if (!c)
 		return;
-	if (c->flags.zombie) {
-		printf("%s: DOUBLE delete %s\n", __func__, c->title);
+	if (c->win) {
+		TAILQ_REMOVE(&c->win->controls, c, self);
+		if (c->cdef)
+			c->cdef(c, MUI_CDEF_DISPOSE, NULL);
+		c->win = NULL;
+		mui_control_dispose_actions(c);
+	}
+	if (mui_refqueue_dispose(&c->refs) != 0) {
+	//	fprintf(stderr, "%s Warning: control %s still has a lock\n",
+	//			__func__, c->title);
 		return;
 	}
-	TAILQ_REMOVE(&c->win->controls, c, self);
-	if (c->win->flags.zombie || c->win->ui->action_active) {
-		c->flags.zombie = true;
-		TAILQ_INSERT_TAIL(&c->win->zombies, c, self);
-	} else
-		_mui_control_free(c);
+	_mui_control_free(c);
 }
 
 uint32_t
@@ -146,13 +153,18 @@ _mui_control_highlight_timer_cb(
 		mui_time_t now,
 		void * param)
 {
-	mui_control_t * c = param;
-
+	mui_control_ref_t *ref = param;
+	mui_control_t * c = ref->control;
+	if (!c) {
+		mui_control_deref(ref);
+		return 0;
+	}
 //	printf("%s: %s\n", __func__, c->title);
 	mui_control_set_state(c, MUI_CONTROL_STATE_NORMAL);
 	if (c->cdef)
 		c->cdef(c, MUI_CDEF_SELECT, NULL);
 	mui_control_action(c, MUI_CONTROL_ACTION_SELECT, NULL);
+	mui_control_deref(ref);
 
 	return 0;
 }
@@ -198,9 +210,12 @@ mui_control_event(
 			if (c->state != MUI_CONTROL_STATE_DISABLED &&
 					mui_event_match_key(ev, c->key_equ)) {
 				mui_control_set_state(c, MUI_CONTROL_STATE_CLICKED);
+
+				mui_control_ref_t * ref = mui_control_ref(NULL, c,
+											FCC('h', 'i', 'g', 'h'));
 				mui_timer_register(
 						c->win->ui, _mui_control_highlight_timer_cb,
-						c, MUI_TIME_SECOND / 10);
+						ref, MUI_TIME_SECOND / 10);
 				res = true;
 			}
 			break;
@@ -267,6 +282,62 @@ mui_control_set_title(
 	mui_control_inval(c);
 }
 
+
+void
+mui_control_lock(
+		mui_control_t *c)
+{
+	if (!c)
+		return;
+	if (!c->lock.control) {
+		mui_control_ref(&c->lock, c, FCC('l', 'o', 'c', 'k'));
+		c->lock.ref.count = 10; // prevent it from being deleted
+	} else {
+		c->lock.ref.count += 10;
+	}
+}
+
+void
+mui_control_unlock(
+		mui_control_t *c)
+{
+	if (!c)
+		return;
+	if (c->lock.control) {
+		if (c->lock.ref.trace)
+			printf("%s: control %s was locked\n",
+				__func__, c->title);
+		if (c->lock.ref.count > 10) {
+			c->lock.ref.count -= 10;
+		} else {	// control was disposed of
+			int delete = c->lock.ref.count < 10;
+			// we are the last one, remove the lock
+			if (c->lock.ref.trace)
+				printf("%s: control %s unlocked delete %d\n",
+					__func__, c->title, delete);
+			mui_control_deref(&c->lock);
+			if (delete)
+				mui_control_dispose(c);
+		}
+	} else {
+	//	if (c->lock.ref.trace)
+			printf("%s: control %s was not locked\n", __func__, c->title);
+	}
+}
+
+static void
+mui_control_dispose_actions(
+		mui_control_t * 	c)
+{
+	if (!c)
+		return;
+	mui_action_t *a;
+	while ((a = STAILQ_FIRST(&c->actions)) != NULL) {
+		STAILQ_REMOVE_HEAD(&c->actions, self);
+		free(a);
+	}
+}
+
 void
 mui_control_action(
 		mui_control_t * c,
@@ -275,14 +346,17 @@ mui_control_action(
 {
 	if (!c)
 		return;
-	c->win->ui->action_active++;
-	mui_action_t *a;
-	STAILQ_FOREACH(a, &c->actions, self) {
+	// this prevents the callbacks from disposing of the control
+	// the control is locked until the last callback is done
+	// then it's disposed of
+	mui_control_lock(c);
+	mui_action_t *a, *safe;
+	STAILQ_FOREACH_SAFE(a, &c->actions, self, safe) {
 		if (!a->control_cb)
 			continue;
 		a->control_cb(c, a->cb_param, what, param);
 	}
-	c->win->ui->action_active--;
+	mui_control_unlock(c);
 }
 
 void

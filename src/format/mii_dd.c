@@ -59,11 +59,18 @@ mii_dd_register_drives(
 		uint8_t count )
 {
 //	printf("%s: registering %d drives\n", __func__, count);
+	mii_dd_t * last = dd->drive;
+	while (last && last->next)
+		last = last->next;
 	for (int i = 0; i < count; i++) {
 		mii_dd_t *d = &drives[i];
 		d->dd = dd;
-		d->next = dd->drive;
-		dd->drive = d;
+		d->next = NULL;
+		if (last)
+			last->next = d;
+		else
+			dd->drive = d;
+		last = d;
 	}
 }
 
@@ -194,6 +201,8 @@ mii_dd_file_load(
 			res->format = MII_DD_FILE_PO;
 		} else if (!strcasecmp(suffix, ".nib")) {
 			res->format = MII_DD_FILE_NIB;
+		} else if (!strcasecmp(suffix, ".do")) {
+			res->format = MII_DD_FILE_DO;
 		} else if (!strcasecmp(suffix, ".woz")) {
 			res->format = MII_DD_FILE_WOZ;
 		} else if (!strcasecmp(suffix, ".2mg")) {
@@ -236,6 +245,10 @@ mii_dd_overlay_load(
 		return 0;
 	if (!dd->file)
 		return -1;
+	// no overlay for PO disk images (floppy)
+	if (!(dd->file->format == MII_DD_FILE_PO &&
+			dd->file->size != 143360))
+		return -1;
 
 	char *filename = NULL;
 	char *suffix = strrchr(dd->file->pathname, '.');
@@ -246,7 +259,7 @@ mii_dd_overlay_load(
 	}
 	int fd = open(filename, O_RDWR, 0666);
 	if (fd == -1) {
-		fprintf(stderr, "%s: overlay %s: %s\n", __func__,
+		printf("%s: overlay %s: %s\n", __func__,
 				filename, strerror(errno));
 		free(filename);
 		return -1;
@@ -258,17 +271,17 @@ mii_dd_overlay_load(
 	mii_dd_overlay_header_t * h = (mii_dd_overlay_header_t *)file->start;
 
 	if (h->magic != FCC('M','I','O','V')) {
-		fprintf(stderr, "Overlay file %s has invalid magic\n", filename);
+		printf("Overlay file %s has invalid magic\n", filename);
 		mii_dd_file_dispose(dd->dd, file);
 		return -1;
 	}
 	if (h->version != 1) {
-		fprintf(stderr, "Overlay file %s has invalid version\n", filename);
+		printf("Overlay file %s has invalid version\n", filename);
 		mii_dd_file_dispose(dd->dd, file);
 		return -1;
 	}
 	if (h->size != dd->file->size / 512) {
-		fprintf(stderr, "Overlay file %s has invalid size\n", filename);
+		printf("Overlay file %s has invalid size\n", filename);
 		mii_dd_file_dispose(dd->dd, file);
 		return -1;
 	}
@@ -280,7 +293,7 @@ mii_dd_overlay_load(
 	MD5_Final(md5, &d5);
 
 	if (memcmp(md5, h->src_md5, 16)) {
-		fprintf(stderr, "Overlay file %s has mismatched HASH!\n", filename);
+		printf("Overlay file %s has mismatched HASH!\n", filename);
 		mii_dd_file_dispose(dd->dd, file);
 		return -1;
 	}
@@ -302,6 +315,10 @@ mii_dd_overlay_prepare(
 		return 0;
 	if (!dd->file)
 		return -1;
+	// no overlay for PO disk images (floppy)
+	if (!(dd->file->format == MII_DD_FILE_PO &&
+			dd->file->size != 143360))
+		return 0;
 	printf("%s: %s Preparing Overlay file\n", __func__, dd->name);
 	uint32_t src_blocks = dd->file->size / 512;
 	uint32_t bitmap_size = (src_blocks + 63) / 64;
@@ -317,9 +334,9 @@ mii_dd_overlay_prepare(
 	}
 	int fd = open(filename, O_RDWR | O_CREAT | O_TRUNC, 0666);
 	if (fd == -1) {
-		fprintf(stderr, "%s: Failed to create overlay file %s: %s\n", __func__,
+		printf("%s: Failed to create overlay file %s: %s\n", __func__,
 				filename, strerror(errno));
-		fprintf(stderr, "%s: Allocating a RAM one, lost on quit!\n", __func__);
+		printf("%s: Allocating a RAM one, lost on quit!\n", __func__);
 		dd->overlay.file = mii_dd_file_in_ram(dd->dd, filename, size, O_RDWR);
 	} else {
 		ftruncate(fd, size);

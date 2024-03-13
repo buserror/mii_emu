@@ -6,3 +6,5 @@ cachegrind.out.*
 callgrind.out.*
 .cache
 *.miov
+hezner
+*_scrot.png

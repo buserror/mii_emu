@@ -72,11 +72,12 @@ mui_alert(
 	}
 	cf = C2_RECT_WH(0, 10, 540-140, 70);
 	c2_rect_left_of(&cf, c2_rect_width(&w->content), 20);
-	c = mui_textbox_new(w, cf, message, NULL, 0);
-	cf = C2_RECT_WH(10, 10, 80, 75);
+	c = mui_textbox_new(w, cf, message, NULL, MUI_TEXT_ALIGN_COMPACT);
+	cf = C2_RECT_WH(10, 10, 80, 85);
 	c = mui_textbox_new(w, cf,
 				"", "icon_large",
-				MUI_TEXT_ALIGN_CENTER | MUI_TEXT_ALIGN_MIDDLE);
+				MUI_TEXT_ALIGN_CENTER | MUI_TEXT_ALIGN_MIDDLE |
+				MUI_TEXT_ALIGN_COMPACT);
 
 	c = NULL;
 	TAILQ_FOREACH(c, &w->controls, self) {

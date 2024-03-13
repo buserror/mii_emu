@@ -46,6 +46,7 @@ mui_button_draw(
 
 	int title_width = m.x1 - m.x0;
 	c2_rect_t title = f;
+	title.t -= 1;
 	title.r = title.l + title_width + 1;
 	title.b = title.t + m.ascent - m.descent;
 	c2_rect_offset(&title, -m.x0 +
@@ -83,14 +84,19 @@ mui_check_rad_draw(
 	c2_rect_t box = f;
 	box.r = box.l + (main->size * 0.95);
 	box.b = box.t + (main->size * 0.95);
-	c2_rect_offset(&box, 0, (c2_rect_height(&f) / 2) - (c2_rect_height(&box) / 2));
+	c2_rect_offset(&box, 1, (c2_rect_height(&f) / 2) - (c2_rect_height(&box) / 2));
 	c2_rect_t title = f;
 	title.l = box.r + 8;
 
+//	mui_drawable_clip_push(dr, &f);
+	// only do a a get_cg after the clip is set, as this is what converts
+	// the drawable clip rectangle list into a cg path
 	struct cg_ctx_t * cg = mui_drawable_get_cg(dr);
-
-	mui_drawable_clip_push(dr, &f);
-
+	if (0) {	// debug draw the text rectangle as a box
+		cg_rectangle(cg, title.l, title.t,
+						c2_rect_width(&title), c2_rect_height(&title));
+		cg_stroke(cg);
+	}
 	// draw the box/circle
 	if (c->style == MUI_BUTTON_STYLE_RADIO) {
 		cg_circle(cg, box.l + (c2_rect_width(&box) / 2),
@@ -131,8 +137,8 @@ mui_check_rad_draw(
 			c->state == MUI_CONTROL_STATE_DISABLED ?
 					mui_control_color[c->state].text :
 					mui_control_color[0].text,
-			MUI_TEXT_ALIGN_MIDDLE);
-	mui_drawable_clip_pop(dr);
+			MUI_TEXT_ALIGN_MIDDLE|MUI_TEXT_ALIGN_COMPACT);
+//	mui_drawable_clip_pop(dr);
 }
 
 

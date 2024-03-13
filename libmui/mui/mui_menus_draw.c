@@ -24,7 +24,6 @@ mui_wdef_menubar_draw(
 {
 	c2_rect_t content = win->frame;
 	win->content = content;
-
 	struct cg_ctx_t * cg 	= mui_drawable_get_cg(dr);
 
 	mui_color_t frameColor 	= MUI_COLOR(0x000000ff);
@@ -41,6 +40,104 @@ mui_wdef_menubar_draw(
 
 extern const mui_control_color_t mui_control_color[MUI_CONTROL_STATE_COUNT];
 
+enum {
+	MUI_MENUITEM_PART_ICON = 0,
+	MUI_MENUITEM_PART_TITLE,
+	MUI_MENUITEM_PART_KCOMBO,
+	MUI_MENUITEM_PART_COUNT,
+};
+
+/* this return the l,t coordinates for parts */
+static void
+mui_menuitem_get_part_locations(
+		mui_t *				ui,
+		c2_rect_t * 		frame,
+		mui_menu_item_t *	item,
+		c2_rect_t  			out[MUI_MENUITEM_PART_COUNT])
+{
+	mui_font_t * main = mui_font_find(ui, "main");
+	const int margin_right	= main->size / 3;
+	const int margin_left	= main->size;
+
+	stb_ttc_measure m = {};
+	mui_font_text_measure(main, item->title, &m);
+
+	for (int i = 0; i < MUI_MENUITEM_PART_COUNT; i++)
+		out[i] = C2_RECT_WH(0, 0, 0, 0);
+	c2_rect_t title = *frame;
+	title.b = title.t + m.ascent - m.descent;
+	// center it vertically.
+	c2_rect_offset(&title, 0,
+			(c2_rect_height(frame) / 2) - (c2_rect_height(&title) / 2));
+
+	/* An icon shifts the title right, a 'mark' doesn't */
+	if (item->icon[0]) {
+		mui_font_t * icons = mui_font_find(ui, "icon_small");
+		mui_font_text_measure(icons, item->icon, &m);
+		title.l += 6;
+		c2_pt_t loc = title.tl;
+		loc.x += (icons->size / 2) - ((m.x1 - m.x0) / 2);
+		out[MUI_MENUITEM_PART_ICON].tl = loc;
+		title.l += 6;
+	} else if (item->mark[0]) {
+		mui_font_text_measure(main, item->mark, &m);
+		c2_pt_t loc = title.tl;
+		loc.x += (main->size / 2) - ((m.x1 - m.x0) / 2);
+		out[MUI_MENUITEM_PART_ICON].tl = loc;
+ 	}
+	// this is the 'left margin' for the menu item
+	title.l += margin_left;
+	if (item->kcombo[0]) {
+		mui_font_text_measure(main, item->kcombo, &m);
+		c2_pt_t loc = C2_PT(title.r - m.x1 - m.x0 - margin_right, title.t);
+		out[MUI_MENUITEM_PART_KCOMBO] = (c2_rect_t){
+					.l = loc.x, .t = loc.y,
+					.r = title.r - margin_right,
+					.b = title.b };
+		title.r = loc.x;
+	}
+	out[MUI_MENUITEM_PART_TITLE] = title;
+}
+
+void
+mui_menutitle_get_part_locations(
+		mui_t *				ui,
+		c2_rect_t * 		frame, // optional!
+		mui_menu_item_t *	item,
+		c2_rect_t * 		out)
+{
+	mui_font_t * main = mui_font_find(ui, "main");
+	const int margin = main->size / 3;
+
+	for (int i = 0; i < MUI_MENUTITLE_PART_COUNT; i++)
+		out[i] = C2_RECT_WH(0, 0, 0, 0);
+	if (item->color_icon) {
+		out[MUI_MENUTITLE_PART_ICON] = C2_RECT_WH(0, 0,
+					item->color_icon[0], item->color_icon[1]);
+	}
+	if (item->title) {
+		stb_ttc_measure m = {};
+		mui_font_text_measure(main, item->title, &m);
+
+		out[MUI_MENUTITLE_PART_TITLE] =
+				C2_RECT_WH(out[MUI_MENUTITLE_PART_ICON].r,
+					0, m.x1 - m.x0, m.ascent - m.descent);
+	}
+	out[MUI_MENUTITLE_PART_ALL] = out[MUI_MENUTITLE_PART_ICON];
+	c2_rect_union(
+			&out[MUI_MENUTITLE_PART_ALL],
+			&out[MUI_MENUTITLE_PART_TITLE]);
+	out[MUI_MENUTITLE_PART_ALL].r += margin;
+	if (frame) {
+		// center them all vertically at least
+		for (int i = 0; i < MUI_MENUTITLE_PART_COUNT; i++) {
+			c2_rect_offset(&out[i],
+					frame->l + margin, frame->t +
+					(c2_rect_height(frame) / 2) - (c2_rect_height(&out[i]) / 2));
+		}
+	}
+}
+
 void
 mui_menutitle_draw(
 		mui_window_t * 	win,
@@ -50,78 +147,47 @@ mui_menutitle_draw(
 	c2_rect_t f = c->frame;
 	c2_rect_offset(&f, win->content.l, win->content.t);
 
-	struct cg_ctx_t * cg = mui_drawable_get_cg(dr);
-
 	mui_font_t * main = mui_font_find(win->ui, "main");
-	stb_ttc_measure m = {};
-	mui_font_text_measure(main, c->title, &m);
 
-	int title_width = m.x1 - m.x0;
-	c2_rect_t title = f;
-	title.r = title.l + title_width + 1;
-	title.b = title.t + m.ascent - m.descent;
-	c2_rect_offset(&title, //-m.x0 +
-			(int)((c2_rect_width(&f) / 2) - (c2_rect_width(&title)) / 2),
-			(c2_rect_height(&f) / 2) - (c2_rect_height(&title) / 2));
+	c2_rect_t loc[MUI_MENUTITLE_PART_COUNT];
+	mui_menuitem_control_t *mic = (mui_menuitem_control_t*)c;
+	if (!mic->item.title)
+		mic->item.title = mic->control.title;
+	mui_menutitle_get_part_locations(win->ui, &f, &mic->item, loc);
+
 	mui_drawable_clip_push(dr, &f);
+	struct cg_ctx_t * cg = mui_drawable_get_cg(dr);
 	uint32_t state = mui_control_get_state(c);
 	if (state) {
 		cg_set_source_color(cg, &CG_COLOR(mui_control_color[state].fill));
 		cg_rectangle(cg, f.l, f.t, c2_rect_width(&f), c2_rect_height(&f));
 		cg_fill(cg);
 	}
-	mui_font_text_draw(main, dr,
-			C2_PT(title.l, title.t), c->title, strlen(c->title),
-			mui_control_color[state].text);
+	if (mic->item.color_icon) {
+		if (!mic->color_icon) {
+			c2_pt_t size = C2_PT(mic->item.color_icon[0],
+							mic->item.color_icon[1]);
+			mic->color_icon = mui_drawable_new(size, 32,
+					(void*)(mic->item.color_icon + 2), size.x * 4);
+		}
+
+		pixman_image_composite32(PIXMAN_OP_OVER,
+				mui_drawable_get_pixman(mic->color_icon),
+				NULL,
+				mui_drawable_get_pixman(dr),
+				0, 0, 0, 0,
+				loc[MUI_MENUTITLE_PART_ICON].l, loc[MUI_MENUTITLE_PART_ICON].t,
+				c2_rect_width(&loc[MUI_MENUTITLE_PART_ICON]),
+				c2_rect_height(&loc[MUI_MENUTITLE_PART_ICON]));
+
+	}
+	if (mic->item.title)
+		mui_font_text_draw(main, dr,
+				loc[MUI_MENUTITLE_PART_TITLE].tl,
+				mic->item.title, strlen(mic->item.title),
+				mui_control_color[state].text);
 	mui_drawable_clip_pop(dr);
 }
-
-
-static void
-mui_menuitem_get_locations(
-		mui_t *				ui,
-		c2_rect_t * 		frame,
-		mui_menu_item_t *	item,
-		c2_pt_t  			out[3] )
-{
-	mui_font_t * main = mui_font_find(ui, "main");
-
-	stb_ttc_measure m = {};
-	mui_font_text_measure(main, item->title, &m);
-
-	c2_rect_t title = *frame;
-	title.b = title.t + m.ascent - m.descent;
-	c2_rect_offset(&title, 0,
-			(c2_rect_height(frame) / 2) - (c2_rect_height(&title) / 2));
-
-	if (item->icon[0]) {
-		title.l += 6;
-		mui_font_t * icons = mui_font_find(ui, "icon_small");
-
-		mui_font_text_measure(icons, item->icon, &m);
-		c2_pt_t loc = title.tl;
-		loc.x = loc.x + (icons->size / 2) - ((m.x1 - m.x0) / 2);
-		out[0] = loc;
-		title.l += 6;
-	} else if (item->mark[0]) {
-		mui_font_text_measure(main, item->mark, &m);
-		c2_pt_t loc = title.tl;
-		loc.x = loc.x + (main->size / 2) - ((m.x1 - m.x0) / 2);
-		out[0] = loc;
- 	}
-	title.l += main->size;
-	out[1] = title.tl;
-
-	if (item->kcombo[0]) {
-		mui_font_text_measure(main, item->kcombo, &m);
-
-		c2_pt_t loc = C2_PT(title.r - m.x1 - m.x0 - (main->size/3), title.t);
-		out[2] = loc;
-	}
-}
-
-
-extern const mui_control_color_t mui_control_color[MUI_CONTROL_STATE_COUNT];
 
 void
 mui_menuitem_draw(
@@ -132,14 +198,14 @@ mui_menuitem_draw(
 	c2_rect_t f = c->frame;
 	c2_rect_offset(&f, win->content.l, win->content.t);
 
-	struct cg_ctx_t * cg = mui_drawable_get_cg(dr);
 	mui_drawable_clip_push(dr, &f);
+	struct cg_ctx_t * cg = mui_drawable_get_cg(dr);
 
 	mui_font_t * main = TAILQ_FIRST(&win->ui->fonts);
 	if (c->title && c->title[0] != '-') {
-		c2_pt_t loc[3];
+		c2_rect_t loc[MUI_MENUITEM_PART_COUNT];
 		mui_menuitem_control_t *mic = (mui_menuitem_control_t*)c;
-		mui_menuitem_get_locations(win->ui, &f, &mic->item, loc);
+		mui_menuitem_get_part_locations(win->ui, &f, &mic->item, loc);
 
 		uint32_t state = mui_control_get_state(c);
 		if (state && state != MUI_CONTROL_STATE_DISABLED) {
@@ -152,20 +218,20 @@ mui_menuitem_draw(
 		if (mic->item.icon[0]) {
 			mui_font_t * icons = mui_font_find(win->ui, "icon_small");
 			mui_font_text_draw(icons, dr,
-					loc[0], mic->item.icon, 0,
+					loc[0].tl, mic->item.icon, 0,
 					mui_control_color[state].text);
 		} else if (mic->item.mark[0]) {
 			mui_font_text_draw(main, dr,
-					loc[0], mic->item.mark, 0,
+					loc[0].tl, mic->item.mark, 0,
 					mui_control_color[state].text);
 		}
 		mui_font_text_draw(main, dr,
-				loc[1], mic->item.title, 0,
+				loc[1].tl, mic->item.title, 0,
 				mui_control_color[state].text);
 
 		if (mic->item.kcombo[0]) {
 			mui_font_text_draw(main, dr,
-					loc[2], mic->item.kcombo, 0,
+					loc[2].tl, mic->item.kcombo, 0,
 					mui_control_color[state].text);
 		}
 	} else {
@@ -218,16 +284,16 @@ mui_popuptitle_draw(
 
 	if (pop->menu.count) {
 		mui_menu_item_t item = pop->menu.e[c->value];
-		c2_pt_t loc[3];
+		c2_rect_t loc[MUI_MENUITEM_PART_COUNT];
 		c2_rect_offset(&f, 0, -1);
-		mui_menuitem_get_locations(win->ui, &f, &item, loc);
+		mui_menuitem_get_part_locations(win->ui, &f, &item, loc);
 
 		if (item.icon[0])
 			mui_font_text_draw(icons, dr,
-					loc[0], item.icon, 0,
+					loc[0].tl, item.icon, 0,
 					mui_control_color[state].text);
 		mui_font_text_draw(main, dr,
-				loc[1], item.title, 0,
+				loc[1].tl, item.title, 0,
 				mui_control_color[state].text);
 	}
 	mui_font_text_draw(icons, dr,

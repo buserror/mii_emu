@@ -114,6 +114,7 @@ _mii_mouse_vbl_handler(
 		return 1000000 / 60;
 
 	mii_bank_t * main = &mii->bank[MII_BANK_MAIN];
+//	mii_bank_t * sw = &mii->bank[MII_BANK_SW];
 	uint8_t status = mii_bank_peek(main, MOUSE_STATUS + c->slot_offset);
 	uint8_t old = status;
 

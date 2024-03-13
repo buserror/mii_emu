@@ -8,9 +8,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
-#include <unistd.h>
 #include <libgen.h>
 #include "mui.h"
 
@@ -27,6 +24,7 @@ enum {
 typedef struct mii_mui_loadbin_t {
 	mui_window_t			win;
 	mui_control_t * 		load, *icon, *fname;
+	mii_loadbin_conf_t *	dst, config;
 } mii_mui_loadbin_t;
 
 static int
@@ -75,6 +73,9 @@ _mii_loadbin_action_cb(
 				case MII_LBIN_SAVE: {
 					// save the config
 					printf("%s save\n", __func__);
+					if (m->dst)
+						*m->dst = m->config;
+					mui_window_action(&m->win, MII_MUI_LOADBIN_SAVE, m->dst);
 					mui_window_dispose(&m->win);
 				}	break;
 				case MII_LBIN_CANCEL: {
@@ -125,6 +126,7 @@ mii_mui_load_binary(
 					sizeof(mii_mui_loadbin_t));
 	mui_window_set_id(w, MII_LBIN_WINDOW_ID);
 	mii_mui_loadbin_t * m = (mii_mui_loadbin_t*)w;
+	m->dst = config;
 
 	mui_control_t * c = NULL;
 	c2_rect_t cf;

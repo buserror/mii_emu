@@ -65,6 +65,7 @@ mii_config_save_cb(
 		case MII_MUI_SLOTS_SAVE:
 			printf("%s *** Rebooting\n", __func__);
 			mii_x11_reload_config((void*)ui);
+			mii_emu_save(&ui->cf, &ui->config);
 			break;
 		case MII_MUI_DISK2_SAVE:
 		case MII_MUI_SMARTPORT_SAVE: {
@@ -72,12 +73,21 @@ mii_config_save_cb(
 			mii_t * mii = &ui->mii;
 			mii_machine_config_t * config = &ui->config;
 			mii_ui_reconfigure_slot(mii, config, conf->slot_id + 1);
+			mii_emu_save(&ui->cf, &ui->config);
 		}	break;
 		case MII_MUI_1MB_SAVE: {
 			mii_1mb_conf_t * conf = param;
 			mii_t * mii = &ui->mii;
 			mii_machine_config_t * config = &ui->config;
 			mii_ui_reconfigure_slot(mii, config, conf->slot_id + 1);
+			mii_emu_save(&ui->cf, &ui->config);
+		}	break;
+		case MII_MUI_SSC_SAVE: {
+			mii_ssc_conf_t * conf = param;
+			mii_t * mii = &ui->mii;
+			mii_machine_config_t * config = &ui->config;
+			mii_ui_reconfigure_slot(mii, config, conf->slot_id + 1);
+			mii_emu_save(&ui->cf, &ui->config);
 		}	break;
 	}
 	return 0;
@@ -218,13 +228,13 @@ mii_menubar_action(
 						ui->transition.state = MII_MUI_TRANSITION_SHOW_UI;
 					}
 				}	break;
-				case FCC('d','s','k','0'):
-				case FCC('d','s','k','1'):
-				case FCC('d','s','k','2'):
-				case FCC('d','s','k','3'):
-				case FCC('d','s','k','4'):
-				case FCC('d','s','k','5'):
-				case FCC('d','s','k','6'): {
+				case FCC('s','l','t','0'):
+				case FCC('s','l','t','1'):
+				case FCC('s','l','t','2'):
+				case FCC('s','l','t','3'):
+				case FCC('s','l','t','4'):
+				case FCC('s','l','t','5'):
+				case FCC('s','l','t','6'): {
 					int slot = FCC_INDEX(item->uid);
 					printf("%s configure slot %d\n", __func__, slot);
 					mui_window_set_action(
@@ -269,10 +279,10 @@ mii_menubar_action(
 					ui->config.video_mode = mii->video.color_mode;
 					break;
 				case FCC('m','h','z','1'):
-					mii->speed = 1;
+					mii->speed = MII_SPEED_NTSC;
 					break;
 				case FCC('m','h','z','3'):
-					mii->speed = 3.58;
+					mii->speed = MII_SPEED_TITAN;
 					break;
 				case FCC('s','t','o','p'): {
 					mii_th_signal_t sig = {
@@ -327,7 +337,11 @@ mii_mui_menu_slot_menu_update(
 		char * label = static_label[i];
 		label[0] = 0;
 		int slot = i + 1;
+
 		switch (ui->config.slot[i].driver) {
+			case MII_SLOT_DRIVER_SSC:
+				sprintf(label, "%d: Super Serial…", slot);
+				break;
 			case MII_SLOT_DRIVER_SMARTPORT:
 				sprintf(label, "%d: SmartPort…", slot);
 				break;
@@ -343,7 +357,7 @@ mii_mui_menu_slot_menu_update(
 		if (label[0]) {
 			mui_menu_items_push(items, (mui_menu_item_t){
 				.title = label,
-				.uid = FCC('d','s','k','0' + i),
+				.uid = FCC('s','l','t','0' + i),
 			});
 		}
 	}
@@ -363,9 +377,7 @@ mii_mui_menus_init(
 	mui_window_t * mbar = mui_menubar_new(&ui->mui);
 	mui_window_set_action(mbar, mii_menubar_action, ui);
 
-	mui_menubar_add_simple(mbar, MUI_GLYPH_APPLE,
-								FCC('a','p','p','l'),
-								m_apple_menu);
+	mui_menubar_add_menu(mbar, FCC('a','p','p','l'), m_color_apple_menu, 2);
 	mui_menubar_add_simple(mbar, "File",
 								FCC('f','i','l','e'),
 								m_file_menu);

@@ -36,7 +36,7 @@ mui_drawable_draw(
 	mui_drawable_clip_push(dr, &f);
 	mui_drawable_control_t *dc = (mui_drawable_control_t *)c;
 
-	for (int i = 0; i < (int)dc->drawables.count; i++) {
+	for (uint i = 0; i < dc->drawables.count; i++) {
 		mui_drawable_t *d = dc->drawables.e[i];
 		if (!d->pix.pixels)
 			continue;
@@ -75,7 +75,7 @@ mui_cdef_drawable(
 			switch (c->type) {
 				case MUI_CONTROL_DRAWABLE: {
 					mui_drawable_control_t *dc = (mui_drawable_control_t *)c;
-					for (int i = 0; i < (int)dc->drawables.count; i++) {
+					for (uint i = 0; i < dc->drawables.count; i++) {
 						mui_drawable_t *d = dc->drawables.e[i];
 						mui_drawable_dispose(d);
 					}

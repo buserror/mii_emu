@@ -87,8 +87,14 @@ _mii_floppy_check_file(
 	int want_size = 0;
 	int iswoz = 0;
 	if (!strcasecmp(suffix, ".nib")) {
+		want_size = NIB_SIZE;
 		out->file_ro_format = 1;
 	} else if (!strcasecmp(suffix, ".dsk")) {
+		want_size = DSK_SIZE;
+		out->file_ro_format = 1;
+	} else if (!strcasecmp(suffix, ".po") ||
+				!strcasecmp(suffix, ".do")) {
+		want_size = DSK_SIZE;
 		out->file_ro_format = 1;
 	} else if (!strcasecmp(suffix, ".woz") ||
 				!strcasecmp(suffix, ".woz1") ||
@@ -282,10 +288,10 @@ _mii_2dsk_action_cb(
 							C2_PT(0, 0),
 							m->drive_kind == MII_2DSK_SMARTPORT ?
 								"Select PO/HDV/2MG file to load" :
-								"Select DSK file to load",
+								"Select WOZ/DSK/NIB/PO/DO file to load",
 							m->drive_kind == MII_2DSK_SMARTPORT ?
 									"\\.(po|hdv|2mg)$" :
-									"\\.(woz|nib|dsk)$",
+									"\\.(woz|nib|dsk|po|do)$",
 							getenv("HOME"),
 							MUI_STDF_FLAG_REGEXP);
 						mui_window_set_action(w, _mii_2dsk_stdfile_cb, m);
@@ -317,7 +323,7 @@ mii_mui_load_2dsk(
 		return w;
 	}
 	c2_pt_t where = {};
-	c2_rect_t wpos = C2_RECT_WH(where.x, where.y, 640, 355);
+	c2_rect_t wpos = C2_RECT_WH(where.x, where.y, 640, 340);
 	c2_rect_offset(&wpos,
 		(ui->screen_size.x / 2) - (c2_rect_width(&wpos) / 2),
 		(ui->screen_size.y * 0.45) - (c2_rect_height(&wpos) / 2));
@@ -327,8 +333,7 @@ mii_mui_load_2dsk(
 				drive_kind == MII_2DSK_SMARTPORT ? "SmartPort" : "Disk II",
 				config->slot_id + 1);
 	w = mui_window_create(mui, wpos, NULL, MUI_WINDOW_LAYER_MODAL,
-					label,
-					sizeof(mii_mui_2dsk_t));
+					label, sizeof(mii_mui_2dsk_t));
 	free(label);
 	mui_window_set_id(w, MII_2DSK_WINDOW_ID);
 	mii_mui_2dsk_t * m = (mii_mui_2dsk_t*)w;
@@ -387,6 +392,7 @@ mii_mui_load_2dsk(
 		c2_rect_bottom_of(&cf, cp.b, margin * 0.4);
 		cf.l = cp.l + (margin * 0.7);
 		cf.r = cf.l + 200;
+		cf.b = cf.t + base_size;
 		m->drive[i].wp = c = mui_button_new(w,
 						cf, MUI_BUTTON_STYLE_CHECKBOX,
 						"Write Protect",

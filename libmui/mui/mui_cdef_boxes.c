@@ -22,7 +22,7 @@ enum {
 typedef struct mui_textbox_control_t {
 	mui_control_t 		control;
 	mui_font_t *		font;
-	uint16_t			flags;
+	uint32_t			flags;
 } mui_textbox_control_t;
 
 extern const mui_control_color_t mui_control_color[MUI_CONTROL_STATE_COUNT];
@@ -155,7 +155,7 @@ mui_textbox_new(
 		c2_rect_t 		frame,
 		const char *	text,
 		const char * 	font,
-		uint16_t		flags )
+		uint32_t		flags )
 {
 	mui_control_t * c = mui_control_new(
 				win, MUI_CONTROL_TEXTBOX, mui_cdef_boxes,
@@ -181,7 +181,7 @@ mui_groupbox_new(
 		mui_window_t * 	win,
 		c2_rect_t 		frame,
 		const char *	title,
-		uint16_t		flags )
+		uint32_t		flags )
 {
 	mui_control_t * c = mui_control_new(
 				win, MUI_CONTROL_GROUPBOX, mui_cdef_boxes,

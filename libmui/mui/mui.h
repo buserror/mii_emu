@@ -17,6 +17,19 @@
 #include <stdbool.h>
 #include <pixman.h>
 #include "c2_arrays.h"
+
+#if 0
+#define _KERNEL
+#define INVARIANTS
+#define	QUEUE_MACRO_DEBUG_TRACE
+#define panic(...) \
+	do { \
+		fprintf(stderr, "PANIC: %s:%d\n", __func__, __LINE__); \
+		fprintf(stderr, __VA_ARGS__); \
+		*((int*)0) = 0xdead; \
+	} while(0)
+#endif
+
 #include "bsd_queue.h"
 #include "stb_ttc.h"
 
@@ -32,8 +45,10 @@
 enum mui_event_e {
 	MUI_EVENT_KEYUP = 0,
 	MUI_EVENT_KEYDOWN,
+	MUI_EVENT_TEXT,	// UTF8 sequence
 	MUI_EVENT_BUTTONUP,
 	MUI_EVENT_BUTTONDOWN,
+	MUI_EVENT_BUTTONDBL,	// double click
 	MUI_EVENT_WHEEL,
 	MUI_EVENT_DRAG,
 	// the following ones aren't supported yet
@@ -42,15 +57,22 @@ enum mui_event_e {
 	MUI_EVENT_RESIZE,
 	MUI_EVENT_CLOSE,
 	MUI_EVENT_COUNT,
+	// left, middle, right buttons for clicks
+	MUI_EVENT_BUTTON_MAX = 3,
 };
 
 enum mui_key_e {
 	MUI_KEY_ESCAPE 	= 0x1b,
+	MUI_KEY_SPACE 	= 0x20,
+	MUI_KEY_RETURN 	= 0x0d,
+	MUI_KEY_TAB 	= 0x09,
+	MUI_KEY_BACKSPACE = 0x08,
 	MUI_KEY_LEFT 	= 0x80,
 	MUI_KEY_UP,
 	MUI_KEY_RIGHT,
 	MUI_KEY_DOWN,
 	MUI_KEY_INSERT,
+	MUI_KEY_DELETE,
 	MUI_KEY_HOME,
 	MUI_KEY_END,
 	MUI_KEY_PAGEUP,
@@ -62,8 +84,8 @@ enum mui_key_e {
 	MUI_KEY_RCTRL,
 	MUI_KEY_LALT,
 	MUI_KEY_RALT,
-	MUI_KEY_RSUPER,
 	MUI_KEY_LSUPER,
+	MUI_KEY_RSUPER,
 	MUI_KEY_CAPSLOCK,
 	MUI_KEY_MODIFIERS_LAST,
 	MUI_KEY_F1 		= 0x100,
@@ -111,6 +133,8 @@ enum mui_modifier_e {
 #define MUI_ICON_HOME			""
 #define MUI_ICON_SBAR_UP		""
 #define MUI_ICON_SBAR_DOWN		""
+#define MUI_ICON_FLOPPY5		""
+#define MUI_ICON_HARDDISK		""
 
 /* These are specific to our custom version of the Charcoal System font */
 #define MUI_GLYPH_APPLE 		""	// solid apple
@@ -162,15 +186,24 @@ typedef struct mui_event_t {
 			bool 			up;
 		} 				key;
 		struct {
-			uint32_t 		button;
+			uint32_t 		button : 4,
+							count : 2; // click count
 			c2_pt_t 		where;
 		} 				mouse;
 		struct {
 			int32_t 		delta;
 			c2_pt_t 		where;
 		} 				wheel;
+		struct {	// MUI_EVENT_TEXT is of variable size!
+			uint32_t 		size;
+			uint8_t  		text[0];
+		}				text;
 	};
 } mui_event_t;
+
+/* Just a generic buffer for UTF8 text */
+DECLARE_C_ARRAY(uint8_t, mui_utf8, 8);
+IMPLEMENT_C_ARRAY(mui_utf8);
 
 /*
  * Key equivalent, used to match key events to menu items
@@ -179,16 +212,79 @@ typedef struct mui_event_t {
  */
 typedef union mui_key_equ_t {
 	struct {
-		uint16_t mod;
-		uint16_t key;
+		uint16_t 		mod;
+		uint16_t 		key;
 	};
-	uint32_t value;
+	uint32_t 		value;
 } mui_key_equ_t;
 
 #define MUI_KEY_EQU(_mask, _key) \
 		(mui_key_equ_t){ .mod = (_mask), .key = (_key) }
 
 struct mui_t;
+
+/*
+ * References allows arbitrary code to keep a 'handle' on either
+ * a window or a control. This is used for example to keep track of
+ * the currently focused control.
+ * Client code Must Not keep random pointers on control and windows,
+ * as they could get deleted and they will end up with a dangling
+ * pointer.
+ * Instead, client code create a reference, and use that reference
+ * to keep track of the object. If an object is deleted, all it's
+ * current references are reset to NULL, so the client code can
+ * detect that the object is gone just by checking that its pointer
+ * is still around. Otherwise, it's just gone.
+ */
+struct mui_ref_t;
+
+typedef struct mui_refqueue_t {
+	TAILQ_HEAD(head, mui_ref_t) 	head;
+} mui_refqueue_t;
+
+typedef void (*mui_deref_p)(
+			struct mui_ref_t *		ref);
+
+typedef struct mui_ref_t {
+	// in refqueue's 'head'
+	TAILQ_ENTRY(mui_ref_t) 		self;
+	mui_refqueue_t * 			queue;
+	// OPTIONAL arbitrary kind set when referencing an object.
+	uint32_t 					kind;
+	uint32_t 					alloc : 1, trace : 1, count : 8;
+	// OPTIONAL: called if the object win/control get disposed or
+	// otherwise dereferenced.
+	mui_deref_p					 deref;
+} _mui_ref_t;	// this is not a 'user' type.
+
+typedef struct mui_window_ref_t {
+	_mui_ref_t 					ref;
+	struct mui_window_t * 		window;
+} mui_window_ref_t;
+
+typedef struct mui_control_ref_t {
+	_mui_ref_t 					ref;
+	struct mui_control_t * 		control;
+} mui_control_ref_t;
+
+// if 'ref' is NULL a new one is allocated, will be freed on deref()
+mui_control_ref_t *
+mui_control_ref(
+		mui_control_ref_t *		ref,
+		struct mui_control_t *	control,
+		uint32_t 				kind);
+void
+mui_control_deref(
+		mui_control_ref_t *		ref);
+// if 'ref' is NULL a new one is allocated, will be freed on deref()
+mui_window_ref_t *
+mui_window_ref(
+		mui_window_ref_t *		ref,
+		struct mui_window_t * 	win,
+		uint32_t 				kind);
+void
+mui_window_deref(
+		mui_window_ref_t *		ref);
 
 typedef struct mui_listbox_elem_t {
 	uint32_t 					disabled : 1;
@@ -208,10 +304,12 @@ struct mui_listbox_elem_t;
  * event handling.
  */
 enum {
-	MUI_WDEF_INIT = 0,
-	MUI_WDEF_DISPOSE,
-	MUI_WDEF_DRAW,
-	MUI_WDEF_EVENT,
+	MUI_WDEF_INIT = 0,	// param is NULL
+	MUI_WDEF_DISPOSE,	// param is NULL
+	MUI_WDEF_DRAW,		// param is mui_drawable_t*
+	MUI_WDEF_EVENT,		// param is mui_event_t*
+	MUI_WDEF_SELECT,	// param is NULL
+	MUI_WDEF_DESELECT,	// param is NULL
 };
 typedef bool (*mui_wdef_p)(
 			struct mui_window_t * win,
@@ -225,7 +323,12 @@ enum mui_cdef_e {
 	MUI_CDEF_SET_STATE,
 	MUI_CDEF_SET_VALUE,
 	MUI_CDEF_SET_TITLE,
+	// Used when hot-key is pressed, change control value
+	// to simulate a click
 	MUI_CDEF_SELECT,
+	// used when a window is selected, to set the focus to the
+	// first control that can accept it
+	MUI_CDEF_ACTIVATE,	// param is int* with 0,1
 };
 typedef bool (*mui_cdef_p)(
 				struct mui_control_t * 	c,
@@ -326,7 +429,7 @@ typedef struct mui_drawable_t {
 	struct cg_surface_t * 		cg_surface;
 	struct cg_ctx_t *			cg;
 	union pixman_image *		pixman;	// (try) not to use these directly
-	unsigned int				pixman_clip_dirty: 1,
+	uint						pixman_clip_dirty: 1,
 								cg_clip_dirty : 1,
 								dispose_pixels : 1,
 								dispose_drawable : 1;
@@ -334,7 +437,7 @@ typedef struct mui_drawable_t {
 	struct {
 		float 						opacity;
 		c2_pt_t 					size;
-		unsigned int				id;
+		uint						id, kind;
 	}							texture;
 	// (default) position in destination when drawing
 	c2_pt_t 					origin;
@@ -352,20 +455,20 @@ DECLARE_C_ARRAY(mui_drawable_t *, mui_drawable_array, 4);
  * are not cleared. */
 mui_drawable_t *
 mui_drawable_new(
-		c2_pt_t size,
-		uint8_t bpp,
-		void * pixels, // if NULL, will allocate
-		uint32_t row_bytes);
+		c2_pt_t 		size,
+		uint8_t 		bpp,
+		void * 			pixels, // if NULL, will allocate
+		uint32_t 		row_bytes);
 /* initialize a mui_drawable_t structure with the given parameters
  * note it is not assumed 'd' contains anything valid, it will be
  * overwritten */
 mui_drawable_t *
 mui_drawable_init(
 		mui_drawable_t * d,
-		c2_pt_t size,
-		uint8_t bpp,
-		void * pixels, // if NULL, will allocate
-		uint32_t row_bytes);
+		c2_pt_t 		size,
+		uint8_t 		bpp,
+		void * 			pixels, // if NULL, will allocate
+		uint32_t 		row_bytes);
 void
 mui_drawable_dispose(
 		mui_drawable_t * dr);
@@ -440,11 +543,10 @@ typedef struct mui_control_color_t {
 			.alpha = (_c).a * 257, .red = (_c).r * (_c).a, \
 			.green = (_c).g * (_c).a, .blue = (_c).b * (_c).a }
 
-
 typedef struct mui_font_t {
 	mui_drawable_t			 	font;	// points to ttc pixels!
 	char * 						name;	// not filename, internal name, aka 'main'
-	unsigned int 				size;	// in pixels
+	uint		 				size;	// in pixels
 	TAILQ_ENTRY(mui_font_t) 	self;
 	struct stb_ttc_info  		ttc;
 } mui_font_t;
@@ -466,67 +568,120 @@ mui_font_find(
 mui_font_t *
 mui_font_from_mem(
 		struct mui_t *	ui,
-		const char *name,
-		unsigned int size,
-		const void *font_data,
-		unsigned int font_size );
+		const char *	name,
+		uint		 	size,
+		const void *	font_data,
+		uint		 	font_size );
+/*
+ * Draw a text string at 'where' in the drawable 'dr' with the
+ * given color. This doesn't handle line wrapping, or anything,
+ * it just draws the text at the given position.
+ * If you want more fancy text drawing, use mui_font_textbox()
+ */
 void
 mui_font_text_draw(
 		mui_font_t *	font,
 		mui_drawable_t *dr,
 		c2_pt_t 		where,
 		const char *	text,
-		unsigned int 	text_len,
+		uint		 	text_len,
 		mui_color_t 	color);
+/*
+ * This is a low level function to measure a text string, it returns
+ * the width of the string in pixels, and fills the 'm' structure with
+ * the position of each glyph in the string. Note that the returned
+ * values are all in FIXED POINT format.
+ */
 int
 mui_font_text_measure(
 		mui_font_t *	font,
 		const char *	text,
 		struct stb_ttc_measure *m );
 
-enum mui_text_align_e {
+typedef enum mui_text_e {
+	// 2 bits for horizontal alignment, 2 bits for vertical alignment
 	MUI_TEXT_ALIGN_LEFT 	= 0,
 	MUI_TEXT_ALIGN_CENTER	= (1 << 0),
 	MUI_TEXT_ALIGN_RIGHT	= (1 << 1),
 	MUI_TEXT_ALIGN_TOP		= 0,
 	MUI_TEXT_ALIGN_MIDDLE	= (MUI_TEXT_ALIGN_CENTER << 2),
 	MUI_TEXT_ALIGN_BOTTOM	= (MUI_TEXT_ALIGN_RIGHT << 2),
-};
+	MUI_TEXT_ALIGN_COMPACT	= (1 << 5),	// compact line spacing
+	MUI_TEXT_DEBUG			= (1 << 7),
+	MUI_TEXT_STYLE_BOLD		= (1 << 8),	// Synthetic (ugly) bold
+	MUI_TEXT_STYLE_ULINE	= (1 << 9), // Underline
+	MUI_TEXT_STYLE_NARROW	= (1 << 10),// Syntheric narrow
+	MUI_TEXT_FLAGS_COUNT	= 11,
+} mui_text_e;
 
+/*
+ * Draw a text string in a bounding box, with the given color. The
+ * 'flags' parameter is a combination of MUI_TEXT_ALIGN_* flags.
+ * This function will handle line wrapping, and will draw as much text
+ * as it can in the given box.
+ * The 'text' parameter can be a UTF8 string, and the 'text_len' is
+ * the number of bytes in the string (or zero), not the number of
+ * glyphs.
+ * The 'text' string can contain '\n' to force a line break.
+ */
 void
 mui_font_textbox(
 		mui_font_t *	font,
 		mui_drawable_t *dr,
 		c2_rect_t 		bbox,
 		const char *	text,
-		unsigned int 	text_len,
+		uint		 	text_len,
 		mui_color_t 	color,
-		uint16_t 		flags );
+		mui_text_e 		flags );
 
-DECLARE_C_ARRAY(unsigned int, mui_glyph_array, 8, int x, y, w; );
-DECLARE_C_ARRAY(mui_glyph_array_t, mui_glyph_line_array, 8);
+// this is what is returned by mui_font_measure()
+typedef struct mui_glyph_t {
+	uint32_t 	pos; 	// position in text, in *bytes*
+	uint32_t 	w;		// width of the glyph, in *pixels*
+	float		x;		// x position in *pixels*
+	uint32_t	index;	// cache index, for internal use, do not change
+	uint32_t 	glyph;  // Unicode codepoint
+} mui_glyph_t;
+
+DECLARE_C_ARRAY(mui_glyph_t, mui_glyph_array, 8,
+		int x, y, t, b; float w;);
+DECLARE_C_ARRAY(mui_glyph_array_t, mui_glyph_line_array, 8,
+		uint margin_left, margin_right,	// minimum x, and max width
+		height; );
 
 /*
  * Measure a text string, return the number of lines, and each glyphs
  * position already aligned to the MUI_TEXT_ALIGN_* flags.
+ * Note that the 'compact' and 'narrow' flags are used here,
+ * the 'compact' flag is used to reduce the line spacing, and the
+ * 'narrow' flag is used to reduce the advance between glyphs.
  */
 void
 mui_font_measure(
 		mui_font_t *	font,
 		c2_rect_t 		bbox,
 		const char *	text,
-		unsigned int 	text_len,
+		uint		 	text_len,
 		mui_glyph_line_array_t *lines,
-		uint16_t 		flags);
-// to be used exclusively with mui_font_measure
+		mui_text_e 		flags);
+/*
+ * to be used exclusively with mui_font_measure.
+ * Draw the lines and glyphs returned by mui_font_measure, with the
+ * given color and flags.
+ * The significan flags here are no longer the text aligment, but
+ * how to render them:
+ * + MUI_TEXT_STYLE_BOLD will draw each glyphs twice, offset by 1 pixel
+ * + MUI_TEXT_STYLE_ULINE will draw a line under the text glyphs, unless
+ *   they have a descent that is lower than the underline.
+ */
 void
 mui_font_measure_draw(
-		mui_font_t *font,
+		mui_font_t *	font,
 		mui_drawable_t *dr,
-		c2_rect_t bbox,
+		c2_rect_t 		bbox,
 		mui_glyph_line_array_t *lines,
-		mui_color_t color,
-		uint16_t flags);
+		mui_color_t 	color,
+		mui_text_e 		flags);
 // clear all the lines, and glyph lists. Use it after mui_font_measure
 void
 mui_font_measure_clear(
@@ -548,28 +703,59 @@ enum mui_window_action_e {
 	MUI_WINDOW_ACTION_CLOSE		= FCC('w','c','l','s'),
 };
 
+/*
+ * A window is basically 2 rectangles in 'screen' coordinates. The
+ *   'frame' rectangle that encompasses the whole of the window, and the
+ *   'content' rectangle that is the area where the controls are drawn.
+ * * The 'content' rectangle is always fully included in the 'frame'
+ *   rectangle.
+ * * The 'frame' rectangle is the one that is used to move the window
+ *   around.
+ * * All controls coordinates are related to the 'content' rectangle.
+ *
+ * The window 'layer' is used to determine the order of the windows on the
+ * screen, the higher the layer, the more in front the window is.
+ * Windows can be 'selected' to bring them to the front -- that brings
+ * them to the front of their layer, not necessarily the topmost window.
+ *
+ * Windows contain an 'action' list that are called when the window
+ * wants to signal the application; for example when the window is closed,
+ * but it can be used for other things as application requires.
+ *
+ * Mouse clicks are handled by the window, and the window by first
+ * checking if the click is in a control, and if so, passing the event
+ * to the control.
+ * Any control that receives the 'mouse' down will ALSO receive the
+ * mouse DRAG and UP events, even if the mouse has moved outside the
+ * control. This is the meaning of the 'control_clicked' field.
+ *
+ * The 'control_focus' field is used to keep track of the control that
+ * has the keyboard focus. This is used to send key events to the
+ * control that has the focus. That control can still 'refuse' the event,
+ * in which case is it passed in turn to the others, and to the window.
+ */
 typedef struct mui_window_t {
 	TAILQ_ENTRY(mui_window_t)	self;
 	struct mui_t *				ui;
 	mui_wdef_p 					wdef;
 	uint32_t					uid;		// optional, pseudo unique id
 	struct {
-		unsigned long				hidden: 1,
-									zombie: 1,	// is in pre-delete ui->zombies
+		uint						hidden: 1,
+									disposed : 1,
 									layer : 4,
 									hit_part : 8;
 	}							flags;
 	c2_pt_t 					click_loc;
-	struct mui_drawable_t *		dr;
 	// both these rectangles are in screen coordinates, even tho
 	// 'contents' is fully included in 'frame'
 	c2_rect_t					frame, content;
 	char *						title;
 	mui_action_queue_t			actions;
 	TAILQ_HEAD(controls, mui_control_t) controls;
-	// anything deleted during an action goes in zombies
-	TAILQ_HEAD(zombies, mui_control_t) zombies;
-	struct mui_control_t *		control_clicked;
+	mui_refqueue_t				refs;
+	mui_window_ref_t 			lock;
+	mui_control_ref_t 			control_clicked;
+	mui_control_ref_t	 		control_focus;
 	mui_region_t				inval;
 } mui_window_t;
 
@@ -653,10 +839,14 @@ struct mui_menu_items_t;
  * visible.
  */
 typedef struct mui_menu_item_t {
-	uint32_t 					disabled : 1, hilited : 1;
+	uint32_t 					disabled : 1,
+								hilited : 1,
+								is_menutitle : 1;
 	uint32_t 					index: 9;
 	uint32_t 					uid;
 	char * 						title;
+	// curertnly only supported for menu titles
+	const uint32_t *			color_icon;		// optional, ARGB colors
 	char  						mark[8];		// UTF8 -- Charcoal
 	char						icon[8];		// UTF8 -- Wider, icon font
 	char 						kcombo[16];		// UTF8 -- display only
@@ -701,15 +891,23 @@ mui_menubar_get(
 /*
  * Add a menu to the menubar. 'items' is an array of mui_menu_item_t
  * terminated by an element with a NULL title.
- * Note: The array is NOT const, it will be tweaked for storing items position,
- * it can also be tweaked to set/reset the disabled state, check marks etc
+ * Note: The array is NOT const, it will be tweaked for storing items
+ * position, it can also be tweaked to set/reset the disabled state,
+ * check marks etc
  */
 struct mui_control_t *
 mui_menubar_add_simple(
-		mui_window_t *	win,
-		const char * 	title,
-		uint32_t 		menu_uid,
-		mui_menu_item_t * items );
+		mui_window_t *		win,
+		const char * 		title,
+		uint32_t 			menu_uid,
+		mui_menu_item_t * 	items );
+struct mui_control_t *
+mui_menubar_add_menu(
+		mui_window_t *		win,
+		uint32_t 			menu_uid,
+		mui_menu_item_t * 	items,
+		uint 				count );
+
 /* Turn off any highlighted menu titles */
 mui_window_t *
 mui_menubar_highlight(
@@ -747,13 +945,14 @@ enum mui_control_action_e {
 typedef struct mui_control_t {
 	TAILQ_ENTRY(mui_control_t) 	self;
 	struct mui_window_t *		win;
+	mui_refqueue_t				refs;
+	mui_control_ref_t 			lock;
 	mui_cdef_p 					cdef;
 	uint32_t					state;
 	uint32_t 					type;
 	uint32_t					style;
 	struct {
-		unsigned int 			hidden : 1,
-								zombie : 1,
+		uint		 			hidden : 1,
 								hit_part : 8;
 	}							flags;
 	uint32_t					value;
@@ -861,7 +1060,8 @@ mui_button_new(
  */
 enum mui_textbox_e {
 	// draw the frame around the text box
-	MUI_CONTROL_TEXTBOX_FRAME		= (1 << 8),
+	MUI_CONTROL_TEXTBOX_FRAME		= (1 << (MUI_TEXT_FLAGS_COUNT+1)),
+	MUI_CONTROL_TEXTBOX_FLAGS_COUNT = (MUI_TEXT_FLAGS_COUNT+1),
 };
 mui_control_t *
 mui_textbox_new(
@@ -869,13 +1069,36 @@ mui_textbox_new(
 		c2_rect_t 		frame,
 		const char *	text,
 		const char * 	font,
-		uint16_t		flags );
+		uint32_t		flags );
 mui_control_t *
 mui_groupbox_new(
 		mui_window_t * 	win,
 		c2_rect_t 		frame,
 		const char *	title,
-		uint16_t		flags );
+		uint32_t		flags );
+/*
+ * Text editor control
+ */
+enum {
+	// do we handle multi-line text? If zero, we only handle one line
+	MUI_CONTROL_TEXTEDIT_VERTICAL	= 1 << (MUI_CONTROL_TEXTBOX_FLAGS_COUNT+1),
+	MUI_CONTROL_TEXTEDIT_FLAGS_COUNT = (MUI_CONTROL_TEXTBOX_FLAGS_COUNT+1),
+};
+
+mui_control_t *
+mui_textedit_control_new(
+		mui_window_t * 	win,
+		c2_rect_t 		frame,
+		uint32_t 		flags);
+void
+mui_textedit_set_text(
+		mui_control_t * c,
+		const char * text);
+void
+mui_textedit_set_selection(
+		mui_control_t * c,
+		uint			start,
+		uint			end);
 
 mui_control_t *
 mui_scrollbar_new(
@@ -914,7 +1137,7 @@ mui_popupmenu_new(
 		mui_window_t *	win,
 		c2_rect_t 		frame,
 		const char * 	title,
-		uint32_t 		uid );
+		uint32_t 		uid);
 mui_menu_items_t *
 mui_popupmenu_get_items(
 		mui_control_t * c);
@@ -1043,6 +1266,12 @@ mui_timer_reset(
 		mui_timer_p 	cb,
 		mui_time_t 		delay);
 
+/*
+ * This is the head of the mui library, it contains the screen size,
+ * the color scheme, the list of windows, the list of fonts, and the
+ * clipboard.
+ * Basically this is the primary parameter that you keep around.
+ */
 typedef struct mui_t {
 	c2_pt_t 					screen_size;
 	struct {
@@ -1050,7 +1279,9 @@ typedef struct mui_t {
 		mui_color_t 				highlight;
 	}							color;
 	uint16_t 					modifier_keys;
+	mui_time_t 					last_click_stamp[MUI_EVENT_BUTTON_MAX];
 	int 						draw_debug;
+	int							quit_request;
 	// this is the sum of all the window's dirty regions, inc moved windows etc
 	mui_region_t 				inval;
 	// once the pixels have been refreshed, 'inval' is copied to 'redraw'
@@ -1059,14 +1290,12 @@ typedef struct mui_t {
 
 	TAILQ_HEAD(, mui_font_t) 	fonts;
 	TAILQ_HEAD(windows, mui_window_t) 	windows;
-	mui_window_t *				menubar;
-	TAILQ_HEAD(, mui_window_t) 	zombies;
-	// this is used to track any active action callbacks to
-	// prevent recursion problem and track any 'delete' happening
-	// during an action callback
-	uint32_t 					action_active;
-	mui_window_t *				event_capture;
+	mui_window_ref_t 			menubar;
+	mui_window_ref_t 			event_capture;
+	mui_utf8_t 					clipboard;
 	mui_timer_group_t			timer;
+	// only used by the text editor, as we can only have one carret
+	uint8_t 					carret_timer;
 	char * 						pref_directory; /* optional */
 } mui_t;
 
@@ -1084,6 +1313,33 @@ mui_draw(
 void
 mui_run(
 		mui_t *			ui);
+
+/* If you want this notification, attach an action function to the
+ * menubar */
+enum {
+	// note this will also be send if the application sets the
+	// clipboard with the system's clipboard, so watch out for
+	// recursion problems!
+	MUI_CLIPBOARD_CHANGED = FCC('c','l','p','b'),
+	// this is sent when the user type 'control-v', this gives
+	// a chance to the application to do a mui_clipboard_set()
+	// with the system's clipboard before it gets pasted.
+	// the default is of course to use our internal clipboard
+	MUI_CLIPBOARD_REQUEST = FCC('c','l','p','r'),
+};
+// This will send a notification that the clipboard was set,
+// the notification is sent to the menubar, and the menubar will
+// send it to the application.
+void
+mui_clipboard_set(
+		mui_t * 		ui,
+		const uint8_t * utf8,
+		uint		 	len);
+const uint8_t *
+mui_clipboard_get(
+		mui_t * 		ui,
+		uint		 *	len);
+
 // return true if the event was handled by the ui
 bool
 mui_handle_event(
@@ -1106,4 +1362,4 @@ mui_has_active_windows(
 /* Return a hash value for string inString */
 uint32_t
 mui_hash(
-	const char * inString );
+	const char * 		inString );

@@ -37,33 +37,34 @@ enum mui_menu_action_e {
 struct mui_menu_control_t;
 struct mui_menubar_t;
 
+
 typedef struct mui_menu_t {
 	mui_window_t 			win;
-	unsigned int			click_inside : 1,
+	uint					click_inside : 1,
 							drag_ev : 1,
 							closing: 1,				// prevent double-delete
 							timer_call_count : 2; 	// used by mui_menu_close_timer_cb
-	mui_control_t *			highlighted;
+	mui_control_ref_t		highlighted;	// mui_menuitem_control_t *
 	mui_time_t				sub_open_stamp;
 	// currently open menu, if any
-	struct mui_menu_control_t *	sub;
-	struct mui_menubar_t *	menubar;
+	mui_control_ref_t 		sub;		// mui_menu_control_t *
+	mui_window_ref_t		menubar;	// mui_menubar_t * window
 } mui_menu_t;
 
 typedef struct mui_menubar_t {
 	mui_window_t 			win;
-	unsigned int			click_inside : 1,
+	uint					click_inside : 1,
 							drag_ev : 1,
 							was_highlighted : 1,
 							timer_call_count : 2; 	// used by mui_menu_close_timer_cb
 
 	// currently open menu title
-	struct mui_menu_control_t *	selected_title;
+	mui_control_ref_t		selected_title;		// mui_menu_control_t *
 	// keep track of the menus, and their own submenus as they are being opened
 	// this is to keep track of the 'hierarchy' of menus, so that we can close
 	// them all when the user clicks outside of them, or release the mouse.
-	mui_menu_t * 			open[8];
-	int 					open_count;
+	mui_window_ref_t 		open[8];
+	uint 					open_count;
 	bool 					delayed_closing;
 } mui_menubar_t;
 
@@ -111,20 +112,22 @@ mui_cdef_popup(
 // any open menus (and their submenus, if any)
 static bool
 _mui_menubar_close_menu(
-	mui_menubar_t *mbar )
+		mui_menubar_t *mbar )
 {
 	if (mbar->delayed_closing)
 		return false;
 	mbar->click_inside = false;
-	mui_control_set_state((mui_control_t*)mbar->selected_title, 0);
-	if (mbar->selected_title)
-		mbar->selected_title->menu_window = NULL;
+	mui_menu_control_t * m = (mui_menu_control_t*)mbar->selected_title.control;
+	D(printf("%s %s\n", __func__, m ? ((mui_control_t*)m)->title : "???");)
+	mui_control_set_state((mui_control_t*)m, 0);
+	if (m)
+		mui_window_deref(&m->menu_window);
 	if (!mbar->open_count)
 		return false;
-	mbar->selected_title = NULL;
-	for (int i = 0; i < mbar->open_count; i++) {
-		mui_menu_close(&mbar->open[i]->win);
-		mbar->open[i] = NULL;
+	mui_control_deref(&mbar->selected_title);
+	for (uint i = 0; i < mbar->open_count; i++) {
+		mui_menu_close(mbar->open[i].window);
+		mui_window_deref(&mbar->open[i]);
 	}
 	mbar->open_count = 0;
 	return true;
@@ -133,17 +136,17 @@ _mui_menubar_close_menu(
 // close the submenu from a hierarchical menu item
 static bool
 _mui_menu_close_submenu(
-	mui_menu_t * menu )
+		mui_menu_t * menu )
 {
-	mui_menu_control_t * sub = menu->sub;
+	mui_menu_control_t * sub = (mui_menu_control_t*)menu->sub.control;
 	if (!sub)
 		return false;
-	menu->sub = NULL;
+	mui_control_deref(&menu->sub);
 	mui_control_set_state((mui_control_t*)sub, 0);
-	if (sub->menu_window) {
-		mui_menu_close(sub->menu_window);
+	if (sub->menu_window.window) {
+		mui_menu_close(sub->menu_window.window);
 	}
-	sub->menu_window = NULL;
+	mui_window_deref(&sub->menu_window);
 
 	return true;
 }
@@ -158,26 +161,27 @@ mui_menu_close_timer_cb(
 		void * param)
 {
 	mui_menu_t * menu = param;
-	if (!menu->highlighted) {
-		printf("%s: no selected item, closing\n", __func__);
+	if (!menu->highlighted.control) {
+		D(printf("%s: no selected item, closing\n", __func__);)
 		mui_window_dispose(&menu->win);
 		return 0;
 	}
 	menu->timer_call_count++;
-	mui_control_set_state(menu->highlighted,
-			menu->highlighted->state == MUI_CONTROL_STATE_CLICKED ?
+	mui_control_set_state(menu->highlighted.control,
+			menu->highlighted.control->state == MUI_CONTROL_STATE_CLICKED ?
 					MUI_CONTROL_STATE_NORMAL : MUI_CONTROL_STATE_CLICKED);
 	if (menu->timer_call_count == 3) {
 		// we are done!
-		mui_menuitem_control_t * item = (mui_menuitem_control_t*)menu->highlighted;
+		mui_menuitem_control_t * item =
+				(mui_menuitem_control_t*)menu->highlighted.control;
 		mui_window_action(&menu->win, MUI_MENU_ACTION_SELECT,  &item->item);
 	//	mui_menu_close_all(&menu->win);
-		if (menu->menubar) {
-			mui_menubar_t * mbar = (mui_menubar_t*)menu->menubar;
+		if (menu->menubar.window) {
+			mui_menubar_t * mbar = (mui_menubar_t*)menu->menubar.window;
 			mui_window_action(&mbar->win,
 						MUI_MENUBAR_ACTION_SELECT, &item->item);
 			mbar->delayed_closing = false;
-			_mui_menubar_close_menu((mui_menubar_t*)menu->menubar);
+			_mui_menubar_close_menu(mbar);
 		} else
 			mui_menu_close(&menu->win);
 		return 0;
@@ -260,12 +264,14 @@ mui_menubar_handle_mouse(
 	mui_window_t * win = &mbar->win;
 
 	bool inside = c2_rect_contains_pt(&win->frame, &ev->mouse.where);
-	mui_control_t * c = inside ? mui_control_locate(win, ev->mouse.where) : NULL;
+	mui_control_t * c = inside ?
+							mui_control_locate(win, ev->mouse.where) : NULL;
 	switch (ev->type) {
 		case MUI_EVENT_BUTTONUP: {
 			D(printf("%s up drag %d click in:%d high:%d was:%d\n", __func__,
 						mbar->drag_ev, mbar->click_inside,
-						mbar->selected_title ? 1 : 0, mbar->was_highlighted);)
+						mbar->selected_title.control ? 1 : 0,
+						mbar->was_highlighted);)
 			if (mbar->drag_ev == 0 && mbar->click_inside) {
 				if (mbar->was_highlighted) {
 					return _mui_menubar_close_menu(mbar);
@@ -291,21 +297,25 @@ mui_menubar_handle_mouse(
 				D(printf("%s click inside %d\n", __func__, inside);)
 				mbar->drag_ev = 0;
 				mbar->click_inside = inside;
-				mbar->was_highlighted = mbar->selected_title != NULL;
+				mbar->was_highlighted = mbar->selected_title.control != NULL;
 			}
 			if (c && mui_control_get_state(c) != MUI_CONTROL_STATE_DISABLED) {
-				if (mbar->selected_title &&
-							c != (mui_control_t*)mbar->selected_title)
+				if (mbar->selected_title.control &&
+							c != mbar->selected_title.control) {
 					_mui_menubar_close_menu(mbar);
+				}
 				mbar->click_inside = true;
 				mui_control_set_state(c, MUI_CONTROL_STATE_CLICKED);
 				mui_menu_control_t *title = (mui_menu_control_t*)c;
-				mbar->selected_title = title;
+				mui_control_deref(&mbar->selected_title);
+				mui_control_ref(&mbar->selected_title, c, FCC('s','e','l','t'));
 				if (mui_control_get_type(c) == MUI_CONTROL_MENUTITLE) {
-					if (title->menu_window == NULL) {
-						title->menu_window = _mui_menu_create(
+					if (title->menu_window.window == NULL) {
+						mui_window_t *new = _mui_menu_create(
 								win->ui, mbar, C2_PT(c->frame.l, c->frame.b),
 								title->menu.e);
+						mui_window_ref(&title->menu_window, new,
+								FCC('m','e','n','u'));
 					}
 				}
 				return true;
@@ -381,6 +391,13 @@ mui_wdef_menubar(
 {
 	mui_menubar_t * mbar = (mui_menubar_t*)win;
 	switch (what) {
+		case MUI_WDEF_DISPOSE: {
+			mui_control_deref(&mbar->selected_title);
+			for (uint i = 0; i < mbar->open_count; i++) {
+				mui_menu_close(mbar->open[i].window);
+				mui_window_deref(&mbar->open[i]);
+			}
+		}	break;
 		case MUI_WDEF_DRAW: {
 			mui_drawable_t * dr = param;
 			mui_wdef_menubar_draw(win, dr);
@@ -423,9 +440,9 @@ mui_menu_handle_mouse(
 			if (menu->drag_ev == 0) {
 		//		return true;
 			}
-			mui_menubar_t * mbar = (mui_menubar_t*)menu->menubar;
-			if (menu->highlighted &&
-						menu->highlighted->type != MUI_CONTROL_SUBMENUITEM) {
+			mui_menubar_t * mbar = (mui_menubar_t*)menu->menubar.window;
+			if (menu->highlighted.control &&
+					menu->highlighted.control->type != MUI_CONTROL_SUBMENUITEM) {
 				/*
 				 * This tells the normal closing code that we are
 				 * taking care of the closing with the timer, and not *now*
@@ -436,7 +453,7 @@ mui_menu_handle_mouse(
 				mui_timer_register(win->ui, mui_menu_close_timer_cb, menu,
 						MUI_MENU_CLOSE_BLINK_DELAY);
 			} else {
-				menu->highlighted = NULL;
+				mui_control_deref(&menu->highlighted);
 				if (mbar)
 					_mui_menubar_close_menu(mbar);
 				else
@@ -460,34 +477,39 @@ mui_menu_handle_mouse(
 			}
 		//	printf("%s in:%d c:%s\n", __func__, inside, c ? c->title : "");
 			if (c && mui_control_get_state(c) != MUI_CONTROL_STATE_DISABLED) {
-				if (menu->sub && c != (mui_control_t*)menu->sub)
+				if (menu->sub.control && c != menu->sub.control)
 					_mui_menu_close_submenu(menu);
-				if (menu->highlighted && c != menu->highlighted)
-					mui_control_set_state(menu->highlighted, 0);
+				if (menu->highlighted.control &&
+							c != menu->highlighted.control)
+					mui_control_set_state(menu->highlighted.control, 0);
 				mui_control_set_state(c, MUI_CONTROL_STATE_CLICKED);
-				menu->highlighted = c;
+				mui_control_deref(&menu->highlighted);
+				mui_control_ref(&menu->highlighted, c, FCC('h','i','g','h'));
 				if (c->type == MUI_CONTROL_SUBMENUITEM) {
 					mui_menu_control_t *title = (mui_menu_control_t*)c;
-					if (title->menu_window == NULL) {
+					if (title->menu_window.window == NULL) {
 						c2_pt_t where = C2_PT(c->frame.r, c->frame.t);
 						c2_pt_offset(&where, win->content.l, win->content.t);
-						title->menu_window = _mui_menu_create(
+						mui_window_t *new = _mui_menu_create(
 								win->ui,
-								(mui_menubar_t*)menu->menubar, where,
+								(mui_menubar_t*)menu->menubar.window, where,
 								title->menu.e);
-						menu->sub = title;
+						mui_window_ref(&title->menu_window, new,
+								FCC('m','e','n','u'));
+						mui_control_ref(&menu->sub, c,
+								FCC('s','u','b','m'));
 						menu->sub_open_stamp = mui_get_time();
 						mui_window_action(&menu->win, MUI_MENU_ACTION_OPEN,
-												title->menu_window);
-						mui_window_set_action(title->menu_window,
+												title->menu_window.window);
+						mui_window_set_action(title->menu_window.window,
 												mui_submenu_action_cb, menu);
 					}
 				}
 			} else {
-				if (!menu->sub) {
-					if (menu->highlighted)
-						mui_control_set_state(menu->highlighted, 0);
-					menu->highlighted = NULL;
+				if (!menu->sub.control) {
+					if (menu->highlighted.control)
+						mui_control_set_state(menu->highlighted.control, 0);
+					mui_control_deref(&menu->highlighted);
 				}
 			}
 		}	break;
@@ -504,6 +526,7 @@ mui_wdef_menu(
 	mui_menu_t * menu = (mui_menu_t*)win;
 	switch (what) {
 		case MUI_WDEF_DISPOSE: {
+			mui_window_deref(&menu->menubar);
 			_mui_menu_close_submenu(menu);
 		}	break;
 		case MUI_WDEF_DRAW: {
@@ -539,7 +562,7 @@ mui_menubar_new(
 								ui, mbf,
 								mui_wdef_menubar, MUI_WINDOW_MENUBAR_LAYER,
 								"Menubar", sizeof(*mbar));
-	ui->menubar = &mbar->win;
+	mui_window_ref(&ui->menubar, &mbar->win, FCC('m','b','a','r'));
 	return &mbar->win;
 }
 
@@ -547,7 +570,7 @@ mui_window_t *
 mui_menubar_get(
 		mui_t * ui )
 {
-	return ui ? ui->menubar : NULL;
+	return ui->menubar.window;
 }
 
 bool
@@ -586,7 +609,7 @@ mui_menubar_add_simple(
 	//printf("%s title %s rect %s\n", __func__, title, c2_rect_as_str(&title_rect));
 
 	mui_menu_control_t *menu = (mui_menu_control_t*)c;
-	menu->menubar = win;
+	mui_window_ref(&menu->menubar, win, FCC('m','b','a','r'));
 	/*
 	 * We do not clone the items, so they must be static
 	 * from somewhere -- we do not free them either.
@@ -601,6 +624,63 @@ mui_menubar_add_simple(
 	return c;
 }
 
+/* 'count' can be zero, in which case *requires* NULL termination */
+mui_control_t *
+mui_menubar_add_menu(
+		mui_window_t *		win,
+		uint32_t 			menu_uid,
+		mui_menu_item_t * 	items,
+		uint 				count  )
+{
+	c2_rect_t parts[MUI_MENUTITLE_PART_COUNT];
+	mui_menutitle_get_part_locations(win->ui, NULL, items, parts);
+
+	int title_width = c2_rect_width(&parts[MUI_MENUTITLE_PART_ALL]);
+	c2_rect_t title_rect = { .t = 2 };
+
+	mui_control_t * last = TAILQ_LAST(&win->controls, controls);
+	if (last) {
+		c2_rect_offset(&title_rect, last->frame.r, 0);
+	} else
+		title_rect.l = 4;
+	title_rect.r = title_rect.l + title_width + 6;
+	title_rect.b = win->content.b + 2;// title_rect.t + m.ascent - m.descent;
+
+	mui_control_t * c = mui_control_new(
+				win, MUI_CONTROL_MENUTITLE, mui_cdef_popup,
+				title_rect, items[0].title, menu_uid,
+				sizeof(mui_menu_control_t));
+	//printf("%s title %s rect %s\n", __func__, title, c2_rect_as_str(&title_rect));
+
+	mui_menu_control_t *menu = (mui_menu_control_t*)c;
+	mui_window_ref(&menu->menubar, win, FCC('m','b','a','r'));
+	menu->item.item = items[0];
+	/*
+	 * We do not clone the items, so they must be static
+	 * from somewhere -- we do not free them either.
+	 */
+	int sub_count = count ? count - 1 : 0;
+
+	for (int ii = 1; items[ii].title; ii++)
+		sub_count++;
+	menu->menu.count = count -1 ;
+	menu->menu.e = items + 1;
+	menu->menu.read_only = 1;
+
+	return c;
+}
+
+#if 0
+void
+mui_menu_set_title(
+		mui_control_t * c,
+		const mui_menu_item_t *title )
+{
+	mui_menu_control_t * menu = (mui_menu_control_t*)c;
+	mui_control_set_title(c, title);
+	mui_window_set_title(&menu->menu_window, title);
+}
+#endif
 mui_window_t *
 mui_menubar_highlight(
 		mui_window_t * win,
@@ -687,8 +767,10 @@ _mui_menu_create(
 								mui_wdef_menu, MUI_WINDOW_MENU_LAYER,
 								items[0].title, sizeof(*menu));
 	if (mbar) {
-		mbar->open[mbar->open_count++] = menu;
-		menu->menubar = mbar;
+		mui_window_ref(&mbar->open[mbar->open_count], &menu->win,
+				FCC('m','e','n','u'));
+		mbar->open_count++;
+		mui_window_ref(&menu->menubar, &mbar->win, FCC('m','b','a','r'));
 	}
 	/* Walk all the items in out static structure, and create the controls
 	 * for each of them with their own corresponding item */
@@ -739,13 +821,15 @@ static void
 mui_menu_close(
 		mui_window_t * win )
 {
+	if (!win)
+		return;
 	mui_menu_t * menu = (mui_menu_t*)win;
-	mui_menubar_t * mbar = (mui_menubar_t*)menu->menubar; // can be NULL
+	mui_menubar_t * mbar = (mui_menubar_t*)menu->menubar.window; // can be NULL
 
-	menu->highlighted = NULL;
+	mui_control_deref(&menu->highlighted);
 	if (mbar && mbar->open_count) {
-		mbar->open[mbar->open_count-1] = NULL;
 		mbar->open_count--;
+		mui_window_deref(&mbar->open[mbar->open_count]);
 	}
 	mui_window_dispose(win);
 }
@@ -759,7 +843,7 @@ mui_popupmenu_action_cb(
 		void * 			param)	// popup control here
 {
 	mui_menu_control_t * pop = cb_param;
-	printf("%s %4.4s\n", __func__, (char*)&what);
+	D(printf("%s %4.4s\n", __func__, (char*)&what);)
 	switch (what) {
 		case MUI_MENU_ACTION_SELECT: {
 			mui_menu_item_t * item = param;
@@ -780,10 +864,11 @@ mui_popupmenu_handle_mouse(
 	mui_control_t * c = &pop->item.control;
 	switch (ev->type) {
 		case MUI_EVENT_BUTTONUP: {
-			printf("%s up has popup %d\n", __func__, pop->menu_window != NULL);
-			if (pop->menu_window) {
+			D(printf("%s up has popup %d\n", __func__,
+					pop->menu_window.window != NULL);)
+			if (pop->menu_window.window) {
 //				mui_menu_close(pop->menu_window);
-				pop->menu_window = NULL;
+				mui_window_deref(&pop->menu_window);
 			}
 			mui_control_set_state(c, 0);
 		}	break;
@@ -791,14 +876,16 @@ mui_popupmenu_handle_mouse(
 			mui_control_set_state(c,
 					ev->type != MUI_EVENT_BUTTONUP ?
 							MUI_CONTROL_STATE_CLICKED : 0);
-			if (!pop->menu_window) {
+			if (!pop->menu_window.window) {
 				c2_pt_t loc = pop->menu_frame.tl;
 				c2_pt_offset(&loc, c->win->content.l, c->win->content.t);
 				c2_pt_offset(&loc, 0, -pop->menu.e[c->value].location.y);
-				pop->menu_window = _mui_menu_create(
+				mui_window_t *new = _mui_menu_create(
 						c->win->ui, NULL, loc,
 						pop->menu.e);
-				mui_window_set_action(pop->menu_window,
+				mui_window_ref(&pop->menu_window, new,
+						FCC('m','e','n','u'));
+				mui_window_set_action(pop->menu_window.window,
 						mui_popupmenu_action_cb, pop);
 				// pass the mousedown to the new popup
 		//		mui_window_handle_mouse(pop->menu_window, ev);
@@ -823,13 +910,21 @@ mui_cdef_popup(
 				case MUI_CONTROL_POPUP:
 				case MUI_CONTROL_MENUTITLE: {
 					mui_menu_control_t *pop = (mui_menu_control_t*)c;
-					if (pop->menu_window) {
-						mui_menu_close(pop->menu_window);
-						pop->menu_window = NULL;
+					if (pop->menu_window.window) {
+						mui_menu_close(pop->menu_window.window);
+						mui_window_deref(&pop->menu_window);
 					}
 					mui_menu_items_clear(&pop->menu);
 					if (!pop->menu.read_only)
 						mui_menu_items_free(&pop->menu);
+					if (pop->item.color_icon)
+						mui_drawable_dispose(pop->item.color_icon);
+				}	break;
+				case MUI_CONTROL_MENUITEM:
+				case MUI_CONTROL_SUBMENUITEM: {
+					mui_menuitem_control_t *mic = (mui_menuitem_control_t*)c;
+					if (mic->color_icon)
+						mui_drawable_dispose(mic->color_icon);
 				}	break;
 			}
 			break;
@@ -890,7 +985,7 @@ mui_popupmenu_get_items(
 	if (!c)
 		return NULL;
 	if (c->type != MUI_CONTROL_POPUP && c->type != MUI_CONTROL_MENUTITLE) {
-		printf("%s: not a popup or menutitle\n", __func__);
+		D(printf("%s: not a popup or menutitle\n", __func__);)
 		return NULL;
 	}
 	mui_menu_control_t *pop = (mui_menu_control_t*)c;
@@ -902,9 +997,9 @@ mui_popupmenu_prepare(
 		mui_control_t * c)
 {
 	mui_menu_control_t *pop = (mui_menu_control_t*)c;
-	if (pop->menu_window) {
-		mui_window_dispose(pop->menu_window);
-		pop->menu_window = NULL;
+	if (pop->menu_window.window) {
+		mui_window_dispose(pop->menu_window.window);
+		mui_window_deref(&pop->menu_window);
 	}
 	c2_rect_t frame = mui_menu_get_enclosing_rect(c->win->ui, pop->menu.e);
 	pop->menu_frame = frame;

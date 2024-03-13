@@ -102,7 +102,7 @@ _mii_about_action_cb(
 static const char * about =
 	"\n"
 	"The MII " MUI_GLYPH_IIE " Emulator\n"
-	"Version " MII_VERSION "\n"
+	"" MII_VERSION "\n"
 	"Built " __DATE__ " " __TIME__ "\n"
 	"© Michel Pollet 2023-2024\n\n"
 	"Thanks to:\n"
@@ -134,8 +134,9 @@ mii_mui_about(
 		mui_window_select(w);
 		return w;
 	}
+	printf("%s version: '%s'\n", __func__, MII_VERSION);
 	c2_pt_t where = {};
-	c2_rect_t wpos = C2_RECT_WH(where.x, where.y, 500, 240);
+	c2_rect_t wpos = C2_RECT_WH(where.x, where.y, 500, 255);
 	if (where.x == 0 && where.y == 0)
 		c2_rect_offset(&wpos,
 			(ui->screen_size.x / 2) - (c2_rect_width(&wpos) / 2),
@@ -194,7 +195,8 @@ mii_mui_about(
 							mui_geneva_font_data, mui_geneva_font_size);
 	}
 	mui_glyph_line_array_t lines_about = {};
-	mui_font_measure(font, tbox, about, 0, &lines_about, MUI_TEXT_ALIGN_CENTER);
+	mui_font_measure(font, tbox, about, 0, &lines_about,
+						MUI_TEXT_ALIGN_CENTER);
 
 	c2_rect_t about_frame = tbox;
 	about_frame.b = 0;
@@ -211,7 +213,7 @@ mii_mui_about(
 		mui_glyph_array_t * line = &lines_thanks.e[li];
 		frame_thanks.b = line->y;
 	}
-	c2_rect_offset(&frame_thanks, 0, about_frame.b + 0);
+	c2_rect_offset(&frame_thanks, 0, about_frame.b + 4);
 
 	tbox.b = frame_thanks.b + 2;
 	dr = mui_drawable_new(

@@ -25,7 +25,7 @@
 #include "mii_mui.h"
 #include "mish.h"
 #include "mii_thread.h"
-
+#include "mii_ssc.h"
 #include "mii_mui_gl.h"
 #include "miigl_counter.h"
 #define MII_ICON64_DEFINE
@@ -356,10 +356,16 @@ mii_x11_handle_event(
 				}
 				ui->video.key.modifiers = mui->modifier_keys;
 				switch (ui->video.key.key.key) {
+#if 0
+					case MUI_KEY_RALT:
+					case MUI_KEY_LALT: {
+						int apple = ui->video.key.key.key - MUI_KEY_RALT;
+#else
 					case MUI_KEY_RSUPER:
 					case MUI_KEY_LSUPER: {
-						int apple = ui->video.key.key.key - MUI_KEY_RSUPER;
-						mii_bank_t *bank = &mii->bank[MII_BANK_MAIN];
+						int apple = ui->video.key.key.key - MUI_KEY_LSUPER;
+#endif
+						mii_bank_t *bank = &mii->bank[MII_BANK_SW];
 						uint8_t old = mii_bank_peek(bank, 0xc061 + apple);
 						mii_bank_poke(bank, 0xc061 + apple, down ? 0x80 : 0);
 						if (!!down != !!old) {
@@ -494,7 +500,7 @@ static const struct {
 	[MII_SLOT_DRIVER_SMARTPORT]	= { "smartport", },
 	[MII_SLOT_DRIVER_DISK2] 	= { "disk2", },
 	[MII_SLOT_DRIVER_MOUSE] 	= { "mouse", },
-	[MII_SLOT_DRIVER_SUPERSERIAL] = { "ssc", },
+	[MII_SLOT_DRIVER_SSC] 		= { "ssc", },
 	[MII_SLOT_DRIVER_ROM1MB]	= { "eecard", },
 };
 
@@ -533,6 +539,24 @@ mii_ui_reconfigure_slot(
 						"" :
 						(void*)config->slot[i].conf.rom1mb.drive.disk);
 		}	break;
+		case MII_SLOT_DRIVER_SSC: {
+			mii_ssc_setconf_t ssc = {
+				.baud = config->slot[i].conf.ssc.baud,
+				.bits = config->slot[i].conf.ssc.bits,
+				.parity = config->slot[i].conf.ssc.parity,
+				.stop = config->slot[i].conf.ssc.stop,
+				.handshake = config->slot[i].conf.ssc.hw_handshake,
+				.is_device = config->slot[i].conf.ssc.kind == MII_SSC_KIND_DEVICE,
+				.is_socket = config->slot[i].conf.ssc.kind == MII_SSC_KIND_SOCKET,
+				.is_pty = config->slot[i].conf.ssc.kind == MII_SSC_KIND_PTY,
+				.socket_port = config->slot[i].conf.ssc.socket_port,
+			};
+			strncpy(ssc.device, config->slot[i].conf.ssc.device,
+						sizeof(ssc.device)-1);
+			mii_slot_command(mii, slot,
+					MII_SLOT_SSC_SET_TTY,
+					(void*)&ssc);
+		}	break;
 	}
 }
 
@@ -569,13 +593,16 @@ _mii_ui_load_config(
 	}
 }
 
+// I want at least the 'silent' flags to be 'sticky'
+static uint32_t g_startup_flags = 0;
+
 void
 mii_x11_reload_config(
 	struct mii_x11_t *ui )
 {
 	mii_t * mii = &ui->video.mii;
 	mii_machine_config_t * config = &ui->video.config;
-	uint32_t flags = MII_INIT_DEFAULT;
+	uint32_t flags = MII_INIT_DEFAULT | (g_startup_flags & MII_INIT_SILENT);
 
 	if (mii->state != MII_INIT) {
 		printf("%s mii is running, terminating thread\n", __func__);
@@ -585,6 +612,8 @@ mii_x11_reload_config(
 	}
 	mii_mui_menu_slot_menu_update(&ui->video);
 	printf("%s (re)loading config\n", __func__);
+	// if we're silent from the command line, we are *always* silent.
+	mii->speaker.off = !!(g_startup_flags & MII_INIT_SILENT);
 	mii_init(mii);
 	_mii_ui_load_config(mii, config, &flags);
 	mii_prepare(mii, flags);
@@ -639,6 +668,7 @@ main(
 		} else if (r == -1)
 			exit(1);
 		mii_prepare(mii, flags);
+		g_startup_flags = flags;
 	}
 	{
 		mish_prepare(1);
@@ -674,8 +704,14 @@ main(
 		XEvent evt;
 		while (XPending(ui->dpy)) {
 			XNextEvent(ui->dpy, &evt);
-			if (evt.type == ClientMessage)
-				goto cleanup;
+			if (evt.type == ClientMessage) {
+				if (evt.xclient.message_type ==
+							XInternAtom(ui->dpy, "WM_PROTOCOLS", False) &&
+						(Atom)evt.xclient.data.l[0] == ui->wm_delete_window) {
+					printf("Window close requested!\n");
+					goto cleanup;
+				}
+			}
 			if (XFilterEvent(&evt, ui->win))
 				continue;
 			mii_x11_handle_event(ui, &evt);

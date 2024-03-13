@@ -2,58 +2,18 @@
    <img src="contrib/mii-icon-64.png" alt="MII Logo">
 </p>
 
-# MII Version Changelog
-## 1.7
- * New animated about box, because, everyone loves a good about box.
- * Added support for Write Protect of floppy disks; disk can be write protected manually, or if the file lacks write permissions, OR if the file format (NIB, DSK) doesn't support writes.
- * New fancypants 'bit view' of the floppy are they are read/written, with a
-   heat map to show where the head was last. Drive 1 appears left of the screen,
-   drive 2 on the right. It fades out after the drive motor stops.
-
-![Heat map disk viewq](docs/heat_map.png)
-*DOS 3.3 Disk 'bitstream view' on the left, the green trace shows what's just be read.*
-
-## 1.6
- * Another big update, yanked the old DiskII driver, and replaced it with a
-   homebrew one, low level, with native support for WOZ (1 & 2) files (*read AND write!*) as well as NIB and DSK (read only).
- * This is big news, and MII can now boot all kind of copy protected disks, in
-   fact I tried a few hundreds, and they all worked so far!
- * There is currently no way to create a new disk, but you can use a tool like
-   [CiderPress](https://a2ciderpress.com/) to create them, and then use them in MII. Or just copy your DOS 3.3.woz file and reformat it!
- * There were a few other minor changes, mostly added some timing measurement
-   tooling, and a couple of (necessary for disk to work) tweaks to the emulator
-   itself as it was not counting cycles correctly for a couple of instructions.
- * The UI now has support for pure power-of-two textures, for really old OpenGL
-   implementations, it is turned off by default, but could work with some
-   old hardware. Also updated *libmui* to make it less linux-centric.
- * Fixed some more color issues, mostly DHIRES.
- * Added 'typeahead' for when you select files in the dialog, like on old Macs
-## 1.5
- * BIG update, loads of changes, fixes, improvements.
- * New super UI, using home-made libmui, channeling both GS/OS and MacOS 7.x!
- * New emulation fixes, way more accurate. Video redone, audio redone.
- * New front-end program using XLib and OpenGL 'low level'.
- * New Icon.
-## 1.0
- * Fixed a few graphics rendering bugs/color swapped
- * Fixed a few Makefile issues involving pathnamed with 'spaces' in them.
- * More tweaks to the emulation, added a few cycles here and there.
- ## 0.9
- * Added a 'debugger' shell, accessible via telnet.
- * Added a mini-assembler, used to compile the drivers and the CPU unit tests.
- * Added a 'Titan Accelerator IIe' simulation, to turn on/off fast mode.
-## 0.5
- * Initial release
-
 # MII Apple //e Emulator
+
+Note: Changelog has moves to [CHANGELOG.md](CHANGELOG.md)
 
 I know there are many out there, but none of them were ticking my fancy, so I decide to write my own. To start with it was "How hard can it be really?" then it snowballed as more and more things were fixed & added. It's been shelved for a while because well, it lacked documentation, headers, licence and stuff, so I spent some time cleaning it up for release.
 
 One primary reason for this project was that linapple (or -pie) codebase is really horrible. It dates back from 2000's or before, with loads of Windows crud leftover, some SDL crud added, the audio just doesn't really work, and overall if you want to hack around the codebase, it's pretty dreadful.
 
-
-![Quick how to load and boot](docs/video_main.gif)
-*Quick Howto Load & Boot*
+<center>
+   <img src="docs/screen/video_main.gif" alt="Quick how to load and boot">
+   <i>Quick Howto Load & Boot</i>
+</center>
 
 I wanted something:
 
@@ -64,9 +24,10 @@ I wanted something:
 * No gigantic config file.
 * I didn't need II+ or unenhanced IIe, just 65c02 //e.
 
-
-![Glorious NTSC colors](docs/screen_color.png)
-*Double hires in color*
+<center>
+   <img src="docs/screen/screen_color.png" alt="Glorious NTSC colors">
+   <i>Double hires in color</i>
+</center>
 
 ## What can it do?
  * 65c02 //e with 128K of ram.
@@ -81,15 +42,18 @@ I wanted something:
  * No Slot Clock
  * Joystick Support
  * Smartport DMA 'hard drive' card
+ * RAMWorks III card, with 1MB of RAM
  * "Titan Accelerator //e" simulation, to turn on/off fast mode.
  * Terence's J Boldt [1MB ROM card](https://github.com/tjboldt/ProDOS-ROM-Drive), also because I own a couple!
- * Floppy Drive [more on that later]
+ * Floppy Drive with WOZ 1/2 in read/write, NIB and DSK in read only.
  * No dependencies (X11) OpenGL rendering
  * Built-in debugger (using telnet access)
  * Super cool looking UI!
 
-![Phosphorescent Green](docs/screen_green.png)
-*Good old green monitor style. Theres Amber too.*
+<center>
+   <img src="docs/screen/screen_green.png" alt="Phosphorescent Green">
+   <i>Good old green monitor style. Theres Amber too.</i>
+</center>
 
 ## How to I compile it and run it?
    * You need a C compiler, make, and a few libraries:
@@ -107,8 +71,10 @@ I wanted something:
 If you run it with no options, and there are no config file, it will present
 you with a dialog to select the ROMs and the drives.
 
-![Config dialog](docs/screen_config.png)
-*Main slot configuration dialog*
+<center>
+   <img src="docs/screen/screen_config.png" alt="Config dialog">
+   <i>Main slot configuration dialog</i>
+</center>
 
 You can also use the command line to specify them, and other options.
 
@@ -161,9 +127,10 @@ There are just a few keys that are mapped for anything useful. List is not exaus
       * **Control-F6** 'steps' the emulator, ie one instruction at a time.
       * **Control-F7** 'next' instruction, ie step over a JSR instruction.
 
-
-![Telnet into mii_emu](docs/screen_mish.png)
-*The built-in shell, telnet into the emulator!*
+<center>
+  <img src="docs/screen/screen_mish.png" alt="Telnet into mii_emu">
+   <i>The built-in shell, telnet into the emulator!</i>
+</center>
 
 ## Anything else?
  * Well it has it's own command line shell, using my own [libmish](https://github.com/buserror/libmish) so there's loads you can do by... *telnet into* the emulator!
@@ -195,9 +162,11 @@ There are just a few keys that are mapped for anything useful. List is not exaus
  * Make a tool to 'flatten' overlay files back into the primary image.
  * Make a UI for the debugger, instead of telnet.
 
+<div align="center">
+  <img src="docs/screen/screen_total.png" alt="Total Replay">
+</div>
+<center><i>Obligatory View of Total Replay</i></center>
 
-![Total Replay](docs/screen_total.png)
-*Obligatory View of [Total Replay](https://github.com/a2-4am/4cade), from legend [4am](https://github.com/a2-4am)*
 ## Inspiration, Licence etc
  * MIT Licence, I think this is the most permissive, and this work is a derivative and has a lot of inpsiration from too many projects to claim anything more restrictive.
  * The CPU Emulation was inspired by a few other implementations:

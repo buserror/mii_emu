@@ -27,6 +27,85 @@ typedef struct c2_rect_f {
 	float l,t,r,b;
 } c2_rect_f;
 
+#define MII_GL_FLOPPY_SEGMENT_COUNT 	32
+
+#define MII_GL_FLOPPY_DISC_RADIUS_IN 	1.8
+#define MII_GL_FLOPPY_DISC_RADIUS_OUT 	10
+#define MII_GL_FLOPPY_FLUX_RADIUS_IN 	2.0
+#define MII_GL_FLOPPY_FLUX_RADIUS_OUT 	9.8
+
+
+#include <math.h>
+
+static void
+mii_gl_make_disc(
+		float_array_t * pos,
+		const double radius_out,
+		const double radius_in,
+		const int count)
+{
+	float_array_clear(pos);
+
+	const double astep = 2 * M_PI / count; // Angle step for each blade
+
+	for (int i = 0; i < MII_GL_FLOPPY_SEGMENT_COUNT; ++i) {
+		double a = i * astep, b = (i + 1) * astep;
+		// Outer vertex
+		double x_out = radius_out * cos(a);
+		double y_out = radius_out * sin(a);
+		double x_out2 = radius_out * cos(b);
+		double y_out2 = radius_out * sin(b);
+		// Inner vertex
+		double x_in = radius_in * cos(a);
+		double y_in = radius_in * sin(a);
+		double x_in2 = radius_in * cos(b);
+		double y_in2 = radius_in * sin(b);
+		// add two triangles winded in the right direction
+		float_array_push(pos, x_out); float_array_push(pos, y_out);
+		float_array_push(pos, x_in); float_array_push(pos, y_in);
+		float_array_push(pos, x_out2); float_array_push(pos, y_out2);
+
+		float_array_push(pos, x_in2); float_array_push(pos, y_in2);
+		float_array_push(pos, x_out2); float_array_push(pos, y_out2);
+		float_array_push(pos, x_in); float_array_push(pos, y_in);
+	}
+}
+static void
+mii_gl_make_floppy(
+	mii_vtx_t	* 	vtx,
+	float 			tex_width,
+	bool 			do_pos,
+	bool 			do_tex)
+{
+	vtx->kind = GL_TRIANGLES;
+	if (do_pos) {
+		mii_gl_make_disc(&vtx->pos,
+				MII_GL_FLOPPY_FLUX_RADIUS_OUT,
+				MII_GL_FLOPPY_FLUX_RADIUS_IN,
+				MII_GL_FLOPPY_SEGMENT_COUNT);
+	}
+	if (!do_tex)
+		return;
+	const double tex_y_in = 1;
+	const double tex_y_out = 0;
+	float_array_t * tex = &vtx->tex;
+	float_array_clear(tex);
+	for (int i = 0; i < MII_GL_FLOPPY_SEGMENT_COUNT; ++i) {
+		float_array_push(tex, (i * tex_width) / MII_GL_FLOPPY_SEGMENT_COUNT);
+		float_array_push(tex, tex_y_out);
+		float_array_push(tex, (i * tex_width) / MII_GL_FLOPPY_SEGMENT_COUNT);
+		float_array_push(tex, tex_y_in);
+		float_array_push(tex, ((i + 1) * tex_width) / MII_GL_FLOPPY_SEGMENT_COUNT);
+		float_array_push(tex, tex_y_out);
+		float_array_push(tex, ((i + 1) * tex_width) / MII_GL_FLOPPY_SEGMENT_COUNT);
+		float_array_push(tex, tex_y_in);
+		float_array_push(tex, ((i + 1) * tex_width) / MII_GL_FLOPPY_SEGMENT_COUNT);
+		float_array_push(tex, tex_y_out);
+		float_array_push(tex, (i * tex_width) / MII_GL_FLOPPY_SEGMENT_COUNT);
+		float_array_push(tex, tex_y_in);
+	}
+}
+
 void
 mii_mui_gl_init(
 		mii_mui_t *ui)
@@ -34,11 +113,14 @@ mii_mui_gl_init(
 	GLuint tex[MII_PIXEL_LAYERS];
 	glGenTextures(MII_PIXEL_LAYERS, tex);
 	for (int i = 0; i < MII_PIXEL_LAYERS; i++) {
-		printf("Texture %d created %d\n", i, tex[i]);
+	//	printf("Texture %d created %d\n", i, tex[i]);
 		ui->pixels.v[i].texture.id = tex[i];
 		ui->tex_id[i] = tex[i];
 	}
-
+	mii_gl_make_disc(&ui->floppy_base,
+			MII_GL_FLOPPY_DISC_RADIUS_OUT,
+			MII_GL_FLOPPY_DISC_RADIUS_IN,
+			MII_GL_FLOPPY_SEGMENT_COUNT);
 	mii_mui_gl_prepare_textures(ui);
 }
 
@@ -47,10 +129,8 @@ _prep_grayscale_texture(
 	mui_drawable_t * dr)
 {
 	dr->texture.size = dr->pix.size;
-	printf("Creating texture %4d %4dx%3d row_byte %4d\n",
-			dr->texture.id,
-			dr->pix.size.x, dr->pix.size.y,
-			dr->pix.row_bytes);
+//	printf("Creating texture %4d %4dx%3d row_byte %4d\n",
+//			dr->texture.id, dr->pix.size.x, dr->pix.size.y, dr->pix.row_bytes);
 	glBindTexture(GL_TEXTURE_2D, dr->texture.id);
 //	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 //	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -58,8 +138,9 @@ _prep_grayscale_texture(
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	dr->texture.kind = GL_LUMINANCE;
 	glTexImage2D(GL_TEXTURE_2D, 0, 1,
-			dr->pix.row_bytes, dr->texture.size.y, 0, GL_LUMINANCE,
+			dr->pix.row_bytes, dr->texture.size.y, 0, dr->texture.kind,
 			GL_UNSIGNED_BYTE,
 			dr->pix.pixels);
 }
@@ -72,40 +153,32 @@ mii_mui_gl_prepare_textures(
 
 	glEnable(GL_TEXTURE_2D);
 	mui_drawable_t * dr = &ui->pixels.mii;
-	// bind the mii texture using the GL_ARB_texture_rectangle extension
-	printf("Creating texture %4d %4dx%3d row_byte %4d (MII)\n",
-			dr->texture.id,
-			dr->pix.size.x, dr->pix.size.y,
-			dr->pix.row_bytes);
 	glBindTexture(GL_TEXTURE_2D, dr->texture.id);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	// disable the repeat of textures
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
+	dr->texture.kind = GL_RGBA;
 	glTexImage2D(GL_TEXTURE_2D, 0, 4,
 			MII_VRAM_WIDTH,
-			MII_VRAM_HEIGHT, 0, GL_BGRA,	// note BGRA here, not RGBA
-	        GL_UNSIGNED_BYTE,
+			MII_VRAM_HEIGHT, 0, dr->texture.kind,	// note RGBA here, it's quicker!!
+	        GL_UNSIGNED_BYTE,	// GL_UNSIGNED_INT_8_8_8_8_REV
 	        mii->video.pixels);
 
 	// bind the mui texture using the GL_ARB_texture_rectangle as well
 	dr = &ui->pixels.mui;
-	printf("Creating texture %4d %4dx%3d row_byte %4d (MUI)\n",
-			dr->texture.id,
-			dr->pix.size.x, dr->pix.size.y,
-			dr->pix.row_bytes);
 	glBindTexture(GL_TEXTURE_2D, dr->texture.id);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
+	dr->texture.kind = GL_BGRA;
 	glTexImage2D(GL_TEXTURE_2D, 0, 4,
 			dr->pix.row_bytes / 4,	// already power of two.
-			dr->texture.size.y, 0, GL_BGRA,
-			GL_UNSIGNED_BYTE,
+			dr->texture.size.y, 0, dr->texture.kind,
+			GL_UNSIGNED_INT_8_8_8_8_REV,
 			dr->pix.pixels);
 
 	mii_floppy_t * floppy[2] = {};
@@ -142,21 +215,21 @@ mii_mui_gl_prepare_textures(
 					8, f->heat->write.map, MII_FLOPPY_HM_TRACK_SIZE);
 			dr->texture.id = tex;
 			_prep_grayscale_texture(dr);
+			mii_gl_make_floppy(&ui->floppy[fi].vtx, 1.0, true, true);
 		}
 	} else {
-		printf("No floppy found\n");
+		printf("%s No floppy found\n", __func__);
 		for (int fi = 0; fi < 2; fi++) {
 			ui->floppy[fi].floppy = NULL;
 			mui_drawable_clear(&ui->pixels.floppy[fi].bits);
 			mui_drawable_clear(&ui->pixels.floppy[fi].hm_read);
 			mui_drawable_clear(&ui->pixels.floppy[fi].hm_write);
+			mii_gl_make_floppy(&ui->floppy[fi].vtx, 1.0, true, true);
 		}
 	}
-//	printf("%s texture created %d\n", __func__, mii_apple_screen_tex);
-// display opengl error
 	GLenum err = glGetError();
 	if (err != GL_NO_ERROR) {
-		printf("Error creating texture: %d\n", err);
+		printf("%s Error creating texture: %d\n", __func__, err);
 	}
 }
 
@@ -166,10 +239,11 @@ _mii_decay_heatmap_one(
 		mii_track_heatmap_t *hm)
 {
 	uint32_t count = 0;
+	const int decay = 4;
 #ifdef __SSE2__
 	const int size = (MII_FLOPPY_TRACK_COUNT * MII_FLOPPY_HM_TRACK_SIZE) / 16;
 	__m128i * hmw = (__m128i*)&hm->map[0];
-	const __m128i s = _mm_set1_epi8(2);
+	const __m128i s = _mm_set1_epi8(decay);
 	for (int i = 0; i < size; i++) {
 		__m128i b = _mm_load_si128(hmw + i);
 		__m128i c = _mm_subs_epu8(b, s);
@@ -181,7 +255,7 @@ _mii_decay_heatmap_one(
 	uint8_t * hmb = (uint8_t*)&hm->map[0];
 	for (int i = 0; i < size; i++) {
 		uint8_t b = hmb[i];
-		b = b > 2 ? b - 2 : 0;
+		b = b > decay ? b - decay : 0;
 		hmb[i] = b;
 		count += !!b;
 	}
@@ -202,6 +276,7 @@ _mii_decay_heatmap(
 		_mii_decay_heatmap_one(&h->write);
 	}
 }
+
 
 bool
 mii_mui_gl_run(
@@ -231,7 +306,8 @@ mii_mui_gl_run(
 				glPixelStorei(GL_UNPACK_ROW_LENGTH, dr->pix.row_bytes / 4);
 				glTexSubImage2D(GL_TEXTURE_2D, 0, r.l, r.t,
 						c2_rect_width(&r), c2_rect_height(&r),
-						GL_BGRA, GL_UNSIGNED_BYTE,
+						dr->texture.kind,
+						GL_UNSIGNED_INT_8_8_8_8_REV,
 						dr->pix.pixels + (r.t * dr->pix.row_bytes) + (r.l * 4));
 			}
 		}
@@ -248,8 +324,8 @@ mii_mui_gl_run(
 		glBindTexture(GL_TEXTURE_2D, dr->texture.id);
 		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
 				MII_VRAM_WIDTH,
-				MII_VIDEO_HEIGHT, GL_BGRA,
-				GL_UNSIGNED_BYTE,
+				MII_VIDEO_HEIGHT, dr->texture.kind,
+				GL_UNSIGNED_INT_8_8_8_8_REV,
 				mii->video.pixels);
 	}
 	for (int fi = 0; fi < 2; fi++) {
@@ -268,29 +344,37 @@ mii_mui_gl_run(
 			glBindTexture(GL_TEXTURE_2D, dr->texture.id);
 			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
 					dr->pix.row_bytes, dr->pix.size.y,
-					GL_LUMINANCE, GL_UNSIGNED_BYTE,
+					dr->texture.kind, GL_UNSIGNED_BYTE,
 					f->track_data);
+			// dont recalculate the vertices, just the texture coordinates
+			mii_gl_make_floppy(&ui->floppy[fi].vtx,
+							ui->floppy[fi].max_width, false, true);
 		}
-//		int rm = f->heat->read.tex != f->heat->read.seed;
-//		int wm = f->heat->write.tex != f->heat->write.seed;
-		_mii_decay_heatmap(f->heat);
-		glPixelStorei(GL_UNPACK_ROW_LENGTH, MII_FLOPPY_HM_TRACK_SIZE);
-//		if (rm) {
+		int rm = f->heat->read.tex != f->heat->read.seed ||
+						!f->heat->read.cleared;
+		int wm = f->heat->write.tex != f->heat->write.seed ||
+						!f->heat->write.cleared;
+		// don't decay if we're not running
+		if (ui->mii.state == MII_RUNNING)
+			_mii_decay_heatmap(f->heat);
+		if (rm) {
+			glPixelStorei(GL_UNPACK_ROW_LENGTH, MII_FLOPPY_HM_TRACK_SIZE);
 			dr = &ui->pixels.floppy[fi].hm_read;
 			glBindTexture(GL_TEXTURE_2D, dr->texture.id);
 			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
 					dr->pix.row_bytes, dr->pix.size.y,
-					GL_LUMINANCE, GL_UNSIGNED_BYTE,
+					dr->texture.kind, GL_UNSIGNED_BYTE,
 					f->heat->read.map);
-//		}
-//		if (wm) {
+		}
+		if (wm) {
+			glPixelStorei(GL_UNPACK_ROW_LENGTH, MII_FLOPPY_HM_TRACK_SIZE);
 			dr = &ui->pixels.floppy[fi].hm_write;
 			glBindTexture(GL_TEXTURE_2D, dr->texture.id);
 			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
 					dr->pix.row_bytes, dr->pix.size.y,
-					GL_LUMINANCE, GL_UNSIGNED_BYTE,
+					dr->texture.kind, GL_UNSIGNED_BYTE,
 					f->heat->write.map);
-//		}
+		}
 		glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
 	}
 	return draw;
@@ -333,6 +417,7 @@ mii_mui_gl_render(
 		/* draw mii texture */
 		glColor3f(1.0f, 1.0f, 1.0f);
 		mui_drawable_t * dr = &ui->pixels.mii;
+		glEnable(GL_TEXTURE_2D);
 		glBindTexture(GL_TEXTURE_2D, dr->texture.id);
 		glBegin(GL_QUADS);
 		c2_rect_t r = ui->video_frame;
@@ -355,60 +440,91 @@ mii_mui_gl_render(
 			mii_floppy_t *f = ui->floppy[i].floppy;
 			if (!f || !dr->pix.pixels)
 				continue;
-			if (f->motor) {
-				dr->texture.opacity = 1.0f;
-			} else {
-				if (dr->texture.opacity > 0.0f)
-					dr->texture.opacity -= 0.01f;
-				if (dr->texture.opacity < 0.0f)
-					dr->texture.opacity = 0.0f;
+			if (ui->mii.state == MII_RUNNING) {
+				if (f->motor) {
+					if (dr->texture.opacity < 1.0f)
+						dr->texture.opacity += 0.10f;
+					if (dr->texture.opacity > 1.0f)
+						dr->texture.opacity = 1.0f;
+				} else  {
+					if (dr->texture.opacity > 0.0f)
+						dr->texture.opacity -= 0.01f;
+					if (dr->texture.opacity < 0.0f)
+						dr->texture.opacity = 0.0f;
+				}
 			}
-			if (dr->texture.opacity <= 0.0f)
+			float main_opacity = dr->texture.opacity;
+			if (main_opacity <= 0.0f)
 				continue;
-			c2_rect_t r = C2_RECT_WH( 0, 0,
-								ui->video_frame.l - 20,
-								c2_rect_height(&ui->video_frame) - 22);
-			c2_rect_f tr = { 0, 0, ui->floppy[i].max_width, 1 };
-			if (i == 0)
-				c2_rect_offset(&r,
-								ui->video_frame.l - c2_rect_width(&r) - 10,
-								ui->video_frame.t + 10);
-			else
-				c2_rect_offset(&r, ui->video_frame.r + 10,
-								ui->video_frame.t + 10);
-			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-			glColor4f(1.0f, 1.0f, 1.0f, dr->texture.opacity);
-			glBindTexture(GL_TEXTURE_2D, dr->texture.id);
-			glBegin(GL_QUADS);
-			// rotate texture 90 clockwise, and mirror left-right
-			glTexCoord2f(tr.l, tr.t); glVertex2f(r.l, r.t);
-			glTexCoord2f(tr.l, tr.b); glVertex2f(r.r, r.t);
-			glTexCoord2f(tr.r, tr.b); glVertex2f(r.r, r.b);
-			glTexCoord2f(tr.r, tr.t); glVertex2f(r.l, r.b);
-			glEnd();
-
-			if (f->heat) {
-				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_COLOR);
-				dr = &ui->pixels.floppy[i].hm_read;
-				glColor4f(0.0f, 1.0f, 0.0f, 1.0);
+			const float angle_offset = 60;	// head angle offset on display
+			if (1) {
+				glPushMatrix();
+				// make floppy slide in/out with opacity
+				glTranslatef(-10 - (100.0 * ( 1.0f - main_opacity) ),
+						200 + (i * 350), 0);
+				glScalef(15, 15, 1);
+				{
+					glColor4f(0.0f, 0.0f, 0.0f, main_opacity);
+					glDisable(GL_TEXTURE_2D);
+					glEnableClientState(GL_VERTEX_ARRAY);
+					glVertexPointer(2, GL_FLOAT, 0, ui->floppy_base.e);
+					int element_count = ui->floppy_base.count / 2;
+					glDrawArrays(GL_TRIANGLES, 0, element_count);
+				}
+				int track_id = f->track_id[f->qtrack];
+				double bc = (double)f->bit_position /
+						(double)f->tracks[track_id].bit_count;
+				bc = 360 - (bc * 360.0);
+				bc += angle_offset;
+				if (bc >= 360.0)
+					bc -= 360.0;
+				glRotatef(bc, 0, 0, 1);
+				dr = &ui->pixels.floppy[i].bits;
+				glEnable(GL_TEXTURE_2D);
 				glBindTexture(GL_TEXTURE_2D, dr->texture.id);
-				glBegin(GL_QUADS);
-				// rotate texture 90 clockwise, and mirror left-right
-				glTexCoord2f(tr.l, tr.t); glVertex2f(r.l, r.t);
-				glTexCoord2f(tr.l, tr.b); glVertex2f(r.r, r.t);
-				glTexCoord2f(tr.r, tr.b); glVertex2f(r.r, r.b);
-				glTexCoord2f(tr.r, tr.t); glVertex2f(r.l, r.b);
-				glEnd();
-				dr = &ui->pixels.floppy[i].hm_write;
-				glColor4f(1.0f, 0.0f, 0.0f, 1.0);
-				glBindTexture(GL_TEXTURE_2D, dr->texture.id);
-				glBegin(GL_QUADS);
-				// rotate texture 90 clockwise, and mirror left-right
-				glTexCoord2f(tr.l, tr.t); glVertex2f(r.l, r.t);
-				glTexCoord2f(tr.l, tr.b); glVertex2f(r.r, r.t);
-				glTexCoord2f(tr.r, tr.b); glVertex2f(r.r, r.b);
-				glTexCoord2f(tr.r, tr.t); glVertex2f(r.l, r.b);
-				glEnd();
+//				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+//				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+				glColor4f(1.0f, 1.0f, 1.0f, main_opacity);
+				glEnableClientState(GL_VERTEX_ARRAY);
+				glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+				glVertexPointer(2, GL_FLOAT, 0, ui->floppy[i].vtx.pos.e);
+				glTexCoordPointer(2, GL_FLOAT, 0, ui->floppy[i].vtx.tex.e);
+				int element_count = ui->floppy[i].vtx.pos.count / 2;
+				glDrawArrays(ui->floppy[i].vtx.kind, 0, element_count);
+				// draw heatmap and head with full opacity
+				// otherwise we get wierd artifacts
+				if (f->heat) {
+					glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_COLOR);
+					dr = &ui->pixels.floppy[i].hm_read;
+					glColor4f(0.0f, 1.0f, 0.0f, 1.0);
+					glBindTexture(GL_TEXTURE_2D, dr->texture.id);
+					glDrawArrays(ui->floppy[i].vtx.kind, 0, element_count);
+					dr = &ui->pixels.floppy[i].hm_write;
+					glColor4f(1.0f, 0.0f, 0.0f, 1.0);
+					glBindTexture(GL_TEXTURE_2D, dr->texture.id);
+					glDrawArrays(ui->floppy[i].vtx.kind, 0, element_count);
+				}
+				glDisableClientState(GL_VERTEX_ARRAY);
+				glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+				if (main_opacity > 0.8f) {
+					// Draw head small rectangle
+					dr = &ui->pixels.floppy[i].bits;
+					track_id = f->qtrack / 4;
+					glDisable(GL_TEXTURE_2D);
+					glRotatef(-bc + angle_offset, 0, 0, 1);
+					glTranslatef(MII_GL_FLOPPY_FLUX_RADIUS_IN +
+								(((35 - track_id) / 35.0) *
+								(MII_GL_FLOPPY_FLUX_RADIUS_OUT-
+								MII_GL_FLOPPY_FLUX_RADIUS_IN)), 0, 0);
+					const float r = 0.3;
+					glColor4f(1.0f, 0.0f, 0.0f, main_opacity);
+					glBegin(GL_QUADS);
+					glVertex2f(-r, -r); glVertex2f(-r, r);
+					glVertex2f(r, r); glVertex2f(r, -r);
+					glEnd();
+				}
+				glPopMatrix();
 			}
 		}
 		/* draw mui texture */
@@ -416,6 +532,7 @@ mii_mui_gl_render(
 			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 			glColor4f(1.0f, 1.0f, 1.0f, ui->mui_alpha);
 			dr = &ui->pixels.mui;
+			glEnable(GL_TEXTURE_2D);
 			glBindTexture(GL_TEXTURE_2D, dr->texture.id);
 			glBegin(GL_QUADS);
 			glTexCoord2f(0, 0); glVertex2f(0, 0);

@@ -18,6 +18,7 @@
 #include "mii_speaker.h"
 #include "mii_mouse.h"
 #include "mii_analog.h"
+#include "mii_vcd.h"
 
 #define likely(x)		__builtin_expect(!!(x), 1)
 #define unlikely(x)		__builtin_expect(!!(x), 0)
@@ -26,13 +27,16 @@ enum {
 	MII_BANK_MAIN = 0,		// main 48K address space
 	MII_BANK_BSR, 			// 0xd000 - 0xffff bank switched RAM 16KB
 	MII_BANK_BSR_P2,		// 0xd000 - 0xe000 bank switched RAM aux 4KB
-
+	// this one is the fixed one, used by video
+	MII_BANK_AUX_BASE,		// aux 48K address space (80 cols card)
+	// these one can 'move' in the block of ramworks ram
 	MII_BANK_AUX,			// aux 48K address space (80 cols card)
 	MII_BANK_AUX_BSR,		// 0xd000 - 0xffff bank switched RAM aux 16KB
 	MII_BANK_AUX_BSR_P2,	// 0xd000 - 0xe000 bank switched RAM aux 4KB (aux bank)
 
 	MII_BANK_ROM,			// 0xc000 - 0xffff 16K ROM
 	MII_BANK_CARD_ROM,		// 0xc100 - 0xcfff Card ROM access
+	MII_BANK_SW,			// 0xc000 - 0xc0ff Softswitches
 	MII_BANK_COUNT,
 };
 
@@ -84,6 +88,11 @@ typedef struct mii_trace_t {
 typedef uint64_t (*mii_timer_p)(
 				mii_t * mii,
 				void * param );
+
+#define MII_SPEED_NTSC 	1.0227271429 	// 14.31818 MHz / 14
+#define MII_SPEED_PAL 	1.0178571429	// 14.25 MHz / 14
+#define MII_SPEED_TITAN 3.58
+
 /*
  * principal emulator state, for a faceless emulation
  */
@@ -111,16 +120,26 @@ typedef struct mii_t {
 	mii_cpu_state_t	cpu_state;
 	/*
 	 * bank index for each memory page number, this is recalculated
-	 * everytime a soft switch is triggered
+	 * everytime a MMU soft switch is triggered
 	 */
 	struct  		{
-		uint8_t read : 4, write : 4;
+		union {
+			struct {
+				uint8_t write : 4, read : 4;
+			};
+			uint8_t 	both;
+		};
 	} 				mem[256];
 	int 			mem_dirty;	// recalculate mem[] on next access
+	struct {
+		unsigned __int128	avail;
+		uint8_t * 			bank[128];
+	}				ramworks;
 	uint32_t 		sw_state;	// B_SW* bitfield
 	mii_trace_t		trace;
 	int				trace_cpu;
 	mii_trap_t		trap;
+	mii_signal_pool_t sig_pool;
 	/*
 	 * Used for debugging only
 	 */
@@ -150,8 +169,12 @@ typedef struct mii_t {
 } mii_t;
 
 enum {
-	MII_INIT_NSC 		= (1 << 0), // Install no slot clock
-	MII_INIT_TITAN		= (1 << 1), // Install Titan 'card'
+	MII_INIT_NSC 			= (1 << 0), // Install no slot clock
+	MII_INIT_TITAN			= (1 << 1), // Install Titan 'card'
+	MII_INIT_SILENT			= (1 << 2), // No audio, ever
+	// number of 256KB banks added to the ramworks
+	MII_INIT_RAMWORKS_BIT	= 4, // bit 4 in flags. Can be up to 12
+
 	MII_INIT_DEFAULT 	= MII_INIT_NSC,
 };
 

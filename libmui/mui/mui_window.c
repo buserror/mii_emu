@@ -103,6 +103,41 @@ mui_titled_window_draw(
 	cg_fill(cg);
 }
 
+static bool
+mui_wdef_titlewindow(
+		struct mui_window_t * win,
+		uint8_t 		what,
+		void * 			param)
+{
+	switch (what) {
+		case MUI_WDEF_DRAW:
+			mui_titled_window_draw(win->ui, win, param);
+			break;
+		case MUI_WDEF_SELECT:
+//			mui_window_inval(win, NULL);
+			if (win->control_focus.control) {
+				int activate = 1;
+				if (win->control_focus.control->cdef)
+					win->control_focus.control->cdef(
+								win->control_focus.control,
+								MUI_CDEF_ACTIVATE, &activate);
+			}
+			break;
+		case MUI_WDEF_DESELECT:
+			if (win->control_focus.control) {
+				int activate = 0;
+				if (win->control_focus.control->cdef)
+					win->control_focus.control->cdef(
+								win->control_focus.control,
+								MUI_CDEF_ACTIVATE, &activate);
+			}
+			break;
+		case MUI_WDEF_DISPOSE:
+			break;
+	}
+	return false;
+}
+
 mui_window_t *
 mui_window_create(
 		struct mui_t *ui,
@@ -118,10 +153,10 @@ mui_window_create(
 	w->ui = ui;
 	w->frame = frame;
 	w->title = title ? strdup(title) : NULL;
-	w->wdef = wdef;
+	w->wdef = wdef ? wdef : mui_wdef_titlewindow;
 	w->flags.layer = layer;
+	mui_refqueue_init(&w->refs);
 	TAILQ_INIT(&w->controls);
-	TAILQ_INIT(&w->zombies);
 	STAILQ_INIT(&w->actions);
 	pixman_region32_init(&w->inval);
 	TAILQ_INSERT_HEAD(&ui->windows, w, self);
@@ -134,9 +169,6 @@ mui_window_create(
 }
 
 void
-_mui_control_free(
-		mui_control_t * c );
-void
 _mui_window_free(
 		mui_window_t *win)
 {
@@ -147,13 +179,22 @@ _mui_window_free(
 	while ((c = TAILQ_FIRST(&win->controls))) {
 		mui_control_dispose(c);
 	}
-	while ((c = TAILQ_FIRST(&win->zombies))) {
-		TAILQ_REMOVE(&win->zombies, c, self);
-		_mui_control_free(c);
-	}
 	if (win->title)
 		free(win->title);
 	free(win);
+}
+
+void
+mui_window_dispose_actions(
+		mui_window_t * 	win)
+{
+	if (!win)
+		return;
+	mui_action_t *a;
+	while ((a = STAILQ_FIRST(&win->actions)) != NULL) {
+		STAILQ_REMOVE_HEAD(&win->actions, self);
+		free(a);
+	}
 }
 
 void
@@ -162,30 +203,33 @@ mui_window_dispose(
 {
 	if (!win)
 		return;
-	if (win->flags.zombie) {
-		printf("%s: DOUBLE delete %s\n", __func__, win->title);
+	if (!win->flags.disposed) {
+		win->flags.disposed = true;
+		bool was_front = mui_window_isfront(win);
+		mui_window_action(win, MUI_WINDOW_ACTION_CLOSE, NULL);
+		mui_window_inval(win, NULL); // just to mark the UI dirty
+		if (win->wdef)
+			win->wdef(win, MUI_WDEF_DISPOSE, NULL);
+		win->flags.hidden = true;
+		struct mui_t *ui = win->ui;
+		TAILQ_REMOVE(&ui->windows, win, self);
+		mui_window_dispose_actions(win);
+		if (was_front) {
+			mui_window_t * front = mui_window_front(ui);
+			if (front) {
+				mui_window_inval(front, NULL);
+				if (front->wdef)
+					front->wdef(front, MUI_WDEF_SELECT, NULL);
+			}
+		}
+	}
+	if (mui_refqueue_dispose(&win->refs) != 0) {
+		// we have some references, we'll have to wait
+	//	printf("%s Warning: window %s still has references\n",
+	//			__func__, win->title);
 		return;
 	}
-	bool was_front = mui_window_isfront(win);
-	mui_window_action(win, MUI_WINDOW_ACTION_CLOSE, NULL);
-	mui_window_inval(win, NULL); // just to mark the UI dirty
-	if (win->wdef)
-		win->wdef(win, MUI_WDEF_DISPOSE, NULL);
-	struct mui_t *ui = win->ui;
-	TAILQ_REMOVE(&ui->windows, win, self);
-	if (ui->event_capture == win)
-		ui->event_capture = NULL;
-	if (ui->action_active) {
-	//	printf("%s %s is now zombie\n", __func__, win->title);
-		win->flags.zombie = true;
-		TAILQ_INSERT_TAIL(&ui->zombies, win, self);
-	} else
-		_mui_window_free(win);
-	if (was_front) {
-		mui_window_t * front = mui_window_front(ui);
-		if (front)
-			mui_window_inval(front, NULL);
-	}
+	_mui_window_free(win);
 }
 
 void
@@ -193,11 +237,13 @@ mui_window_draw(
 		mui_window_t *win,
 		mui_drawable_t *dr)
 {
+	if (!win)
+		return;
+	if (win->flags.hidden)
+		return;
 	mui_drawable_clip_push(dr, &win->frame);
 	if (win->wdef)
 		win->wdef(win, MUI_WDEF_DRAW, dr);
-	else
-		mui_titled_window_draw(win->ui, win, dr);
 	struct cg_ctx_t * cg 	= mui_drawable_get_cg(dr);
 	cg_save(cg);
 //	cg_translate(cg, content.l, content.t);
@@ -215,6 +261,8 @@ mui_window_handle_keyboard(
 		mui_window_t *win,
 		mui_event_t *event)
 {
+	if (win->flags.hidden)
+		return false;
 	if (!mui_window_isfront(win))
 		return false;
 	if (win->wdef && win->wdef(win, MUI_WDEF_EVENT, event)) {
@@ -222,8 +270,11 @@ mui_window_handle_keyboard(
 		return true;
 	}
 //	printf("%s %s checkint controls\n", __func__, win->title);
-	mui_control_t * c, *safe;
-	TAILQ_FOREACH_SAFE(c, &win->controls, self, safe) {
+	/*
+	 * Start with the control in focus, if there's any
+	 */
+	mui_control_t * c = win->control_focus.control, *safe;
+	TAILQ_FOREACH_FROM_SAFE(c, &win->controls, self, safe) {
 		if (mui_control_event(c, event)) {
 //			printf("%s control %s handled it\n", __func__, c->title);
 			return true;
@@ -237,6 +288,8 @@ mui_window_handle_mouse(
 		mui_window_t *win,
 		mui_event_t *event)
 {
+	if (win->flags.hidden)
+		return false;
 	if (win->wdef && win->wdef(win, MUI_WDEF_EVENT, event))
 		return true;
 	switch (event->type) {
@@ -261,7 +314,8 @@ mui_window_handle_mouse(
 				c = NULL;
 			if (!c) {
 				/* find where we clicked in the window */
-				win->ui->event_capture = win;
+				mui_window_ref(&win->ui->event_capture, win,
+							FCC('E', 'V', 'C', 'P'));
 				win->click_loc = event->mouse.where;
 				c2_pt_offset(&win->click_loc, -win->frame.l, -win->frame.t);
 				win->flags.hit_part = MUI_WINDOW_PART_FRAME;
@@ -274,7 +328,8 @@ mui_window_handle_mouse(
 			if (c) {
 				if (c->cdef && c->cdef(c, MUI_CDEF_EVENT, event)) {
 	//			c->state = MUI_CONTROL_STATE_CLICKED;
-					win->control_clicked = c;
+					mui_control_ref(&win->control_clicked, c,
+							FCC('E', 'V', 'C', 'C'));
 				}
 			}
 			return true;
@@ -302,22 +357,22 @@ mui_window_handle_mouse(
 			//	mui_window_inval(win, NULL);
 				return true;
 			}
-			if (win->control_clicked) {
-				mui_control_t * c = win->control_clicked;
+			if (win->control_clicked.control) {
+				mui_control_t * c = win->control_clicked.control;
 				if (c->cdef && c->cdef(c, MUI_CDEF_EVENT, event)) {
 					return true;
 				} else
-					win->control_clicked = NULL;
+					mui_control_deref(&win->control_clicked);
 			}
 			return win->flags.hit_part != MUI_WINDOW_PART_NONE;
 			break;
 		case MUI_EVENT_BUTTONUP: {
 			int part = win->flags.hit_part;
 			win->flags.hit_part = MUI_WINDOW_PART_NONE;
-			win->ui->event_capture = NULL;
-			if (win->control_clicked) {
-				mui_control_t * c = win->control_clicked;
-				win->control_clicked = NULL;
+			mui_window_deref(&win->ui->event_capture);
+			if (win->control_clicked.control) {
+				mui_control_t * c = win->control_clicked.control;
+				mui_control_deref(&win->control_clicked);
 				if (c->cdef && c->cdef(c, MUI_CDEF_EVENT, event))
 					return true;
 			}
@@ -337,7 +392,7 @@ mui_window_inval(
 		mui_window_t *win,
 		c2_rect_t * r)
 {
-	if (!win)
+	if (!win || win->flags.hidden)
 		return;
 	c2_rect_t frame = win->frame;
 	c2_rect_t forward = {};
@@ -425,9 +480,14 @@ mui_window_select(
 		last = w;
 	}
 	TAILQ_INSERT_TAIL(&win->ui->windows, win, self);
+	if (win->wdef)
+		win->wdef(win, MUI_WDEF_SELECT, NULL);
 done:
-	if (last) // we are deselecting this one, so redraw it
+	if (last) {// we are deselecting this one, so redraw it
 		mui_window_inval(last, NULL);
+		if (last->wdef)
+			win->wdef(last, MUI_WDEF_DESELECT, NULL);
+	}
 #if 0
 	printf("%s %s res:%d stack is now:\n", __func__, win->title, res);
 	TAILQ_FOREACH(w, &win->ui->windows, self) {
@@ -438,6 +498,50 @@ done:
 }
 
 void
+mui_window_lock(
+		mui_window_t *win)
+{
+	if (!win)
+		return;
+	if (!win->lock.window) {
+		mui_window_ref(&win->lock, win, FCC('l', 'o', 'c', 'k'));
+		win->lock.ref.count = 10; // prevent it from being deleted
+	} else {
+		win->lock.ref.count += 10;
+	}
+//	printf("%s: window %s locked %2d\n",
+//			__func__, win->title, win->lock.ref.count);
+}
+
+void
+mui_window_unlock(
+		mui_window_t *win)
+{
+	if (!win)
+		return;
+	if (win->lock.window) {
+		if (win->lock.ref.trace)
+			printf("%s: window %s was locked\n",
+				__func__, win->title);
+		if (win->lock.ref.count > 10) {
+			win->lock.ref.count -= 10;
+		} else {	// window was disposed of
+			int delete = win->lock.ref.count < 10;
+			// we are the last one, remove the lock
+			if (win->lock.ref.trace)
+				printf("%s: window %s unlocked delete %d\n",
+					__func__, win->title, delete);
+			mui_window_deref(&win->lock);
+			if (delete)
+				mui_window_dispose(win);
+		}
+	} else {
+	//	if (win->lock.ref.trace)
+			printf("%s: window %s was not locked\n", __func__, win->title);
+	}
+}
+
+void
 mui_window_action(
 		mui_window_t * 	win,
 		uint32_t 		what,
@@ -445,14 +549,14 @@ mui_window_action(
 {
 	if (!win)
 		return;
-	win->ui->action_active++;
-	mui_action_t *a;
-	STAILQ_FOREACH(a, &win->actions, self) {
+	mui_window_lock(win);
+	mui_action_t *a, *safe;
+	STAILQ_FOREACH_SAFE(a, &win->actions, self, safe) {
 		if (!a->window_cb)
 			continue;
 		a->window_cb(win, a->cb_param, what, param);
 	}
-	win->ui->action_active--;
+	mui_window_unlock(win);
 }
 
 void

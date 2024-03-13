@@ -54,9 +54,9 @@ mui_font_t *
 mui_font_from_mem(
 		mui_t *ui,
 		const char *name,
-		unsigned int size,
+		uint size,
 		const void *font_data,
-		unsigned int font_size )
+		uint font_size )
 {
 	mui_font_t *f = calloc(1, sizeof(*f));
 	f->name = strdup(name);
@@ -89,6 +89,7 @@ mui_font_dispose(
 	while ((f = TAILQ_FIRST(&ui->fonts))) {
 		TAILQ_REMOVE(&ui->fonts, f, self);
 		stb_ttc_Free(&f->ttc);
+		mui_drawable_dispose(&f->font);
 		free(f->name);
 		free(f);
 	}
@@ -113,15 +114,15 @@ mui_font_text_draw(
 		mui_drawable_t *dr,
 		c2_pt_t where,
 		const char *text,
-		unsigned int text_len,
+		uint text_len,
 		mui_color_t color)
 {
 	struct stb_ttc_info * ttc = &font->ttc;
-	unsigned int state = 0;
+	uint state = 0;
 	float scale = stbtt_ScaleForPixelHeight(&ttc->font, font->size);
 	double xpos = 0;
-	unsigned int last = 0;
-	unsigned int cp = 0;
+	uint last = 0;
+	uint cp = 0;
 
 	if (!text_len)
 		text_len = strlen(text);
@@ -132,7 +133,7 @@ mui_font_text_draw(
 	pixman_image_t * fill = pixman_image_create_solid_fill(&pc);
 
 	where.y += font->ttc.ascent * scale;
-	for (unsigned int ch = 0; text[ch] && ch < text_len; ch++) {
+	for (uint ch = 0; text[ch] && ch < text_len; ch++) {
 		if (stb_ttc__UTF8_Decode(&state, &cp, text[ch]) != UTF8_ACCEPT)
 			continue;
 		if (last) {
@@ -171,40 +172,58 @@ mui_font_text_draw(
 IMPLEMENT_C_ARRAY(mui_glyph_array);
 IMPLEMENT_C_ARRAY(mui_glyph_line_array);
 
+#define MUI_NARROW_ADVANCE_FACTOR 0.92
+
 void
 mui_font_measure(
 		mui_font_t *font,
 		c2_rect_t bbox,
 		const char *text,
-		unsigned int text_len,
+		uint text_len,
 		mui_glyph_line_array_t *lines,
-		uint16_t flags)
+		mui_text_e flags)
 {
 	struct stb_ttc_info * ttc = &font->ttc;
-	unsigned int state = 0;
+	uint state = 0;
 	float scale = stbtt_ScaleForPixelHeight(&ttc->font, font->size);
-	unsigned int last = 0;
-	unsigned int cp = 0;
+	uint last = 0;
+	uint cp = 0;
+	int debug = flags & MUI_TEXT_DEBUG;
 
 	if (!text_len)
 		text_len = strlen(text);
-
+	//debug = !strncmp(text, "Titan", 5) || !strcmp(text, "Driver");
+	if (debug)
+		printf("Measure text %s\n", text);
+	lines->margin_left = c2_rect_width(&bbox);
+	lines->margin_right = 0;
+	lines->height = 0;
 	c2_pt_t where = {};
-	unsigned int ch = 0;
+	uint ch = 0;
 	int wrap_chi = 0;
 	int wrap_w = 0;
 	int wrap_count = 0;
+
+	float compact = flags & MUI_TEXT_ALIGN_COMPACT ? 0.85 : 1.0;
+	float narrow = flags & MUI_TEXT_STYLE_NARROW ?
+						MUI_NARROW_ADVANCE_FACTOR : 1.0;
+	mui_glyph_array_t * line = NULL;
 	do {
-		where.y += font->ttc.ascent * scale;
 		const mui_glyph_array_t zero = {};
 		mui_glyph_line_array_push(lines, zero);
-		mui_glyph_array_t * line = &lines->e[lines->count - 1];
+		line = &lines->e[lines->count - 1];
 		line->x = 0;
+		line->t = where.y;
+		where.y += (font->ttc.ascent * compact) * scale;
+		line->b = where.y - (font->ttc.descent * scale);
 		line->y = where.y;
 		line->w = 0;
 		wrap_chi = ch;
 		wrap_w = 0;
 		wrap_count = 0;
+		if (debug)
+			printf("line %d y:%3d ch:%3d\n", lines->count,
+						line->y, ch);
 		for (;text[ch]; ch++) {
 			if (stb_ttc__UTF8_Decode(&state, &cp, text[ch]) != UTF8_ACCEPT)
 				continue;
@@ -213,7 +232,9 @@ mui_font_measure(
 				line->w += kern;
 			}
 			last = cp;
-//			printf("glyph %3d : %04x:%c\n", ch, cp, cp < 32 ? '.' : cp);
+			if (debug) printf("  glyph ch:%3d : %04x:%c S:%d L:%2d:%2d\n",
+						ch, cp, cp < 32 ? '.' : cp, state,
+						lines->count-1, line->count);
 			if (cp == '\n') {
 				ch++;
 				break;
@@ -231,7 +252,10 @@ mui_font_measure(
 				continue;
 			if (gc->p_y == (unsigned short) -1)
 				stb_ttc__ScaledGlyphRenderToCache(ttc, gc);
-			if (((line->w + gc->advance) * scale) > c2_rect_width(&bbox)) {
+			float advance = gc->advance * narrow;
+			if (cp == ' ')
+				advance *= 0.9;
+			if (((line->w + advance) * scale) > c2_rect_width(&bbox)) {
 				if (wrap_count) {
 					ch = wrap_chi + 1;
 					line->count = wrap_count;
@@ -239,26 +263,48 @@ mui_font_measure(
 				}
 				break;
 			}
-			line->w += gc->advance;
-			mui_glyph_array_push(line, gc->index);
+			mui_glyph_t g = {
+				.glyph = cp,
+				.pos = ch,
+				.index = gc->index,
+				.x = (line->w * scale) + gc->x0,
+				.w = advance * scale,
+			};
+			mui_glyph_array_push(line, g);
+	//		printf("	PUSH[%2d] glyph %3d : %04x:%c x:%3d w:%3d\n",
+	//				line->count - 1, g.pos, text[g.pos], text[g.pos],
+	//				g.x, g.w);
+			line->w += advance;
 		};
+	// zero terminate the line, so there is a marker at the end
+		mui_glyph_t g = {
+			.glyph = 0,
+			.pos = ch,
+			.x = (line->w) * scale,
+		};
+		mui_glyph_array_push(line, g);
+		line->count--;
+		where.y += -font->ttc.descent * scale;
 	} while (text[ch] && ch < text_len);
-	int bh = 0;
-	for (int i = 0; i < (int)lines->count; i++) {
+	/*
+	 * Finalise the lines, calculate the total height, and the margins
+	 * Margins are the minimal x and maximal x of the lines
+	 */
+	for (uint i = 0; i < lines->count; i++) {
 		mui_glyph_array_t * line = &lines->e[i];
-		bh = line->y - (font->ttc.descent * scale);
+		lines->height = line->y - (font->ttc.descent * scale);
 		line->w *= scale;
-//		printf("  line %d y %3d size %d width %d\n", i,
-//				line->y, line->count, line->w);
 	}
-//	printf("box height is %d/%d\n", bh, c2_rect_height(&bbox));
 	int ydiff = 0;
 	if (flags & MUI_TEXT_ALIGN_MIDDLE) {
-		ydiff = (c2_rect_height(&bbox) - bh) / 2;
+		ydiff = (c2_rect_height(&bbox) - (int)lines->height) / 2;
 	} else if (flags & MUI_TEXT_ALIGN_BOTTOM) {
-		ydiff = c2_rect_height(&bbox) - bh;
+		ydiff = c2_rect_height(&bbox) - (int)lines->height;
 	}
-	for (int i = 0; i < (int)lines->count; i++) {
+	if (debug)
+		printf("box height is %d/%d ydiff:%d\n",
+				lines->height, c2_rect_height(&bbox), ydiff);
+	for (uint i = 0; i < lines->count; i++) {
 		mui_glyph_array_t * line = &lines->e[i];
 		line->y += ydiff;
 		if (flags & MUI_TEXT_ALIGN_RIGHT) {
@@ -266,6 +312,13 @@ mui_font_measure(
 		} else if (flags & MUI_TEXT_ALIGN_CENTER) {
 			line->x = (c2_rect_width(&bbox) - line->w) / 2;
 		}
+		if (line->x < (int)lines->margin_left)
+			lines->margin_left = line->x;
+		if (line->x + line->w > lines->margin_right)	// last x
+			lines->margin_right = line->x + line->w;
+		if (debug)
+			printf("  line %d y:%3d size %3d width %.2f\n", i,
+					line->y, line->count, line->w);
 	}
 }
 
@@ -275,7 +328,7 @@ mui_font_measure_clear(
 {
 	if (!lines)
 		return;
-	for (int i = 0; i < (int)lines->count; i++) {
+	for (uint i = 0; i < lines->count; i++) {
 		mui_glyph_array_t * line = &lines->e[i];
 		mui_glyph_array_free(line);
 	}
@@ -290,39 +343,67 @@ mui_font_measure_draw(
 		c2_rect_t bbox,
 		mui_glyph_line_array_t *lines,
 		mui_color_t color,
-		uint16_t flags)
+		mui_text_e flags)
 {
 	pixman_color_t pc = PIXMAN_COLOR(color);
 	pixman_image_t * fill = pixman_image_create_solid_fill(&pc);
 	struct stb_ttc_info * ttc = &font->ttc;
-	float scale = stbtt_ScaleForPixelHeight(&ttc->font, font->size);
 
 	mui_drawable_t * src = &font->font;
 	mui_drawable_t * dst = dr;
-
-	// all glyphs we need were loaded, update the pixman texture
 	_mui_font_pixman_prep(font);
-
-	for (int li = 0; li < (int)lines->count; li++) {
+	for (uint li = 0; li < lines->count; li++) {
 		mui_glyph_array_t * line = &lines->e[li];
-		int xpos = 0;//where.x / scale;
-		for (int ci = 0; ci < (int)line->count; ci++) {
-			unsigned int cache_index = line->e[ci];
+		int lastu = line->x;
+		for (uint ci = 0; ci < line->count; ci++) {
+			uint cache_index = line->e[ci].index;
+			if (line->e[ci].glyph < ' ')
+				continue;
 			stb_ttc_g *gc = &ttc->glyph[cache_index];
-//			int pxpos = gc->x0 + ((xpos + gc->lsb) * scale);
-			int pxpos = gc->x0 + ((xpos + 0) * scale);
+			float pxpos = line->e[ci].x;
 
 			int ph = gc->y1 - gc->y0;
 			int pw = gc->x1 - gc->x0;
-			pixman_image_composite32(
-					PIXMAN_OP_OVER,
-					fill,
+			pixman_image_composite32(PIXMAN_OP_OVER, fill,
 					mui_drawable_get_pixman(src),
 					mui_drawable_get_pixman(dst),
 					0, 0, gc->p_x, gc->p_y,
-					bbox.l + line->x + pxpos,
-					bbox.t + line->y + gc->y0, pw, ph);
-			xpos += gc->advance;
+					bbox.l + (line->x + pxpos),
+					bbox.t + (line->y + gc->y0), pw, ph);
+			/*
+			 * For 'cheap' bold, we just draw the glyph again over the
+			 * same position, but shifted by one pixel in x.
+			 * Works surprisingly well!
+			 */
+			if (flags & MUI_TEXT_STYLE_BOLD) {
+				pixman_image_composite32(PIXMAN_OP_OVER, fill,
+						mui_drawable_get_pixman(src),
+						mui_drawable_get_pixman(dst),
+						0, 0, gc->p_x, gc->p_y,
+						bbox.l + line->x + pxpos + 1,
+						bbox.t + line->y + gc->y0, pw, ph);
+			}
+			/*
+			 * Underline is very primitive, it just draws a line
+			 * under the glyphs, but it's enough for now. Skips the
+			 * ones with obvious descenders. This is far from perfect
+			 * obviously but it's a start.
+			 */
+			if (flags & MUI_TEXT_STYLE_ULINE) {
+				// don't draw under glyphs like qpygj etc
+				bool draw_underline = gc->y1 <= 2;
+				if (draw_underline) {
+					c2_rect_t u = C2_RECT(
+							bbox.l + lastu,
+							bbox.t + line->y + 2,
+							bbox.l + line->x + pxpos + pw,
+							bbox.t + line->y + 3);
+					pixman_image_fill_boxes(PIXMAN_OP_OVER,
+							mui_drawable_get_pixman(dst),
+							&pc, 1, (pixman_box32_t*)&u);
+				}
+				lastu = line->x + pxpos + pw;
+			}
 		}
 	}
 	pixman_image_unref(fill);
@@ -334,9 +415,9 @@ mui_font_textbox(
 		mui_drawable_t *dr,
 		c2_rect_t bbox,
 		const char *text,
-		unsigned int text_len,
+		uint text_len,
 		mui_color_t color,
-		uint16_t flags)
+		mui_text_e flags)
 {
 	mui_glyph_line_array_t lines = {};
 
@@ -344,8 +425,6 @@ mui_font_textbox(
 		text_len = strlen(text);
 
 	mui_font_measure(font, bbox, text, text_len, &lines, flags);
-
 	mui_font_measure_draw(font, dr, bbox, &lines, color, flags);
-
 	mui_font_measure_clear(&lines);
 }

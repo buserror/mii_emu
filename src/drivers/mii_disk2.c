@@ -20,13 +20,38 @@
 
 enum {
 	// bits used to address the LSS ROM using lss_mode
-	WRITE_BIT	= 0,
-	LOAD_BIT	= 1,
-	QA_BIT		= 2,
-	RP_BIT		= 3,
+	Q7_WRITE_BIT	= 3,
+	Q6_LOAD_BIT		= 2,
+	QA_BIT			= 1,
+	RP_BIT			= 0,
+};
+
+enum {
+	SIG_DR,			// data register
+	SIG_WR,			// write register
+	SIG_DRIVE,		// selected drive
+	SIG_MOTOR,		// motor on/off
+	SIG_READ_DR,
+	SIG_LSS_CLK,
+	SIG_LSS_SEQ,
+	SIG_LSS_CMD,
+	SIG_LSS_WRITE,
+	SIG_LSS_LOAD,
+	SIG_LSS_QA,
+	SIG_LSS_RP,		// read pulse
+	SIG_LSS_WB,		// write bit
+	SIG_LSS_RANDOM,
+	SIG_WRITE_CYCLE,
+	SIG_COUNT
+};
+const char *sig_names[] = {
+	"D2_DR", "D2_WR", "DRIVE", "MOTOR", "READ_DR",
+	"LSS_CLK", "LSS_SEQ", "LSS_CMD", "LSS_WRITE", "LSS_LOAD",
+	"LSS_QA", "LSS_RP", "LSS_WB", "LSS_RANDOM", "WRITE_CYCLE",
 };
 
 typedef struct mii_card_disk2_t {
+	mii_t *			mii;
 	mii_dd_t 		drive[2];
 	mii_floppy_t	floppy[2];
 	uint8_t 		selected;
@@ -42,12 +67,19 @@ typedef struct mii_card_disk2_t {
 	uint8_t 		lss_prev_state;	// for write bit
 	uint8_t 		lss_skip;
 	uint8_t 		data_register;
-} mii_card_disk2_t;
 
+	uint64_t 		debug_last_write, debug_last_duration;
+	mii_vcd_t 		*vcd;
+	mii_signal_t 	*sig;
+} mii_card_disk2_t;
 
 static void
 _mii_disk2_lss_tick(
 	mii_card_disk2_t *c );
+static void
+_mii_disk2_vcd_debug(
+	mii_card_disk2_t *c,
+	int on);
 
 // debug, used for mish, only supports one card tho (yet)
 static mii_card_disk2_t *_mish_d2 = NULL;
@@ -65,7 +97,8 @@ _mii_floppy_motor_off_cb(
 //	printf("%s drive %d off\n", __func__, c->selected);
 	if (c->drive[c->selected].file && f->seed_dirty != f->seed_saved)
 		mii_floppy_update_tracks(f, c->drive[c->selected].file);
-	f->motor 		= 0;
+	f->motor = 0;
+	mii_raise_signal(c->sig + SIG_MOTOR, 0);
 	return 0;
 }
 
@@ -113,6 +146,13 @@ _mii_disk2_switch_track(
 //	if (track_id != 0xff)
 //		printf("NEW TRACK D%d: %d\n", c->selected, track_id);
 	uint8_t track_id_new = f->track_id[qtrack];
+	if (track_id != track_id_new && track_id != MII_FLOPPY_NOISE_TRACK) {
+		if (track_id == 0 && c->vcd)
+			_mii_disk2_vcd_debug(c, 0);
+		if (f->seed_dirty != f->seed_saved) {
+		//	mii_floppy_resync_track(f, track_id, 0);
+		}
+	}
 	if (track_id_new >= MII_FLOPPY_TRACK_COUNT)
 		track_id_new = MII_FLOPPY_NOISE_TRACK;
 	/* adapt the bit position from one track to the others, from WOZ specs */
@@ -126,6 +166,7 @@ _mii_disk2_switch_track(
 	return f->qtrack;
 }
 
+
 static int
 _mii_disk2_init(
 		mii_t * mii,
@@ -133,13 +174,16 @@ _mii_disk2_init(
 {
 	mii_card_disk2_t *c = calloc(1, sizeof(*c));
 	slot->drv_priv = c;
-
+	c->mii = mii;
 	printf("%s loading in slot %d\n", __func__, slot->id + 1);
 	uint16_t addr = 0xc100 + (slot->id * 0x100);
 	mii_bank_write(
 			&mii->bank[MII_BANK_CARD_ROM],
 			addr, mii_rom_disk2, 256);
 
+	c->sig = mii_alloc_signal(&mii->sig_pool, 0, SIG_COUNT, sig_names);
+	for (int i = 0; i < SIG_COUNT; i++)
+		c->sig[i].flags |= SIG_FLAG_FILTERED;
 	for (int i = 0; i < 2; i++) {
 		mii_dd_t *dd = &c->drive[i];
 		dd->slot_id = slot->id + 1;
@@ -149,17 +193,30 @@ _mii_disk2_init(
 				dd->slot_id, dd->drive);
 		mii_floppy_init(&c->floppy[i]);
 		c->floppy[i].id = i;
+		dd->floppy = &c->floppy[i];
 	}
 	mii_dd_register_drives(&mii->dd, c->drive, 2);
-
-	c->timer_off 	= mii_timer_register(mii,
-							_mii_floppy_motor_off_cb, c, 0,
-							"Disk ][ motor off");
-	c->timer_lss 	= mii_timer_register(mii,
-							_mii_floppy_lss_cb, c, 0,
-							"Disk ][ LSS");
+	char *n;
+	asprintf(&n, "Disk ][ S:%d motor off", slot->id + 1);
+	c->timer_off 	= mii_timer_register(mii, _mii_floppy_motor_off_cb, c, 0, n);
+	asprintf(&n, "Disk ][ S:%d LSS", slot->id + 1);
+	c->timer_lss 	= mii_timer_register(mii, _mii_floppy_lss_cb, c, 0, n);
 	_mish_d2 = c;
 	return 0;
+}
+
+static void
+_mii_disk2_reset(
+		mii_t * mii,
+		struct mii_slot_t *slot )
+{
+	mii_card_disk2_t *c = slot->drv_priv;
+	printf("%s\n", __func__);
+	c->selected = 1;
+	_mii_floppy_motor_off_cb(mii, c);
+	c->selected = 0;
+	_mii_floppy_motor_off_cb(mii, c);
+	mii_raise_signal(c->sig + SIG_DRIVE, 0);
 }
 
 static uint8_t
@@ -172,11 +229,22 @@ _mii_disk2_access(
 	uint8_t ret = 0;
 
 	if (write) {
-	//	printf("WRITE PC:%04x %4.4x: %2.2x\n", mii->cpu.PC, addr, byte);
+//		if (!(byte &0x80))
+//			printf("WRITE PC:%04x %4.4x: %2.2x\n", mii->cpu.PC, addr, byte);
 		c->write_register = byte;
+		mii_raise_signal(c->sig + SIG_WR, byte);
+		if (c->vcd) {
+			uint8_t delta = c->vcd->cycle - c->debug_last_write;
+
+			mii_raise_signal_float(
+					c->sig + SIG_WRITE_CYCLE, c->debug_last_duration != delta, 0);
+			c->debug_last_duration = delta;
+			c->debug_last_write = c->vcd->cycle;
+		}
 	}
 	int psw = addr & 0x0F;
 	int p = psw >> 1, on = psw & 1;
+	int read = 0;
 	switch (psw) {
 		case 0x00 ... 0x07: {
 			if (on) {
@@ -194,10 +262,10 @@ _mii_disk2_access(
 				mii_timer_set(mii, c->timer_off, 0);
 				mii_timer_set(mii, c->timer_lss, 1);
 				f->motor = 1;
+				mii_raise_signal(c->sig + SIG_MOTOR, 1);
 			} else {
-				if (!mii_timer_get(mii, c->timer_off)) {
-					mii_timer_set(mii, c->timer_off, 1000000); // one second
-				}
+				int32_t timer = mii_timer_get(mii, c->timer_off);
+				mii_timer_set(mii, c->timer_off, timer + 1000000); // one second
 			}
 		}	break;
 		case 0x0A:
@@ -207,22 +275,24 @@ _mii_disk2_access(
 				printf("SELECTED DRIVE: %d\n", c->selected);
 				c->floppy[on].motor = f->motor;
 				f->motor = 0;
+				mii_raise_signal(c->sig + SIG_MOTOR, 0);
 			}
 		}	break;
 		case 0x0C:
 		case 0x0D:
-			c->lss_mode = (c->lss_mode & ~(1 << LOAD_BIT)) | (!!on << LOAD_BIT);
-			if (!(c->lss_mode & (1 << WRITE_BIT)) && f->heat) {
+			c->lss_mode = (c->lss_mode & ~(1 << Q6_LOAD_BIT)) | (!!on << Q6_LOAD_BIT);
+			if (!(c->lss_mode & (1 << Q7_WRITE_BIT)) && f->heat) {
 				uint8_t 	track_id = f->track_id[f->qtrack];
 				uint32_t 	byte_index 	= f->bit_position >> 3;
 				unsigned int dstb = byte_index / MII_FLOPPY_HM_HIT_SIZE;
 				f->heat->read.map[track_id][dstb] = 255;
 				f->heat->read.seed++;
+				read++;
 			}
 			break;
 		case 0x0E:
 		case 0x0F:
-			c->lss_mode = (c->lss_mode & ~(1 << WRITE_BIT)) | (!!on << WRITE_BIT);
+			c->lss_mode = (c->lss_mode & ~(1 << Q7_WRITE_BIT)) | (!!on << Q7_WRITE_BIT);
 			break;
 	}
 	/*
@@ -230,8 +300,10 @@ _mii_disk2_access(
 	 * the write protect bit to be loaded if needed, it *has* to run before
 	 * we return this value, so we marked a skip and run it here.
 	 */
-	_mii_disk2_lss_tick(c);
-	c->lss_skip++;
+//	_mii_disk2_lss_tick(c);
+//	c->lss_skip++;
+	if (read)
+		mii_raise_signal(c->sig + SIG_READ_DR, c->data_register);
 	ret = on ? byte : c->data_register;
 
 	return ret;
@@ -304,11 +376,51 @@ static mii_slot_drv_t _driver = {
 	.name = "disk2",
 	.desc = "Apple Disk ][",
 	.init = _mii_disk2_init,
+	.reset = _mii_disk2_reset,
 	.access = _mii_disk2_access,
 	.command = _mii_disk2_command,
 };
 MI_DRIVER_REGISTER(_driver);
 
+static void
+_mii_disk2_vcd_debug(
+	mii_card_disk2_t *c,
+	int on)
+{
+	if (c->vcd) {
+		mii_vcd_close(c->vcd);
+		c->vcd = NULL;
+		printf("VCD OFF\n");
+	} else {
+		c->vcd = calloc(1, sizeof(*c->vcd));
+		// 2Mhz clock
+		mii_vcd_init(c->mii, "/tmp/disk2.vcd", c->vcd, 500);
+		printf("VCD ON\n");
+		mii_vcd_add_signal(c->vcd, c->sig + SIG_DR, 8, "DR");
+		mii_vcd_add_signal(c->vcd, c->sig + SIG_WR, 8, "WR");
+		mii_vcd_add_signal(c->vcd, c->sig + SIG_DRIVE, 1, "DRIVE");
+		mii_vcd_add_signal(c->vcd, c->sig + SIG_MOTOR, 1, "MOTOR");
+		mii_vcd_add_signal(c->vcd, c->sig + SIG_READ_DR, 8, "READ");
+		mii_vcd_add_signal(c->vcd, c->sig + SIG_LSS_CLK, 1, "LSS_CLK");
+		mii_vcd_add_signal(c->vcd, c->sig + SIG_LSS_SEQ, 4, "LSS_SEQ");
+		mii_vcd_add_signal(c->vcd, c->sig + SIG_LSS_CMD, 4, "LSS_CMD");
+		mii_vcd_add_signal(c->vcd, c->sig + SIG_LSS_WRITE, 1, "LSS_W/R");
+		mii_vcd_add_signal(c->vcd, c->sig + SIG_LSS_LOAD, 1, "LSS_L/S");
+		mii_vcd_add_signal(c->vcd, c->sig + SIG_LSS_QA, 1, "LSS_QA");
+		mii_vcd_add_signal(c->vcd, c->sig + SIG_LSS_RP, 1, "LSS_RP");
+		mii_vcd_add_signal(c->vcd, c->sig + SIG_LSS_WB, 1, "LSS_WB");
+		mii_vcd_add_signal(c->vcd, c->sig + SIG_LSS_RANDOM, 1, "LSS_RANDOM");
+		mii_vcd_add_signal(c->vcd, c->sig + SIG_WRITE_CYCLE, 1, "WRITE_CYCLE");
+		mii_vcd_start(c->vcd);
+		// put the LSS state in the VCD to start with
+		mii_raise_signal(c->sig + SIG_LSS_QA,
+					!!(c->lss_mode & (1 << QA_BIT)));
+		mii_raise_signal(c->sig + SIG_LSS_WRITE,
+					!!(c->lss_mode & (1 << Q7_WRITE_BIT)));
+		mii_raise_signal(c->sig + SIG_LSS_LOAD,
+					!!(c->lss_mode & (1 << Q6_LOAD_BIT)));
+	}
+}
 
 /* Sather Infamous Table, pretty much verbatim
 									WRITE
@@ -353,8 +465,8 @@ E-	FD-SL1	FD-SL1	F8-NOP	F8-NOP		0A-SR	0A-SR	0A-SR	0A-SR
 F-	DD-SL1	4D-SL1	E0-CLR	E0-CLR		0A-SR	0A-SR	0A-SR	0A-SR
 */
 enum {
-	WRITE 	= (1 << WRITE_BIT),
-	LOAD 	= (1 << LOAD_BIT),
+	WRITE 	= (1 << Q7_WRITE_BIT),
+	LOAD 	= (1 << Q6_LOAD_BIT),
 	QA1 	= (1 << QA_BIT),
 	RP1 	= (1 << RP_BIT),
 	/* This keeps the transposed table more readable, as it looks like the book */
@@ -380,6 +492,35 @@ static const uint8_t lss_rom16s[16][16] = {
 [READ|LOAD|QA1|RP0]={	0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A },
 };
 
+static const uint8_t SEQUENCER_ROM_16[256] = {
+    // See Understanding the Apple IIe, Figure 9.11 The DOS 3.3 Logic State Sequencer
+    // Note that the column order here is NOT the same as in Figure 9.11 for Q7 H (Write).
+    //
+    //                Q7 L (Read)                                     Q7 H (Write)
+    //    Q6 L (Shift)            Q6 H (Load)             Q6 L (Shift)             Q6 H (Load)
+    //  QA L        QA H        QA L        QA H        QA L        QA H        QA L        QA H
+    // 1     0     1     0     1     0     1     0     1     0     1     0     1     0     1     0
+    0x18, 0x18, 0x18, 0x18, 0x0A, 0x0A, 0x0A, 0x0A, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, // 0
+    0x2D, 0x2D, 0x38, 0x38, 0x0A, 0x0A, 0x0A, 0x0A, 0x28, 0x28, 0x28, 0x28, 0x28, 0x28, 0x28, 0x28, // 1
+    0xD8, 0x38, 0x08, 0x28, 0x0A, 0x0A, 0x0A, 0x0A, 0x39, 0x39, 0x39, 0x39, 0x3B, 0x3B, 0x3B, 0x3B, // 2
+    0xD8, 0x48, 0x48, 0x48, 0x0A, 0x0A, 0x0A, 0x0A, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, 0x48, // 3
+    0xD8, 0x58, 0xD8, 0x58, 0x0A, 0x0A, 0x0A, 0x0A, 0x58, 0x58, 0x58, 0x58, 0x58, 0x58, 0x58, 0x58, // 4
+    0xD8, 0x68, 0xD8, 0x68, 0x0A, 0x0A, 0x0A, 0x0A, 0x68, 0x68, 0x68, 0x68, 0x68, 0x68, 0x68, 0x68, // 5
+    0xD8, 0x78, 0xD8, 0x78, 0x0A, 0x0A, 0x0A, 0x0A, 0x78, 0x78, 0x78, 0x78, 0x78, 0x78, 0x78, 0x78, // 6
+    0xD8, 0x88, 0xD8, 0x88, 0x0A, 0x0A, 0x0A, 0x0A, 0x08, 0x08, 0x88, 0x88, 0x08, 0x08, 0x88, 0x88, // 7
+    0xD8, 0x98, 0xD8, 0x98, 0x0A, 0x0A, 0x0A, 0x0A, 0x98, 0x98, 0x98, 0x98, 0x98, 0x98, 0x98, 0x98, // 8
+    0xD8, 0x29, 0xD8, 0xA8, 0x0A, 0x0A, 0x0A, 0x0A, 0xA8, 0xA8, 0xA8, 0xA8, 0xA8, 0xA8, 0xA8, 0xA8, // 9
+    0xCD, 0xBD, 0xD8, 0xB8, 0x0A, 0x0A, 0x0A, 0x0A, 0xB9, 0xB9, 0xB9, 0xB9, 0xBB, 0xBB, 0xBB, 0xBB, // A
+    0xD9, 0x59, 0xD8, 0xC8, 0x0A, 0x0A, 0x0A, 0x0A, 0xC8, 0xC8, 0xC8, 0xC8, 0xC8, 0xC8, 0xC8, 0xC8, // B
+    0xD9, 0xD9, 0xD8, 0xA0, 0x0A, 0x0A, 0x0A, 0x0A, 0xD8, 0xD8, 0xD8, 0xD8, 0xD8, 0xD8, 0xD8, 0xD8, // C
+    0xD8, 0x08, 0xE8, 0xE8, 0x0A, 0x0A, 0x0A, 0x0A, 0xE8, 0xE8, 0xE8, 0xE8, 0xE8, 0xE8, 0xE8, 0xE8, // D
+    0xFD, 0xFD, 0xF8, 0xF8, 0x0A, 0x0A, 0x0A, 0x0A, 0xF8, 0xF8, 0xF8, 0xF8, 0xF8, 0xF8, 0xF8, 0xF8, // E
+    0xDD, 0x4D, 0xE0, 0xE0, 0x0A, 0x0A, 0x0A, 0x0A, 0x88, 0x88, 0x08, 0x08, 0x88, 0x88, 0x08, 0x08  // F
+	// 0     1     1     3     4	 5     6     7     8     9     A     B     C     D     E     F
+};
+
+FILE *debug = NULL;
+
 static void
 _mii_disk2_lss_tick(
 	mii_card_disk2_t *c )
@@ -390,65 +531,69 @@ _mii_disk2_lss_tick(
 	}
 	mii_floppy_t *f = &c->floppy[c->selected];
 
-	c->lss_mode = (c->lss_mode & ~(1 << QA_BIT)) |
-					(!!(c->data_register & 0x80) << QA_BIT);
+	if (c->vcd)
+		c->vcd->cycle += 1;
 	c->clock += 4;	// 4 is 0.5us.. we run at 2MHz
+
+	uint8_t 	track_id 	= f->track_id[f->qtrack];
+	uint8_t * 	track 		= f->track_data[track_id];
+	uint32_t 	byte_index 	= f->bit_position >> 3;
+	uint8_t 	bit_index 	= 7 - (f->bit_position & 7);
+	uint8_t 	rp 			= 0;
+
+	mii_raise_signal(c->sig + SIG_LSS_CLK, c->clock >= f->bit_timing);
 	if (c->clock >= f->bit_timing) {
-		c->clock -= f->bit_timing;
-		uint8_t 	track_id = f->track_id[f->qtrack];
-		uint8_t * 	track = f->track_data[track_id];
-		uint32_t 	byte_index 	= f->bit_position >> 3;
-		uint8_t 	bit_index 	= 7 - (f->bit_position & 7);
-		if (!(c->lss_mode & (1 << WRITE_BIT))) {
-			uint8_t 	bit 	= track[byte_index];
-			bit = (bit >> bit_index) & 1;
-			c->head = (c->head << 1) | bit;
-			// see WOZ spec for how we do this here
-			if ((c->head & 0xf) == 0) {
-				bit = f->track_data[MII_FLOPPY_NOISE_TRACK][byte_index];
-				bit = (bit >> bit_index) & 1;
+		uint8_t 	bit 	= track[byte_index];
+		bit = (bit >> bit_index) & 1;
+		c->head = (c->head << 1) | bit;
+		// see WOZ spec for how we do this here
+		if ((c->head & 0xf) == 0) {
+			bit = f->track_data[MII_FLOPPY_NOISE_TRACK][byte_index];
+			rp = (bit >> bit_index) & 1;
 //				printf("RANDOM TRACK %2d %2d %2d : %d\n",
 //						track_id, byte_index, bit_index, bit);
-			} else {
-				bit = (c->head >> 1) & 1;
-			}
-			c->lss_mode = (c->lss_mode & ~(1 << RP_BIT)) | (bit << RP_BIT);
+			mii_raise_signal_float(c->sig + SIG_LSS_RANDOM, rp, 0);
+		} else {
+			rp = (c->head >> 1) & 1;
+			mii_raise_signal_float(c->sig + SIG_LSS_RANDOM, rp, 1);
 		}
-		if ((c->lss_mode & (1 << WRITE_BIT)) && track_id != 0xff) {
-			uint8_t msb = c->data_register >> 7;
-#if 0
-			printf("WRITE %2d %4d %d : %d LSS State %x mode %x\n",
-					track_id, byte_index, bit_index, msb,
-					c->lss_state, c->lss_mode);
-#endif
-			if (!f->tracks[track_id].dirty) {
-			//	printf("DIRTY TRACK %2d \n", track_id);
-				f->tracks[track_id].dirty = 1;
-				f->seed_dirty++;
-			}
-			f->track_data[track_id][byte_index] &= ~(1 << bit_index);
-			f->track_data[track_id][byte_index] |= (msb << bit_index);
-		}
-		f->bit_position = (f->bit_position + 1) % f->tracks[track_id].bit_count;
 	}
+	c->lss_mode = (c->lss_mode & ~(1 << RP_BIT)) | (rp << RP_BIT);
+	c->lss_mode = (c->lss_mode & ~(1 << QA_BIT)) |
+						(!!(c->data_register & 0x80) << QA_BIT);
+
+	mii_raise_signal(c->sig + SIG_LSS_RP, rp);
+	mii_raise_signal(c->sig + SIG_LSS_QA,
+				!!(c->lss_mode & (1 << QA_BIT)));
+	mii_raise_signal(c->sig + SIG_LSS_WRITE,
+				!!(c->lss_mode & (1 << Q7_WRITE_BIT)));
+	mii_raise_signal(c->sig + SIG_LSS_LOAD,
+				!!(c->lss_mode & (1 << Q6_LOAD_BIT)));
+
 	const uint8_t *rom 	= lss_rom16s[c->lss_mode];
 	uint8_t cmd 	= rom[c->lss_state];
 	uint8_t next 	= cmd >> 4;
 	uint8_t action 	= cmd & 0xF;
+
+	mii_raise_signal(c->sig + SIG_LSS_SEQ, c->lss_state);
+	mii_raise_signal(c->sig + SIG_LSS_CMD, action);
 
 	if (action & 0b1000) {	// Table 9.3 in Sather's book
 		switch (action & 0b0011) {
 			case 1:	// SL0/1
 				c->data_register <<= 1;
 				c->data_register |= !!(action & 0b0100);
+				mii_raise_signal(c->sig + SIG_DR, c->data_register);
 				break;
 			case 2:	// SR
 				c->data_register = (c->data_register >> 1) |
 									(!!f->write_protected << 7);
+				mii_raise_signal(c->sig + SIG_DR, c->data_register);
 				break;
 			case 3:	{// LD
 				uint8_t 	track_id = f->track_id[f->qtrack];
 				c->data_register = c->write_register;
+				mii_raise_signal(c->sig + SIG_DR, c->data_register);
 				f->seed_dirty++;
 				if (f->heat) {
 					uint32_t 	byte_index 	= f->bit_position >> 3;
@@ -460,12 +605,47 @@ _mii_disk2_lss_tick(
 		}
 	} else {	// CLR
 		c->data_register = 0;
+		mii_raise_signal(c->sig + SIG_DR, c->data_register);
 	}
+	if ((c->lss_mode & (1 << Q7_WRITE_BIT)) &&
+					track_id < MII_FLOPPY_TRACK_COUNT) {
+		// on state 0 and 8 we write a bit...
+		if ((c->lss_state & 0b0111) == 0) {
+			uint8_t bit = c->data_register >> 7;
+//			uint8_t bit = !!(c->lss_state & 0x8);
+			mii_raise_signal_float(c->sig + SIG_LSS_WB, 1, 0);
+			if (!f->tracks[track_id].dirty) {
+			//	printf("DIRTY TRACK %2d \n", track_id);
+				f->tracks[track_id].dirty = 1;
+				/*
+				* This little trick allows to have all the track neatly aligned
+				* on bit zero when formatting a floppy or doing a copy, this helps
+				* debug quite a bit.
+				*/
+				if (f->tracks[track_id].virgin) {
+					f->tracks[track_id].virgin = 0;
+					f->bit_position = 0;
+					if (track_id == 0)
+						_mii_disk2_vcd_debug(c, 1);
+				}
+				f->seed_dirty++;
+			}
+			f->track_data[track_id][byte_index] &= ~(1 << bit_index);
+			f->track_data[track_id][byte_index] |= (bit << bit_index);
+		} else {
+			mii_raise_signal_float(c->sig + SIG_LSS_WB, 0, 0);
+		}
+	}
+
 	c->lss_state = next;
-	// read pulse only last one cycle..
-	c->lss_mode &= ~(1 << RP_BIT);
+	if (c->clock >= f->bit_timing) {
+		c->clock -= f->bit_timing;
+		f->bit_position = (f->bit_position + 1) % f->tracks[track_id].bit_count;
+	}
 }
 
+#include <fcntl.h>
+#include <unistd.h>
 
 static void
 _mii_mish_d2(
@@ -510,18 +690,31 @@ _mii_mish_d2(
 	}
 	// dump a track, specify track number and number of bytes
 	if (!strcmp(argv[1], "track")) {
+		mii_card_disk2_t *c = _mish_d2;
+		mii_floppy_t *f = &c->floppy[sel];
 		if (argv[2]) {
 			int track = atoi(argv[2]);
 			int count = 256;
-			if (argv[3])
+			if (argv[3]) {
+				if (!strcmp(argv[3], "save")) {
+					// save one binary file in tmp with just that track
+					uint8_t *data = f->track_data[track];
+					char *filename;
+					asprintf(&filename, "/tmp/track_%d.bin", track);
+					int fd = open(filename, O_CREAT | O_WRONLY, 0666);
+					write(fd, data, MII_FLOPPY_DEFAULT_TRACK_SIZE);
+					close(fd);
+					printf("Saved track %d to %s\n", track, filename);
+					free(filename);
+					return;
+				}
 				count = atoi(argv[3]);
-			mii_card_disk2_t *c = _mish_d2;
-			mii_floppy_t *f = &c->floppy[sel];
+			}
 			uint8_t *data = f->track_data[track];
 
 			for (int i = 0; i < count; i += 8) {
 				uint8_t *line = data + i;
-			#if 0
+			#if 1
 				for (int bi = 0; bi < 8; bi++) {
 					uint8_t b = line[bi];
 					for (int bbi = 0; bbi < 8; bbi++) {
@@ -545,6 +738,51 @@ _mii_mish_d2(
 		mii_floppy_t *f = &c->floppy[sel];
 		f->seed_dirty = f->seed_saved = rand();
 		return;
+	}
+	if (!strcmp(argv[1], "resync")) {
+		mii_card_disk2_t *c = _mish_d2;
+		mii_floppy_t *f = &c->floppy[sel];
+		printf("Resyncing tracks\n");
+		for (int i = 0; i < MII_FLOPPY_TRACK_COUNT; i++)
+			mii_floppy_resync_track(f, i, 0);
+		return;
+	}
+	if (!strcmp(argv[1], "map")) {
+		mii_card_disk2_t *c = _mish_d2;
+		mii_floppy_t *f = &c->floppy[sel];
+
+		printf("Disk map:\n");
+		for (int i = 0; i < MII_FLOPPY_TRACK_COUNT; i++) {
+			mii_floppy_track_map_t map = {};
+			int r = mii_floppy_map_track(f, i, &map, 0);
+			printf("Track %2d: %7s\n",
+					i, r == 0 ? "OK" : "Invalid");
+			if (r != 0) {
+				printf("Track %d has %5d bits\n", i, f->tracks[i].bit_count);
+				for (int si = 0; si < 16; si++)
+					printf("[%2d hs:%4d h:%5d ds:%3d d:%5d]%s",
+							si, map.sector[si].hsync,
+							map.sector[si].header,
+							map.sector[si].dsync,
+							map.sector[si].data,
+							si & 1 ? "\n" : " ");
+			}
+		}
+		return;
+	}
+	if (!strcmp(argv[1], "trace")) {
+		if (debug == NULL)
+			debug = fopen("/tmp/disk2.log", "w");
+		else {
+			fclose(debug);
+			debug = NULL;
+		}
+		printf("Debug trace %s\n", debug ? "ON" : "OFF");
+		return;
+	}
+	if (!strcmp(argv[1], "vcd")) {
+		mii_card_disk2_t *c = _mish_d2;
+		_mii_disk2_vcd_debug(c, !c->vcd);
 	}
 }
 

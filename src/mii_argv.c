@@ -137,6 +137,7 @@ mii_argv_parse(
 					!strcmp(arg, "--no-audio") ||
 					!strcmp(arg, "--silent")) {
 			mii->speaker.off = true;
+			*ioFlags |= MII_INIT_SILENT;
 		} else if (!strcmp(arg, "-vol") || !strcmp(arg, "--volume")) {
 			if (i < argc-1) {
 				float vol = atof(argv[++i]);
@@ -151,7 +152,7 @@ mii_argv_parse(
 			if (i < argc-1) {
 				mii->speed = atof(argv[++i]);
 				if (mii->speed <= 0.0)
-					mii->speed = 1.0;
+					mii->speed = MII_SPEED_NTSC;
 			} else {
 				printf("mii: missing speed value\n");
 				return 1;

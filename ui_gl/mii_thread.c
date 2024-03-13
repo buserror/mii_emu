@@ -15,6 +15,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <sys/timerfd.h>
+#include <math.h>
 // probably should wrap these into a HAVE_JOYSTICK define for non-linux
 #ifndef HAVE_JOYSTICK
 #define HAVE_JOYSTICK 1
@@ -179,6 +180,8 @@ mii_thread_joystick(
 	mii_t *mii = (mii_t *)arg;
 	mii->analog.v[0].value = 127;
 	mii->analog.v[1].value = 127;
+	short axis[2] = { 0, 0 };
+	float reprojected[2] = { 0, 0 };
 	do {
 		ssize_t rd = read(fd, &event, sizeof(event));
 		if (rd != sizeof(event)) {
@@ -190,28 +193,50 @@ mii_thread_joystick(
 			//	printf("button %u %s\n", event.number, event.value ? "pressed" : "released");
 				switch (event.number) {
 					case 2 ... 3:
-						mii_bank_poke(&mii->bank[MII_BANK_MAIN],
+						mii_bank_poke(&mii->bank[MII_BANK_SW],
 								0xc061 + (event.number - 2),
 								event.value ? 0x80 : 0);
 					break;
 					case 4 ... 5:
-						mii_bank_poke(&mii->bank[MII_BANK_MAIN],
+						mii_bank_poke(&mii->bank[MII_BANK_SW],
 								0xc061 + (event.number - 4),
 								event.value ? 0x80 : 0);
 						break;
 				}
 				break;
 			case JS_EVENT_AXIS:
+				// TODO: Use some sort of settings on which axis to use
 				switch (event.number) {
 					case 0 ... 1: {// X
-						uint32_t v = (event.value + 0x8000) / 256;
-						if (v > 255)
-							v = 255;
-						mii->analog.v[event.number ? 1 : 0].value = v;
-//						printf("axis %u %6d %3dx%3d\n"
-//								event.number, event.value,
-//								mii->analog.v[0].value, mii->analog.v[1].value);
+						axis[event.number] = event.value;
 					}	break;
+				}
+				for (int i = 0; i < 2; i++)
+					reprojected[i] = axis[i] / 256;
+				/*
+				 * This remaps the circular coordinates of the joystick to
+				 * a square, the 'modern' joystick I use has a top left corner of
+				 * -94,-94, bottom 130,130, so we need to remap the values to
+				 * -127,127 - 127,127 to be able to use them as a joystick
+				 * otherwise some games aren't happy (Wings of Fury for example)
+				 *
+				 * The formula is something I thrown together, I'm sure there's
+				 * a better way to do this, but there isn't many of these events
+				 * so it's not a big deal.
+				 */
+				if (1) {
+					float x = (float)reprojected[0] / 256.0f;
+					float y = (float)reprojected[1] / 256.0f;
+					reprojected[0] = reprojected[0] + (fabs(reprojected[1]) * x);
+					reprojected[1] = reprojected[1] + (fabs(reprojected[0]) * y);
+				}
+				for (int i = 0; i < 2; i++) {
+					int32_t v = reprojected[i] + 127;
+					if (v > 255)
+						v = 255;
+					else if (v < 0)
+						v = 0;
+					mii->analog.v[i].value = v;
 				}
 				break;
 			default:

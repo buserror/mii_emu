@@ -194,7 +194,7 @@ static const struct {
 	[MII_SLOT_DRIVER_SMARTPORT]	= { "smartport", },
 	[MII_SLOT_DRIVER_DISK2] 	= { "disk2", },
 	[MII_SLOT_DRIVER_MOUSE] 	= { "mouse", },
-	[MII_SLOT_DRIVER_SUPERSERIAL] = { "ssc", },
+	[MII_SLOT_DRIVER_SSC] 		= { "ssc", },
 	[MII_SLOT_DRIVER_ROM1MB]	= { "eecard", },
 };
 
@@ -261,9 +261,23 @@ mii_emu_save(
 				mii_config_set(cf, section, "wp1",
 					config->slot[i].conf.disk2.drive[1].wp ? "1" : "0");
 				break;
-			case MII_SLOT_DRIVER_SUPERSERIAL:
+			case MII_SLOT_DRIVER_SSC:
+				sprintf(label, "%u", config->slot[i].conf.ssc.kind);
+				mii_config_set(cf, section, "kind", label);
 				mii_config_set(cf, section, "device",
 					config->slot[i].conf.ssc.device);
+				sprintf(label, "%u", config->slot[i].conf.ssc.socket_port);
+				mii_config_set(cf, section, "port", label);
+				sprintf(label, "%u", config->slot[i].conf.ssc.baud);
+				mii_config_set(cf, section, "baud", label);
+				sprintf(label, "%u", config->slot[i].conf.ssc.bits);
+				mii_config_set(cf, section, "bits", label);
+				sprintf(label, "%u", config->slot[i].conf.ssc.parity);
+				mii_config_set(cf, section, "parity", label);
+				sprintf(label, "%u", config->slot[i].conf.ssc.stop);
+				mii_config_set(cf, section, "stop", label);
+				sprintf(label, "%u", config->slot[i].conf.ssc.hw_handshake);
+				mii_config_set(cf, section, "hw_handshake", label);
 				break;
 			case MII_SLOT_DRIVER_ROM1MB:
 				mii_config_set(cf, section, "use_default",
@@ -372,10 +386,28 @@ mii_emu_load(
 				if (cl)
 					config->slot[i].conf.disk2.drive[1].wp = !!strtoul(cl->value, NULL, 0);
 				break;
-			case MII_SLOT_DRIVER_SUPERSERIAL:
+			case MII_SLOT_DRIVER_SSC:
+				cl = mii_config_get(cf, section, "kind");
+				if (cl)
+					config->slot[i].conf.ssc.kind = strtoul(cl->value, NULL, 0);
 				cl = mii_config_get(cf, section, "device");
 				if (cl)
 					strcpy(config->slot[i].conf.ssc.device, cl->value);
+				cl = mii_config_get(cf, section, "port");
+				if (cl)
+					config->slot[i].conf.ssc.socket_port = strtoul(cl->value, NULL, 0);
+				cl = mii_config_get(cf, section, "baud");
+				if (cl)
+					config->slot[i].conf.ssc.baud = strtoul(cl->value, NULL, 0);
+				cl = mii_config_get(cf, section, "bits");
+				if (cl)
+					config->slot[i].conf.ssc.bits = strtoul(cl->value, NULL, 0);
+				cl = mii_config_get(cf, section, "parity");
+				if (cl)
+					config->slot[i].conf.ssc.parity = strtoul(cl->value, NULL, 0);
+				cl = mii_config_get(cf, section, "stop");
+				if (cl)
+					config->slot[i].conf.ssc.stop = strtoul(cl->value, NULL, 0);
 				break;
 			case MII_SLOT_DRIVER_ROM1MB:
 				cl = mii_config_get(cf, section, "use_default");

@@ -26,32 +26,47 @@ static const mii_bank_t	_mii_banks_init[MII_BANK_COUNT] = {
 	[MII_BANK_MAIN] = {
 		.name = "MAIN",
 		.base = 0x0000,
-		.size = 0xd0, // 208 pages, 48KB
+		.size = 0xc0,
 	},
 	[MII_BANK_BSR] = {
 		.name = "BSR",
 		.base = 0xd000,
 		.size = 64,
+		.mem_offset = 0xd000,
+		.no_alloc = 1,
 	},
 	[MII_BANK_BSR_P2] = {
 		.name = "BSR P2",
 		.base = 0xd000,
 		.size = 16,
+		.mem_offset = 0xc000,
+		.no_alloc = 1,
+	},
+	[MII_BANK_AUX_BASE] = {
+		.name = "AUX_BASE",
+		.base = 0x0000,
+		.size = 0xd0, // 208 pages, 48KB
+		.no_alloc = 1,
 	},
 	[MII_BANK_AUX] = {
 		.name = "AUX",
 		.base = 0x0000,
 		.size = 0xd0, // 208 pages, 48KB
+		.no_alloc = 1,
 	},
 	[MII_BANK_AUX_BSR] = {
 		.name = "AUX BSR",
 		.base = 0xd000,
 		.size = 64,
+		.mem_offset = 0xd000,
+		.no_alloc = 1,
 	},
 	[MII_BANK_AUX_BSR_P2] = {
 		.name = "AUX BSR P2",
 		.base = 0xd000,
 		.size = 16,
+		.mem_offset = 0xc000,
+		.no_alloc = 1,
 	},
 	[MII_BANK_ROM] = {
 		.name = "ROM",
@@ -62,8 +77,16 @@ static const mii_bank_t	_mii_banks_init[MII_BANK_COUNT] = {
 	[MII_BANK_CARD_ROM] = {
 		.name = "CARD ROM",
 		.base = 0xc100,
-		.size = 15,
+		// c100-cfff = 15 pages
+		// 7 * 2KB for extended ROMs for cards (not addressable directly)
+		// Car roms are 'banked' as well, so we don't need to copy them around
+		.size = 15,// + (7 * 8),
 		.ro = 1,
+	},
+	[MII_BANK_SW] = {
+		.name = "SW",
+		.base = 0xc000,
+		.size = 0x1,
 	},
 };
 
@@ -147,7 +170,7 @@ mii_sw(
 		mii_t *mii,
 		uint16_t sw)
 {
-	return mii_bank_peek(&mii->bank[MII_BANK_MAIN], sw);
+	return mii_bank_peek(&mii->bank[MII_BANK_SW], sw);
 }
 
 static void
@@ -165,7 +188,7 @@ mii_page_table_update(
 	bool ramwrt 	= SW_GETSTATE(mii, SWRAMWRT);
 	bool intcxrom 	= SW_GETSTATE(mii, SWINTCXROM);
 	bool slotc3rom 	= SW_GETSTATE(mii, SWSLOTC3ROM);
-	bool slotauxrom	= SW_GETSTATE(mii, SLOTAUXROM);
+	bool intc8rom	= SW_GETSTATE(mii, INTC8ROM);
 
 	if (unlikely(mii->trace_cpu))
 		printf("%04x: MEM update altzp:%d page2:%d store80:%d "
@@ -173,7 +196,8 @@ mii_page_table_update(
 				"slotc3rom:%d\n", mii->cpu.PC,
 			altzp, page2, store80, hires, ramrd, ramwrt, intcxrom, slotc3rom);
 	// clean slate
-	mii_page_set(mii, MII_BANK_MAIN, MII_BANK_MAIN, 0x00, 0xc0);
+	mii_page_set(mii, MII_BANK_MAIN, MII_BANK_MAIN, 0x00, 0xbf);
+	mii_page_set(mii, MII_BANK_SW, MII_BANK_SW, 0xc0, 0xc0);
 	mii_page_set(mii, MII_BANK_ROM, MII_BANK_ROM, 0xc1, 0xff);
 	if (altzp)
 		mii_page_set(mii, MII_BANK_AUX, MII_BANK_AUX, 0x00, 0x01);
@@ -189,13 +213,14 @@ mii_page_table_update(
 				page2 ? MII_BANK_AUX : MII_BANK_MAIN,
 				page2 ? MII_BANK_AUX : MII_BANK_MAIN, 0x20, 0x3f);
 	}
+	// c1-cf are at ROM state when we arrive here
 	if (!intcxrom) {
-		mii_page_set(mii, MII_BANK_CARD_ROM, _SAME, 0xc1, 0xc7);
-		if (slotauxrom)
-			mii_page_set(mii, MII_BANK_CARD_ROM, _SAME, 0xc8, 0xcf);
+		mii_page_set(mii, MII_BANK_CARD_ROM, _SAME, 0xc1, 0xcf);
+		if (!slotc3rom)
+			mii_page_set(mii, MII_BANK_ROM, _SAME, 0xc3, 0xc3);
+		if (intc8rom)
+			mii_page_set(mii, MII_BANK_ROM, _SAME, 0xc8, 0xcf);
 	}
-	mii_page_set(mii,
-		slotc3rom ? MII_BANK_CARD_ROM : MII_BANK_ROM, _SAME, 0xc3, 0xc3);
 	bool bsrread 	= SW_GETSTATE(mii, BSRREAD);
 	bool bsrwrite 	= SW_GETSTATE(mii, BSRWRITE);
 	bool bsrpage2 	= SW_GETSTATE(mii, BSRPAGE2);
@@ -218,6 +243,32 @@ mii_page_table_update(
 				0xd0, 0xdf);
 }
 
+static void
+mii_bank_update_ramworks(
+		mii_t *mii,
+		uint8_t bank)
+{
+	if (bank > 127 ||
+			!(mii->ramworks.avail & ((unsigned __int128)1ULL << bank)))
+		bank = 0;
+	if (!mii->ramworks.bank[bank]) {
+		mii->ramworks.bank[bank] = malloc(0x10000);
+		int c = 0, a = 0;
+		for (int i = 0; i < 128; i++ ) {
+			if (mii->ramworks.bank[i])
+				c++;
+			if (mii->ramworks.avail & ((unsigned __int128)1ULL << i))
+				a++;
+		}
+		printf("%s: RAMWORKS alloc bank %2d (%dKB / %dKB)\n", __func__,
+				bank, c * 64, a * 64);
+	}
+	mii->bank[MII_BANK_AUX_BASE].mem = mii->ramworks.bank[0];
+	mii->bank[MII_BANK_AUX].mem = mii->ramworks.bank[bank];
+	mii->bank[MII_BANK_AUX_BSR].mem = mii->ramworks.bank[bank];
+	mii->bank[MII_BANK_AUX_BSR_P2].mem = mii->ramworks.bank[bank];
+}
+
 void
 mii_set_sw_override(
 		mii_t *mii,
@@ -238,18 +289,15 @@ mii_set_sw_override(
  * selected, it will deselect it.
  */
 static bool
-_mii_deselect_auxrom(
-		struct mii_bank_t *bank,
-		void *param,
+_mii_deselect_cXrom(
+		mii_t * mii,
 		uint16_t addr,
 		uint8_t * byte,
 		bool write)
 {
 	if (addr != 0xcfff)
 		return false;
-	mii_t * mii = param;
-//	printf("%s AUXROM:%d\n", __func__, !!(mii->sw_state & M_SLOTAUXROM));
-	if (!(mii->sw_state & M_SLOTAUXROM))
+	if (!SW_GETSTATE(mii, INTC8ROM))
 		return false;
 	for (int i = 0; i < 7; i++) {
 		mii_slot_t * slot = &mii->slot[i];
@@ -259,13 +307,14 @@ _mii_deselect_auxrom(
 			slot->aux_rom_selected = false;
 		}
 	}
-	mii->sw_state &= ~M_SLOTAUXROM;
+	SW_SETSTATE(mii, INTC8ROM, 0);
 	mii->mem_dirty = true;
+	mii_page_table_update(mii);
 	return false;
 }
 
 static bool
-_mii_select_c3rom(
+_mii_select_c3introm(
 		struct mii_bank_t *bank,
 		void *param,
 		uint16_t addr,
@@ -273,12 +322,11 @@ _mii_select_c3rom(
 		bool write)
 {
 	mii_t * mii = param;
-	printf("%s\n", __func__);
-	if (mii->sw_state & M_SLOTAUXROM) {
-	//	printf("%s: C3 aux rom re-selected\n", __func__);
-		mii->sw_state &= ~M_SLOTAUXROM;
+	if (!SW_GETSTATE(mii, SWSLOTC3ROM) && !SW_GETSTATE(mii, INTC8ROM)) {
+		SW_SETSTATE(mii, INTC8ROM, 1);
+		mii->mem_dirty = true;
+		mii_page_table_update(mii);
 	}
-	mii->mem_dirty = true;
 	return false;
 }
 
@@ -293,7 +341,7 @@ mii_access_soft_switches(
 		return false;
 	bool res = false;
 	uint8_t on = 0;
-	mii_bank_t * main = &mii->bank[MII_BANK_MAIN];
+	mii_bank_t * sw = &mii->bank[MII_BANK_SW];
 
 	/*
 	 * This allows driver (titan accelerator etc) to have their own
@@ -301,7 +349,7 @@ mii_access_soft_switches(
 	 */
 	if (mii->soft_switches_override && mii->soft_switches_override[addr & 0xff].cb) {
 		res = mii->soft_switches_override[addr & 0xff].cb(
-					main, mii->soft_switches_override[addr & 0xff].param,
+					sw, mii->soft_switches_override[addr & 0xff].param,
 					addr, byte, write);
 		if (res)
 			return res;
@@ -336,47 +384,39 @@ mii_access_soft_switches(
 */
 		case 0xc080 ... 0xc08f: {
 			res = true;
-			uint8_t mode = addr & 0x0f;
-			static const int write_modes[4] = { 0, 1, 0, 1, };
-			static const int read_modes[4] = { 1, 0, 0, 1, };
-			uint8_t rd = read_modes[mode & 3];
-			uint8_t wr = write_modes[mode & 3];
-
-			if (write) {
-				SW_SETSTATE(mii, BSRPREWRITE, 0);
+			const int offSwitch		= addr & 0x02;
+			if (addr & 0x01) {	// Write switch
+				// 0xC081, 0xC083
+				if (!write) {
+					if (SW_GETSTATE(mii, BSRPREWRITE)) {
+						SW_SETSTATE(mii, BSRWRITE, 1);
+					}
+				}
+				SW_SETSTATE(mii, BSRPREWRITE, !write);
+				// 0xC08B
+				SW_SETSTATE(mii, BSRREAD, offSwitch);
 			} else {
-				SW_SETSTATE(mii, BSRPREWRITE, mode & 1);
+				// 0xC080, 0xC082
+				SW_SETSTATE(mii, BSRWRITE, 0);
+				SW_SETSTATE(mii, BSRPREWRITE, 0);
+					// 0xC082
+				SW_SETSTATE(mii, BSRREAD, !offSwitch);
 			}
-		//	if (SW_GETSTATE(mii, BSRPREWRITE))
-		//		;
-			SW_SETSTATE(mii, BSRWRITE, wr);
-			SW_SETSTATE(mii, BSRREAD, rd);
-			SW_SETSTATE(mii, BSRPAGE2, !(mode & 0x08));	// A3
+			SW_SETSTATE(mii, BSRPAGE2, !(addr & 0x08));
 			mii->mem_dirty = 1;
-//			mii->trace_cpu = 1;
-//			mii->state = MII_STOPPED;
-			if (unlikely(mii->trace_cpu))
-				printf("%04x: BSR mode %c%04x pre:%d read:%s write:%s %s altzp:%02x\n",
-					mii->cpu.PC, write ? 'W' : 'R',
-					addr,
-					SW_GETSTATE(mii, BSRPREWRITE),
-					rd ? "BSR" : "ROM",
-					wr ? "BSR" : "ROM",
-					SW_GETSTATE(mii, BSRPAGE2) ? "page2" : "page1",
-					mii_sw(mii, SWALTPZ));
 		}	break;
 		case SWPAGE2OFF:
 		case SWPAGE2ON:
 			res = true;
 			SW_SETSTATE(mii, SWPAGE2, addr & 1);
-			mii_bank_poke(main, SWPAGE2, (addr & 1) << 7);
+			mii_bank_poke(sw, SWPAGE2, (addr & 1) << 7);
 			mii->mem_dirty = 1;
 			break;
 		case SWHIRESOFF:
 		case SWHIRESON:
 			res = true;
 			SW_SETSTATE(mii, SWHIRES, addr & 1);
-			mii_bank_poke(main, SWHIRES, (addr & 1) << 7);
+			mii_bank_poke(sw, SWHIRES, (addr & 1) << 7);
 			mii->mem_dirty = 1;
 		//	printf("HIRES %s\n", (addr & 1) ? "ON" : "OFF");
 			break;
@@ -402,43 +442,47 @@ mii_access_soft_switches(
 			case SW80STOREON:
 				res = true;
 				SW_SETSTATE(mii, SW80STORE, addr & 1);
-				mii_bank_poke(main, SW80STORE, (addr & 1) << 7);
+				mii_bank_poke(sw, SW80STORE, (addr & 1) << 7);
 				mii->mem_dirty = 1;
 				break;
 			case SWRAMRDOFF:
 			case SWRAMRDON:
 				res = true;
 				SW_SETSTATE(mii, SWRAMRD, addr & 1);
-				mii_bank_poke(main, SWRAMRD, (addr & 1) << 7);
+				mii_bank_poke(sw, SWRAMRD, (addr & 1) << 7);
 				mii->mem_dirty = 1;
 				break;
 			case SWRAMWRTOFF:
 			case SWRAMWRTON:
 				res = true;
 				SW_SETSTATE(mii, SWRAMWRT, addr & 1);
-				mii_bank_poke(main, SWRAMWRT, (addr & 1) << 7);
+				mii_bank_poke(sw, SWRAMWRT, (addr & 1) << 7);
 				mii->mem_dirty = 1;
 				break;
 			case SWALTPZOFF:
 			case SWALTPZON:
 				res = true;
 				SW_SETSTATE(mii, SWALTPZ, addr & 1);
-				mii_bank_poke(main, SWALTPZ, (addr & 1) << 7);
+				mii_bank_poke(sw, SWALTPZ, (addr & 1) << 7);
 				mii->mem_dirty = 1;
 				break;
 			case SWINTCXROMOFF:
 			case SWINTCXROMON:
 				res = true;
 				SW_SETSTATE(mii, SWINTCXROM, addr & 1);
-				mii_bank_poke(main, SWINTCXROM, (addr & 1) << 7);
+				mii_bank_poke(sw, SWINTCXROM, (addr & 1) << 7);
 				mii->mem_dirty = 1;
 				break;
 			case SWSLOTC3ROMOFF:
 			case SWSLOTC3ROMON:
 				res = true;
 				SW_SETSTATE(mii, SWSLOTC3ROM, addr & 1);
-				mii_bank_poke(main, SWSLOTC3ROM, (addr & 1) << 7);
+				mii_bank_poke(sw, SWSLOTC3ROM, (addr & 1) << 7);
 				mii->mem_dirty = 1;
+				break;
+			case SWRAMWORKS_BANK:
+				mii_bank_poke(sw, SWRAMWORKS_BANK, *byte);
+				mii_bank_update_ramworks(mii, *byte);
 				break;
 		}
 	} else {
@@ -458,7 +502,7 @@ mii_access_soft_switches(
 			case SWALTPZ:
 			case SWSLOTC3ROM:
 				res = true;
-				*byte = mii_bank_peek(main, addr);
+				*byte = mii_bank_peek(sw, addr);
 				break;
 			case 0xc020: // toggle TAPE output ?!?!
 				res = true;
@@ -495,27 +539,27 @@ mii_access_keyboard(
 		bool write)
 {
 	bool res = false;
-	mii_bank_t * main = &mii->bank[MII_BANK_MAIN];
+	mii_bank_t * sw = &mii->bank[MII_BANK_SW];
 	switch (addr) {
 		case SWKBD:
 			if (!write) {
 				res = true;
-				*byte = mii_bank_peek(main, SWKBD);
+				*byte = mii_bank_peek(sw, SWKBD);
 			}
 			break;
 		case SWAKD: {
 			res = true;
-			uint8_t r = mii_bank_peek(main, SWAKD);
+			uint8_t r = mii_bank_peek(sw, SWAKD);
 			if (!write)
 				*byte = r;
 			r &= 0x7f;
-			mii_bank_poke(main, SWAKD, r);
-			mii_bank_poke(main, SWKBD, r);
+			mii_bank_poke(sw, SWAKD, r);
+			mii_bank_poke(sw, SWKBD, r);
 		}	break;
 		case 0xc061 ... 0xc063: // Push Button 0, 1, 2 (Apple Keys)
 			res = true;
 			if (!write)
-				*byte = mii_bank_peek(main, addr);
+				*byte = mii_bank_peek(sw, addr);
 			break;
 	}
 	return res;
@@ -526,25 +570,52 @@ mii_keypress(
 		mii_t *mii,
 		uint8_t key)
 {
-	mii_bank_t * main = &mii->bank[MII_BANK_MAIN];
+	mii_bank_t * sw = &mii->bank[MII_BANK_SW];
 	key |= 0x80;
-	mii_bank_poke(main, SWAKD, key);
-	mii_bank_poke(main, SWKBD, key);
+	mii_bank_poke(sw, SWAKD, key);
+	mii_bank_poke(sw, SWKBD, key);
 }
 
+#define B(x) ((unsigned __int128)1ULL << (x))
+static const unsigned __int128 _mii_ramworks3_config[] = {
+	B(0x00)|B(0x01)|B(0x02)|B(0x03),
+	B(0x04)|B(0x05)|B(0x06)|B(0x07),
+	B(0x08)|B(0x09)|B(0x0a)|B(0x0b),
+	B(0x0c)|B(0x0d)|B(0x0e)|B(0x0f),
+	// 512K Expander
+	B(0x10)|B(0x11)|B(0x12)|B(0x13),
+	B(0x14)|B(0x15)|B(0x16)|B(0x17),
+	// 2MB Expander A to one meg
+	B(0x30),B(0x31),B(0x32),B(0x33),
+	B(0x34),B(0x35),B(0x36),B(0x37),
+	// 2MB Expander B
+	B(0x50),B(0x51),B(0x52),B(0x53),
+	B(0x54),B(0x55),B(0x56),B(0x57),
+	B(0x70),B(0x71),B(0x72),B(0x73),
+	B(0x74),B(0x75),B(0x76),B(0x77),
+};
+#undef B
 
 void
 mii_init(
 		mii_t *mii )
 {
 	memset(mii, 0, sizeof(*mii));
-	mii->speed = 1.023;
+	mii->speed = MII_SPEED_NTSC;
 	mii->timer.map = 0;
+
 	for (int i = 0; i < MII_BANK_COUNT; i++)
 		mii->bank[i] = _mii_banks_init[i];
 	mii->bank[MII_BANK_ROM].mem = (uint8_t*)&iie_enhanced_rom_bin[0];
 	for (int i = 0; i < MII_BANK_COUNT; i++)
 		mii_bank_init(&mii->bank[i]);
+	uint8_t *mem = realloc(mii->bank[MII_BANK_MAIN].mem, 0x10000);
+	mii->bank[MII_BANK_MAIN].mem = mem;
+	mii->bank[MII_BANK_BSR].mem = mem;
+	mii->bank[MII_BANK_BSR_P2].mem = mem;
+	mii->ramworks.avail = 0;
+	mii_bank_update_ramworks(mii, 0);
+
 	mii->cpu.trap = MII_TRAP;
 	// these are called once, regardless of reset
 	mii_dd_system_init(mii, &mii->dd);
@@ -556,17 +627,12 @@ mii_init(
 	mii->cpu_state = mii_cpu_init(&mii->cpu);
 	for (int i = 0; i < 7; i++)
 		mii->slot[i].id = i;
-
 //	srandom(time(NULL));
 	for (int i = 0; i < 256; i++)
 		mii->random[i] = random();
 
-	mii_bank_install_access_cb(&mii->bank[MII_BANK_CARD_ROM],
-			_mii_deselect_auxrom, mii, 0xcf, 0xcf);
 	mii_bank_install_access_cb(&mii->bank[MII_BANK_ROM],
-			_mii_deselect_auxrom, mii, 0xcf, 0xcf);
-	mii_bank_install_access_cb(&mii->bank[MII_BANK_ROM],
-			_mii_select_c3rom, mii, 0xc3, 0xc3);
+			_mii_select_c3introm, mii, 0xc3, 0xc3);
 }
 
 void
@@ -574,7 +640,13 @@ mii_prepare(
 		mii_t *mii,
 		uint32_t flags )
 {
-//	printf("%s driver table\n", __func__);
+	int banks = (flags >> MII_INIT_RAMWORKS_BIT) & 0xf;
+	banks = 12;
+	if (banks > 12)
+		banks = 12;
+	for (int i = 0; i < banks; i++)	// add available banks
+		mii->ramworks.avail |= _mii_ramworks3_config[i];
+
 	mii_slot_drv_t * drv = mii_slot_drv_list;
 	while (drv) {
 		printf("%s driver: %s\n", __func__, drv->name);
@@ -595,6 +667,12 @@ mii_dispose(
 	}
 	for (int i = 0; i < MII_BANK_COUNT; i++)
 		mii_bank_dispose(&mii->bank[i]);
+	for (int i = 0; i < 128; i++ ) {
+		if (mii->ramworks.bank[i]) {
+			free(mii->ramworks.bank[i]);
+			mii->ramworks.bank[i] = NULL;
+		}
+	}
 	mii_speaker_dispose(&mii->speaker);
 	mii_dd_system_dispose(&mii->dd);
 	mii->state = MII_INIT;
@@ -609,17 +687,19 @@ mii_reset(
 	mii->state = MII_RUNNING;
 	mii->cpu_state.reset = 1;
 	mii_bank_t * main = &mii->bank[MII_BANK_MAIN];
+	mii_bank_t * sw = &mii->bank[MII_BANK_SW];
 	mii->sw_state = M_BSRWRITE | M_BSRPAGE2;
-	mii_bank_poke(main, SWSLOTC3ROM, 0);
-	mii_bank_poke(main, SWRAMRD, 0);
-	mii_bank_poke(main, SWRAMWRT, 0);
-	mii_bank_poke(main, SWALTPZ, 0);
-	mii_bank_poke(main, SW80STORE, 0);
-	mii_bank_poke(main, SW80COL, 0);
+	mii_bank_poke(sw, SWSLOTC3ROM, 0);
+	mii_bank_poke(sw, SWRAMRD, 0);
+	mii_bank_poke(sw, SWRAMWRT, 0);
+	mii_bank_poke(sw, SWALTPZ, 0);
+	mii_bank_poke(sw, SW80STORE, 0);
+	mii_bank_poke(sw, SW80COL, 0);
+	mii_bank_poke(sw, SWRAMWORKS_BANK, 0);
 	mii->mem_dirty = 1;
 	if (cold) {
 		/*  these HAS to be reset in that state somehow */
-		mii_bank_poke(main, SWINTCXROM, 0);
+		mii_bank_poke(sw, SWINTCXROM, 0);
 		uint8_t z[2] = {0x55,0x55};
 		mii_bank_write(main, 0x3f2, z, 2);
 	}
@@ -639,9 +719,10 @@ mii_mem_access(
 		bool wr,
 		bool do_sw)
 {
-	if (!do_sw && addr >= 0xc000 && addr <= 0xc0ff)
+	if (!do_sw && addr >= 0xc000 && addr <= 0xc0ff && addr != 0xcfff)
 		return;
 	uint8_t done =
+		_mii_deselect_cXrom(mii, addr, d, wr) ||
 		mii_access_keyboard(mii, addr, d, wr) ||
 		mii_access_video(mii, addr, d, wr) ||
 		mii_access_soft_switches(mii, addr, d, wr);

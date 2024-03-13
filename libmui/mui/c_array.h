@@ -124,9 +124,9 @@ C_ARRAY_DECL C_ARRAY_INLINE \
 C_ARRAY_DECL C_ARRAY_INLINE \
 	__name##_count_t __name##_insert(\
 			__name##_p a, __name##_count_t index, \
-			__name##_element_t * e, __name##_count_t count) \
+			const __name##_element_t * e, __name##_count_t count) \
 {\
-	if (!a) return 0;\
+	if (!a || !e || !count) return 0;\
 	if (index > a->count) index = a->count;\
 	if (a->count + count >= a->size) \
 		__name##_realloc(a, (((a->count + count) / __name##_page_size)+1) * __name##_page_size);\
@@ -136,6 +136,14 @@ C_ARRAY_DECL C_ARRAY_INLINE \
 	memmove(&a->e[index], e, count * sizeof(__name##_element_t));\
 	a->count += count;\
 	return a->count;\
+}\
+C_ARRAY_DECL C_ARRAY_INLINE \
+	__name##_count_t __name##_append(\
+			__name##_p a, \
+			const __name##_element_t * e, __name##_count_t count) \
+{\
+	if (!a) return 0;\
+	return __name##_insert(a, a->count, e, count);\
 }\
 C_ARRAY_DECL C_ARRAY_INLINE \
 	__name##_count_t __name##_delete(\

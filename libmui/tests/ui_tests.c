@@ -109,6 +109,7 @@ _test_menubar_action(
 				}	break;
 				case FCC('q','u','i','t'): {
 					printf("%s Quit\n", __func__);
+					g->ui->quit_request = 1;
 				}	break;
 				case FCC('s','l','o','t'): {
 					mii_mui_configure_slots(g->ui, &g_machine_conf);
@@ -142,6 +143,58 @@ _test_menubar_action(
 	return 0;
 }
 
+static void
+plain_test_window(
+		mui_t *mui)
+{
+	mui_window_t *w = mui_window_get_by_id(mui, FCC('t','e','s','t'));
+	if (w) {
+		mui_window_select(w);
+		return;
+	}
+	c2_pt_t where = {};
+	c2_rect_t wpos = C2_RECT_WH(where.x, where.y, 510, 270);
+	if (where.x == 0 && where.y == 0)
+		c2_rect_offset(&wpos,
+			(mui->screen_size.x / 2) - (c2_rect_width(&wpos) / 2),
+			(mui->screen_size.y * 0.45) - (c2_rect_height(&wpos) / 2));
+	w = mui_window_create(mui, wpos, NULL, MUI_WINDOW_LAYER_NORMAL,
+					"Test", 0);
+	mui_window_set_id(w, FCC('t','e','s','t'));
+
+	mui_control_t * c = NULL;
+	c2_rect_t cf;
+
+	cf = C2_RECT_WH(10, 10, 480, 170);
+	c = mui_textedit_control_new(w, cf,
+			MUI_CONTROL_TEXTBOX_FRAME | MUI_CONTROL_TEXTEDIT_VERTICAL);
+	mui_textedit_set_text(c,
+		"The quick brown fox Jumps over the Lazy dog.\n"
+		"Lorem Ipsum is simply dummy text of the printing "
+		"and typesetting industry. Lorem Ipsum has been the "
+		"industry's standard dummy text ever since the 1500s.\n"
+		#if 1
+		"Now let's step back and look at what's happening. "
+		"Writing to the disk is a load and shift process, a "
+		"little like HIRES pattern outputs but much slower.\n"
+		"Also, the MPU takes a very active role in the loading "
+		"and shifting of disk write data. There are two 8-Htate "
+		"loops in the WRITE sequence. After initializing the "
+		"WRITE sequence, data is stored in the data register "
+		"at a critical point in the A7' loop. As (quickly "
+		"thereafter as the 6502 can do it, the sequencer is "
+		"configured to shift left at the critical point "
+		"instead of loading."
+		#endif
+		);
+	c2_rect_bottom_of(&cf, cf.b, 10);
+	cf.b = cf.t + 35;
+	c = mui_textedit_control_new(w, cf, MUI_CONTROL_TEXTBOX_FRAME);
+	mui_textedit_set_text(c,
+		"Fulling Mill Online Return Center.pdf");
+
+}
+
 static void *
 _init(
 		struct mui_t * ui,
@@ -158,9 +211,7 @@ _init(
 	mui_window_t * mbar = mui_menubar_new(ui);
 	mui_window_set_action(mbar, _test_menubar_action, g);
 
-	mui_menubar_add_simple(mbar, MUI_GLYPH_APPLE,
-								FCC('a','p','p','l'),
-								m_apple_menu);
+	mui_menubar_add_menu(mbar, FCC('a','p','p','l'), m_color_apple_menu, 2);
 	mui_menubar_add_simple(mbar, "File",
 								FCC('f','i','l','e'),
 								m_file_menu);
@@ -170,12 +221,14 @@ _init(
 	mui_menubar_add_simple(mbar, "CPU",
 								FCC('c','p','u','m'),
 								m_cpu_menu);
-
+	plain_test_window(ui);
 //	mii_mui_configure_slots(g->ui, &g_machine_conf);
 //	mii_mui_load_binary(g->ui, &g_loadbin_conf);
 //	mii_mui_load_1mbrom(g->ui, &g_machine_conf.slot[0].conf.rom1mb);
 //	mii_mui_load_2dsk(g->ui, &g_machine_conf.slot[0].conf.disk2, MII_2DSK_DISKII);
-	mii_mui_about(g->ui);
+//	mii_mui_about(g->ui);
+//	mii_mui_configure_ssc(g->ui, &g_machine_conf.slot[0].conf.ssc);
+
 #if 0
 	mui_alert(ui, C2_PT(0,0),
 					"Testing one Two",
@@ -183,7 +236,7 @@ _init(
 					"This operation cannot be cancelled.",
 					MUI_ALERT_WARN);
 #endif
-#if 1
+#if 0
 	mui_stdfile_get(ui,
 				C2_PT(0, 0),
 				"Select image for SmartPort card",
@@ -199,6 +252,7 @@ _dispose(
 		void *_ui)
 {
 	cg_ui_t *ui = _ui;
+	printf("%s\n", __func__);
 	mui_dispose(ui->ui);
 	free(ui);
 }

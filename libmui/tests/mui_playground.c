@@ -14,7 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <libgen.h>
-
+#include <ctype.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <xcb/xcb.h>
@@ -33,6 +33,8 @@ struct xkb_state;
 
 #include "mui.h"
 #include "mui_plugin.h"
+
+
 
 typedef struct mui_xcb_t {
 	mui_t 				ui;
@@ -109,6 +111,7 @@ _mui_xcb_convert_keycode(
 		case XKB_KEY_Down: out->key.key = MUI_KEY_DOWN; break;
 		// XKB_KEY_Begin
 		case XKB_KEY_Insert: out->key.key = MUI_KEY_INSERT; break;
+		case XKB_KEY_Delete: out->key.key = MUI_KEY_DELETE; break;
 		case XKB_KEY_Home: out->key.key = MUI_KEY_HOME; break;
 		case XKB_KEY_End: out->key.key = MUI_KEY_END; break;
 		case XKB_KEY_Page_Up: out->key.key = MUI_KEY_PAGEUP; break;
@@ -176,7 +179,7 @@ mui_xcb_list_physical_screens(
 }
 
 static bool
-_cui_match_physical_screen(
+_mui_match_physical_screen(
 		xcb_connection_t *xcb,
 		c2_pt_t want_size,
 		c2_pt_p found_pos )
@@ -186,7 +189,7 @@ _cui_match_physical_screen(
 
 	mui_xcb_list_physical_screens(xcb, &sc);
 
-	for (unsigned int i = 0; i < sc.count; i++) {
+	for (uint i = 0; i < sc.count; i++) {
 	    if (c2_rect_width(&sc.e[i]) == want_size.x &&
 	    			c2_rect_height(&sc.e[i]) == want_size.y) {
 	    	*found_pos = sc.e[i].tl;
@@ -222,7 +225,7 @@ mui_xcb_init(
 	bool windowed = 1;
 	bool opaque = 1;
 	c2_pt_t found_position = {};
-	bool has_position = !windowed && _cui_match_physical_screen(
+	bool has_position = !windowed && _mui_match_physical_screen(
 								ui->xcb, ui->size, &found_position);
 
 	xcb_screen_iterator_t iter = xcb_setup_roots_iterator(
@@ -322,7 +325,6 @@ mui_xcb_init(
     xcb_change_property(ui->xcb, XCB_PROP_MODE_REPLACE,
     		ui->window, XCB_ATOM_WM_NAME, XCB_ATOM_STRING, 8,
 			strlen(title), title);
-
 	// create a graphic context
 	value_mask = XCB_GC_FOREGROUND | XCB_GC_GRAPHICS_EXPOSURES;
 	value_list[0] = screen->white_pixel;
@@ -353,6 +355,26 @@ mui_xcb_init(
 //	printf("%s pix is %p\n", __func__, pix->pixels);
 	ui->redraw = 1;
 	return &ui->ui;
+}
+
+static void
+mui_read_clipboard(
+		struct mui_t *mui)
+{
+	FILE *f = popen("xclip -selection clipboard -o", "r");
+	if (!f)
+		return;
+	mui_utf8_t clip = {};
+	char buf[1024];
+	size_t r = 0;
+	do {
+		r = fread(buf, 1, sizeof(buf), f);
+		if (r > 0)
+			mui_utf8_append(&clip, (uint8_t*)buf, r);
+	} while (r > 0);
+	pclose(f);
+	mui_utf8_free(&mui->clipboard);
+	mui->clipboard = clip;
 }
 
 int
@@ -399,11 +421,16 @@ mui_xcb_poll(
 						ui->xkb_state, key->detail);
 				key_ev.type = MUI_EVENT_KEYDOWN;
 				key_ev.key.up = 0;
-			//	printf("%s %08x\n", __func__, keysym);
+				printf("%s %08x\n", __func__, keysym);
 				if (_mui_xcb_convert_keycode(ui, keysym, &key_ev)) {
 					if (key_ev.key.key >= MUI_KEY_MODIFIERS &&
 							key_ev.key.key <= MUI_KEY_MODIFIERS_LAST) {
 						mui->modifier_keys |= (1 << (key_ev.key.key - MUI_KEY_MODIFIERS));
+					}
+					if (toupper(key_ev.key.key) == 'V' &&
+							(mui->modifier_keys & MUI_MODIFIER_CTRL)) {
+						printf("Get CLIPBOARD\n");
+						mui_read_clipboard(mui);
 					}
 					key_ev.modifiers = mui->modifier_keys;
 			//		key_ev.modifiers |= MUI_MODIFIER_EVENT_TRACE;
@@ -492,7 +519,7 @@ mui_xcb_poll(
 		c2_rect_t *ra = (c2_rect_t*)pixman_region32_rectangles(&mui->redraw, &rc);
 		if (ui->redraw) {
 			ui->redraw = 0;
-			rc = 1; 
+			rc = 1;
 			ra = &whole;
 		}
 		if (rc) {
@@ -501,7 +528,7 @@ mui_xcb_poll(
 				c2_rect_t r = ra[i];
 	//			printf("XCB: %d,%d %dx%d\n", r.l, r.t, c2_rect_width(&r), c2_rect_height(&r));
 				xcb_copy_area(
-						ui->xcb, ui->xcb_pix, ui->window, ui->xcb_context, 
+						ui->xcb, ui->xcb_pix, ui->window, ui->xcb_context,
 						r.l, r.t, r.l, r.t, c2_rect_width(&r), c2_rect_height(&r));
 			}
 		}
@@ -600,7 +627,7 @@ int main()
 		while (stamp < now)
 			stamp += (MUI_TIME_SECOND / 60);
 		usleep(stamp-now);
-	} while (1);
+	} while (!mui->quit_request);
 	if (dynload) {
 		if (ui->plug_data && ui->plug && ui->plug->dispose) {
 			ui->plug->dispose(ui->plug_data);
@@ -608,7 +635,9 @@ int main()
 			ui->plug_data = NULL;
 		}
 		printf("Closed %s\n", filename);
-		dlclose(dynload);
+		// no need to dlclose, it prevents valgrind --leak-check=yes to find
+		// the symbols we want as they have been unloaded!
+	//	dlclose(dynload);
 	}
 	mui_drawable_dispose(&dr);
 	mui_xcb_terminate(mui);

@@ -60,6 +60,8 @@ $(LIB)/ui_tests.so : $(OBJ)/mii_mui_loadbin.o
 $(LIB)/ui_tests.so : $(OBJ)/mii_mui_1mb.o
 $(LIB)/ui_tests.so : $(OBJ)/mii_mui_2dsk.o
 $(LIB)/ui_tests.so : $(OBJ)/mii_mui_about.o
+$(LIB)/ui_tests.so : $(OBJ)/mii_mui_ssc.o
+$(LIB)/ui_tests.so : $(OBJ)/mii_mui_prefs.o
 
 $(OBJ)/mii_mui_about.o : CPPFLAGS+=-DMII_ICON64_DEFINE
 

@@ -67,9 +67,11 @@ Menubar, menus, checkmarks, keyboard shortcuts, all that stuff. Made to looks li
 ## Control Manager
 Buttons, checkboxes, radio buttons, scrollbars (vertical), wrapping textboxes, all that stuff.
    - It's missing bits like Edit Field (TODO), and a Slider.
+   - There IS a prototype version of a text edit control, but it's not quite right yet -- works fine for a one liner etc, but not for a multi line text box. Not far off tho.
 ## List Manager
 More or less hard coded to display filenames so far, but plain lists are actually easier than this so. Handle arrow keys/page up/down, scroll wheel, etc.
    - It's missing a way to 'compress' the font and/or use ellipsis abreviations (TODO) when the item text is too long.
+   + You CAN use 'typeahead' to find the item you want, like the original.
 ## Alerts
 It has the typical 'Cancel'+'OK' alert.
    - Could do with more types of alerts (TODO).
@@ -78,7 +80,7 @@ It has the classic 'Open' a file dialog. Haven't needed the other one. yet.
    - Could do with a 'Save' dialog (TODO).
    - Maybe a 'period correct' way to handle previously visited folders... Currently it can same the last folder you visited *per file type*.
    - You can use arrow keys, page/up down, and you can even typehead to the file you want, like in the old days.
-   
+
 ## Resource Manager
 Nope! Not there; I'd need some sort of ResEdit and stuff -- and now that is *ONE* Feature Creep Too Far thank you very much.
 I have a vague idea of making some sort of MessagePack format for resources, but that's for another day.

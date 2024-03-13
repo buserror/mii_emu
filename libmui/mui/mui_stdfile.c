@@ -119,12 +119,14 @@ _mui_stdfile_populate(
 		free(std->current_path);
 	std->current_path = strdup(path);
 	path = NULL; // this COULD be in the list we are now deleting!
-	for (int i = 0; i < (int)std->pop_path.count; i++)
+	for (uint i = 0; i < std->pop_path.count; i++)
 		free(std->pop_path.e[i]);
 	std->pop_path.count = 0;
 
 	mui_control_t *pop = std->popup;
 	mui_menu_items_t * items = mui_popupmenu_get_items(pop);
+	for (uint i = 0; i < items->count; i++)
+		free(items->e[i].title);
 	mui_menu_items_clear(items);
 	char * p = strdup(std->current_path);
 	char * d;
@@ -155,6 +157,8 @@ _mui_stdfile_populate(
 
 	mui_control_t * lb = std->listbox;
 	mui_listbox_elems_t * elems = mui_listbox_get_elems(lb);
+	for (uint i = 0; i < elems->count; i++)
+		free(elems->e[i].elem);	// free all the strings
 	mui_listbox_elems_clear(elems);
 	struct dirent * ent;
 	while ((ent = readdir(dir))) {
@@ -180,9 +184,9 @@ _mui_stdfile_populate(
 		// we enable all the files by default.
 		if (e.disabled && !std->re_pattern)
 			e.disabled = std->suffix[0].s[0] ? 1 : 0;
+		char *suf = strrchr(ent->d_name, '.');
 		// handle the case we have a list of dot suffixes to filter
 		if (e.disabled) {
-			char *suf = strrchr(ent->d_name, '.');
 			if (std->suffix[0].s[0] && suf) {
 				suf++;
 				uint32_t hash = mui_hash_nocase(suf);
@@ -199,8 +203,19 @@ _mui_stdfile_populate(
 		e.elem = strdup(ent->d_name);
 		if (S_ISDIR(st.st_mode))
 			strcpy(e.icon, MUI_ICON_FOLDER);
-		else
+		else {
 			strcpy(e.icon, MUI_ICON_FILE);
+			if (suf) {
+				if (!strcasecmp(suf, ".woz") || !strcasecmp(suf, ".nib") ||
+							!strcasecmp(suf, ".do"))
+					strcpy(e.icon, MUI_ICON_FLOPPY5);
+				else if ((!strcasecmp(suf, ".dsk") ||
+							!strcasecmp(suf, ".po"))) {
+					if (st.st_size == 143360)
+						strcpy(e.icon, MUI_ICON_FLOPPY5);
+				}
+			}
+		}
 		mui_listbox_elems_push(elems, e);
 	}
 	qsort(elems->e, elems->count,
@@ -223,7 +238,7 @@ _mui_stdfile_window_action(
 	switch (what) {
 		case MUI_WINDOW_ACTION_CLOSE: {
 			// dispose of anything we had allocated
-			printf("%s close\n", __func__);
+		//	printf("%s close\n", __func__);
 			if (std->pref_file)
 				free(std->pref_file);
 			if (std->re_pattern)
@@ -232,9 +247,21 @@ _mui_stdfile_window_action(
 				free(std->current_path);
 			if (std->selected_path)
 				free(std->selected_path);
+#ifdef MUI_HAS_REGEXP
 			regfree(&std->re);
-			for (int i = 0; i < (int)std->pop_path.count; i++)
+#endif
+			mui_control_t *pop = std->popup;
+			mui_menu_items_t * items = mui_popupmenu_get_items(pop);
+			for (uint i = 0; i < items->count; i++)
+				free(items->e[i].title);
+			for (uint i = 0; i < std->pop_path.count; i++)
 				free(std->pop_path.e[i]);
+			// free all the strings for all teh elems, its our responsibility
+			mui_listbox_elems_t * elems = mui_listbox_get_elems(std->listbox);
+			for (uint i = 0; i < elems->count; i++)
+				free(elems->e[i].elem);	// free all the strings
+
+			string_array_free(&std->pop_path);
 			std->pop_path.count = 0;
 		}	break;
 	}
@@ -372,6 +399,7 @@ mui_stdfile_get(
 			std->suffix[di].hash = hash;
 			di++;
 		}
+		free(dup);
 	}
 	mui_control_t * c = NULL;
 	c2_rect_t cf;

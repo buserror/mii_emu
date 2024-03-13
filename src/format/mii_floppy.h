@@ -25,7 +25,8 @@ enum {
 };
 
 typedef struct mii_floppy_track_t {
-	uint8_t			dirty : 1;	// track has been written to
+	uint8_t			dirty : 1,	// track has been written to
+					virgin : 1;	// track is not loaded/formatted
 	uint32_t		bit_count;
 } mii_floppy_track_t;
 
@@ -66,14 +67,17 @@ typedef struct mii_floppy_t {
 	mii_floppy_track_t tracks[MII_FLOPPY_TRACK_COUNT + 1];
 	// keep all the data together, we'll use it to make a texture
 	// the last track is used for noise
-	uint8_t 		track_data[MII_FLOPPY_TRACK_COUNT + 1][MII_FLOPPY_DEFAULT_TRACK_SIZE];
-	/* This is set by the UI to trakc the head movements, no functional use */
+	uint8_t 		track_data[MII_FLOPPY_TRACK_COUNT + 1]
+									[MII_FLOPPY_DEFAULT_TRACK_SIZE];
+	/* This is set by the UI to track the head movements,
+	 * no functional use */
 	mii_floppy_heatmap_t * heat;	// optional heatmap
 } mii_floppy_t;
 
 /*
- * Initialize a floppy structure with random data. It is not formatted, just
- * ready to use for loading a disk image, or formatting as a 'virgin' disk.
+ * Initialize a floppy structure with random data. It is not formatted,
+ * just ready to use for loading a disk image, or formatting as a
+ * 'virgin' disk.
  */
 void
 mii_floppy_init(
@@ -88,3 +92,27 @@ int
 mii_floppy_update_tracks(
 		mii_floppy_t *f,
 		mii_dd_file_t *file );
+void
+mii_floppy_resync_track(
+		mii_floppy_t *f,
+		uint8_t track_id,
+		uint8_t flags );
+
+typedef struct mii_floppy_track_map_t {
+	struct {
+		int32_t  		hsync, dsync;	// number of sync bits
+		uint32_t		header, data;	// position of the header and data
+	}				sector[16];
+} mii_floppy_track_map_t;
+
+/*
+ * this creates a sector+data map of a bitstream, and returns the positions
+ * of header and data blocks, as well as how many sync bits were found.
+ * Function return 0 if 16 headers + data were found, -1 if not.
+ */
+int
+mii_floppy_map_track(
+		mii_floppy_t *f,
+		uint8_t track_id,
+		mii_floppy_track_map_t *map,
+		uint8_t flags );

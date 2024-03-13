@@ -1,3 +1,15 @@
+## Top down view
+
+<center>
+   <img src="mui_emulator.drawio.png" alt="Top down view">
+   <i>Here how it's supposed to work!</i>
+</center>
+
+The emulator was made to be portable on most things. It's plain C compiled with -Wextras, I run in regularly thru the static analyser, and I regulartly check it with valgrind. So it's pretty clean.
+
+It evolved from the original mess, and I organized it into bits which would make porting it to other platform easier.
+
+
 ## How to I compile it and run it?
    * You need a C compiler, make, and a few libraries:
       * libasound2-dev [ optional, for audio ]
@@ -26,9 +38,4 @@ I have pretty consistent code style across my projects.
 ## What needs doing?
 * I'm sure there are bugs. I haven't tested it on a lot of hardware, and apart from quite a few games and a few known productivity app, it had had very little extensive testing. So testing!
 * In the code there are a few bits which needs fixing
-   * The mouse card is not working properly. It works for some (most importantly A2 Desktop), but it's not working properly. I suspect the VBL Interrupt handling.
-   * In mii.c, the *mii_page_table_update()* does work, but it sub-optimal, it was handy to debug the countless combination of soft-switches, but it is not the ideal way to handle that problem; it needs a proper switch-case statement.
-   * The floppy drive emulation was borrowed from bobbin, and it works, and it
-   got it all working, but it's definitely not matching the style of the rest of the codebase. It needs to be replaced.
-   * Plenty of the most complicated piece of code (video, memory mapping) load a dozen of soft-switches, it probably should use a separately maintained bit field that is maintained by the on/off switches, and would make it a lot easier to test for bit combinations.
-   * The static array of memory 'banks' works, but it prevents me easily making a memory extension card. It should be refactored at some point.
+   * The floppy driver still has issues writing, most notably it fails to 'bit copy' stuff when using Copy II plus. It's a timing issue, but I haven't found it yet.

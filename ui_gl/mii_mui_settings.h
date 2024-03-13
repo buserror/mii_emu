@@ -55,8 +55,16 @@ typedef struct mii_2dsk_conf_t {
 	mii_drive_conf_t 		drive[2];
 } mii_2dsk_conf_t;
 
+enum {
+	MII_SSC_KIND_DEVICE = 0,
+	MII_SSC_KIND_PTY,
+	MII_SSC_KIND_SOCKET,
+};
+
 typedef struct mii_ssc_conf_t {
-	uint8_t 				kind; // device, pty, socket
+	uint32_t 				slot_id : 3,
+							kind : 3, // device, pty, socket
+							hw_handshake : 1;
 	int 					socket_port;
 	char 					device[MII_PATH_SIZE_MAX];
 	// rom/card configuration
@@ -82,7 +90,7 @@ enum mii_mui_driver_e {
 	MII_SLOT_DRIVER_SMARTPORT,
 	MII_SLOT_DRIVER_DISK2,
 	MII_SLOT_DRIVER_MOUSE,
-	MII_SLOT_DRIVER_SUPERSERIAL,
+	MII_SLOT_DRIVER_SSC,
 	MII_SLOT_DRIVER_ROM1MB,
 	MII_SLOT_DRIVER_COUNT
 };
@@ -121,6 +129,7 @@ enum mii_mui_dialog_e {
 	MII_MUI_1MB_SAVE 		= FCC('1','M','B',' '),
 	MII_MUI_DISK2_SAVE 		= FCC('2','D','S','K'),
 	MII_MUI_SMARTPORT_SAVE 	= FCC('S','M','P','T'),
+	MII_MUI_SSC_SAVE 		= FCC('S','S','C',' '),
 };
 
 struct mui_window_t *
@@ -155,6 +164,10 @@ mii_mui_load_2dsk(
 		struct mui_t *mui,
 		mii_2dsk_conf_t *config,
 		uint8_t drive_kind);
+struct mui_window_t *
+mii_mui_configure_ssc(
+		struct mui_t *mui,
+		mii_ssc_conf_t *config);
 
 /*
  * Config file related

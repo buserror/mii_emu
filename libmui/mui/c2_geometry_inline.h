@@ -190,7 +190,7 @@ c2_rect_contains_pt(
 C2_DECL c2_rect_p
 c2_rect_union(
 		c2_rect_p r,
-		c2_rect_p u )
+		const c2_rect_p u )
 {
 	if (!r || !u) return r;
 	if (c2_rect_isempty(r)) {

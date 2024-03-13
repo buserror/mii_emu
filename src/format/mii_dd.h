@@ -14,11 +14,12 @@ struct mii_dd_t;
 
 enum {
 //	MII_DD_FILE_OVERLAY = 1,
-	MII_DD_FILE_RAM,
+	MII_DD_FILE_RAM = 1,
 	MII_DD_FILE_ROM,
 	MII_DD_FILE_PO,
-	MII_DD_FILE_2MG 	= 5,
+	MII_DD_FILE_2MG,
 	MII_DD_FILE_DSK,
+	MII_DD_FILE_DO,
 	MII_DD_FILE_NIB,
 	MII_DD_FILE_WOZ
 };
@@ -65,12 +66,14 @@ typedef struct mii_dd_overlay_t {
 
 struct mii_slot_t;
 struct mii_dd_system_t;
+struct mii_floppy_t;
 
 // a disk drive, with a slot, a drive number, and a file
 typedef struct mii_dd_t {
 	struct mii_dd_t *		next;
 	struct mii_dd_system_t *dd;
-	const char *			name;	 // ie "Disk ][ D:2"
+	const char *			name;	// ie "Disk ][ D:2"
+	struct mii_floppy_t *	floppy;	// if it's a floppy drive
 	uint8_t 				slot_id : 4, drive : 4;
 	struct mii_slot_t *		slot;
 	unsigned int 			ro : 1, wp : 1, can_eject : 1;

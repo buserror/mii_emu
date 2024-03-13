@@ -55,6 +55,7 @@ enum {
 	SWDHIRESOFF 	= 0xc05f,		// AN3_ON
 	SWAN3 			= 0xc05e,		// AN3 status
 	SWAN3_REGISTER 	= 0xc05f,	// AN3 register for video mode
+	SWRAMWORKS_BANK	= 0xc073,
 	SWRDDHIRES 		= 0xc07f,
 };
 
@@ -82,7 +83,7 @@ enum {
 	B_SWDHIRES	 	= (16),
 	// this is no 'real' softwitch, but a bit to mention a card has
 	// it's secondary rom online in pages c800-cfff
-	B_SLOTAUXROM	= (17),
+	B_INTC8ROM		= (17),
 
 	M_SW80STORE 	= (1 << B_SW80STORE),
 	M_SWALTCHARSET 	= (1 << B_SWALTCHARSET),
@@ -101,7 +102,7 @@ enum {
 	M_BSRPAGE2 		= (1 << B_BSRPAGE2),
 	M_BSRPREWRITE 	= (1 << B_BSRPREWRITE),
 	M_SWDHIRES	 	= (1 << B_SWDHIRES),
-	M_SLOTAUXROM	= (1 << B_SLOTAUXROM),
+	M_INTC8ROM		= (1 << B_INTC8ROM),
 };
 
 #define __unused__ __attribute__((unused))
@@ -125,12 +126,17 @@ static const char __unused__ *mii_sw_names[] =  {
 	"BSRPAGE2",
 	"BSRPREWRITE",
 	"DHIRES",
-	"AUXROMON",
+	"INTC8ROM",
 	NULL,
 } ;
 
-#define SW_SETSTATE(_mii, _sw, _state) \
-	(_mii)->sw_state = ((_mii)->sw_state & ~(M_##_sw)) | \
+#define SWW_SETSTATE(_bits, _sw, _state) \
+	(_bits) = ((_bits) & ~(M_##_sw)) | \
 						(!!(_state) << B_##_sw)
+#define SWW_GETSTATE(_bits, _sw) \
+	(!!((_bits) & M_##_sw))
+
+#define SW_SETSTATE(_mii, _sw, _state) \
+	SWW_SETSTATE((_mii)->sw_state, _sw, _state)
 #define SW_GETSTATE(_mii, _sw) \
-	(!!((_mii)->sw_state & M_##_sw))
+	SWW_GETSTATE((_mii)->sw_state, _sw)

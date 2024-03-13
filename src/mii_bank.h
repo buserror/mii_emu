@@ -38,11 +38,13 @@ typedef struct mii_bank_access_t {
 typedef struct mii_bank_t {
 	uint64_t	base : 16, 		// base address
 				size : 9,		// in pages
-				alloc : 1,		// been calloced()
+				no_alloc: 1,	// don't allocate memory
+				alloc : 1,		// been malloced()
 				ro : 1;			// read only
 	char *		name;
 	mii_bank_access_t * access;
 	uint8_t		*mem;
+	uint32_t 	mem_offset;
 } mii_bank_t;
 
 void

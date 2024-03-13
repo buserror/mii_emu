@@ -17,12 +17,15 @@ extern mui_menu_item_t m_machine_menu[];
 extern mui_menu_item_t m_cpu_menu[];
 
 #ifdef MII_MUI_MENUS_C
-mui_menu_item_t m_apple_menu[] = {
+#include "mii_mui_apple_logo.h"
+mui_menu_item_t m_color_apple_menu[] = {
+	{ .color_icon = mii_color_apple_pixels, .is_menutitle = 1, },
 	{ .title = "About MII…",
 			.uid = FCC('a','b','o','t') },
 //	{ .title = "-", },
 	{ },
 };
+
 mui_menu_item_t m_file_menu[] = {
 	/* these two don't do anything for the moment */
 	{ .title = "No Drives Installed…",

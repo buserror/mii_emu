@@ -169,7 +169,7 @@ _mii_nsc_probe(
 	/* ... A2Desktop requires the NSC to be on the main rom, the source
 	 * claims it probe the slots, but in fact, it doesnt */
 	mii_bank_install_access_cb(&mii->bank[MII_BANK_ROM],
-			_mii_nsc_access, nsc, 0xc3, 0);
+			_mii_nsc_access, nsc, 0xc8, 0);
 	return 1;
 }
 

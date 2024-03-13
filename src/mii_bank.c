@@ -14,14 +14,17 @@
 #include "mii.h"
 #include "mii_bank.h"
 
+
 void
 mii_bank_init(
 		mii_bank_t *bank)
 {
 	if (bank->mem)
 		return;
-	bank->mem = calloc(1, bank->size * 256);
-	bank->alloc = 1;
+	if (bank->mem_offset == 0 && !bank->no_alloc) {
+		bank->mem = calloc(1, bank->size * 256);
+		bank->alloc = 1;
+	}
 }
 
 void
@@ -50,10 +53,11 @@ mii_bank_write(
 		uint16_t len)
 {
 	uint32_t end = bank->base + (bank->size << 8);
-	if (unlikely(addr < bank->base) || unlikely((addr + len) > end)) {
+	if (unlikely(addr < bank->base || (addr + len) > end)) {
 		printf("%s %s INVALID write addr %04x len %d %04x:%04x\n",
 					__func__, bank->name, addr, (int)len,
-					bank->base, bank->base + (bank->size * 256));
+					bank->base, end);
+					abort();
 		return;
 	}
 	uint8_t page_index = (addr - bank->base) >> 8;
@@ -62,10 +66,10 @@ mii_bank_write(
 					addr, (uint8_t *)data, true))
 			return;
 	}
-	addr -= bank->base;
+	uint32_t phy = bank->mem_offset + addr - bank->base;
 	do {
-		bank->mem[addr++] = *data++;
-	} while (unlikely(--len));
+		bank->mem[phy++] = *data++;
+	} while (likely(--len));
 }
 
 void
@@ -75,12 +79,12 @@ mii_bank_read(
 		uint8_t *data,
 		uint16_t len)
 {
-	#if 0 // rather expensive test when profiling!
+	#if 1 // rather expensive test when profiling!
 	uint32_t end = bank->base + (bank->size << 8);
 	if (unlikely(addr < bank->base) || unlikely((addr + len) > end)) {
 		printf("%s %s INVALID read addr %04x len %d %04x-%04x\n",
 					__func__, bank->name, addr, (int)len,
-					bank->base, bank->base + (bank->size * 256));
+					bank->base, end);
 		return;
 	}
 	#endif
@@ -90,10 +94,10 @@ mii_bank_read(
 					addr, data, false))
 			return;
 	}
-	addr -= bank->base;
+	uint32_t phy = bank->mem_offset + addr - bank->base;
 	do {
-		*data++ = bank->mem[addr++];
-	} while (unlikely(--len));
+		*data++ = bank->mem[phy++];
+	} while (likely(--len));
 }
 
 
@@ -117,9 +121,12 @@ mii_bank_install_access_cb(
 	if (!bank->access) {
 		bank->access = calloc(1, bank->size * sizeof(bank->access[0]));
 	}
-//	printf("%s %s install access cb page %02x:%02x\n",
-//			__func__, bank->name, page, end);
+	printf("%s %s install access cb page %02x:%02x\n",
+			__func__, bank->name, page, end);
 	for (int i = page; i <= end; i++) {
+		if (bank->access[i].cb)
+			printf("%s %s page %02x already has a callback\n",
+					__func__, bank->name, i);
 		bank->access[i].cb = cb;
 		bank->access[i].param = param;
 	}

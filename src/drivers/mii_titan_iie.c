@@ -31,21 +31,21 @@ _mii_titan_access(
 {
 	mii_t *mii = param;
 	bool res = false;
-	mii_bank_t *main = &mii->bank[MII_BANK_MAIN];
+	mii_bank_t *sw = &mii->bank[MII_BANK_SW];
 	if (write) {
 		printf("titan: write %02x to %04x\n", *byte, addr);
 		switch (*byte) {
 			case 5:
-				mii->speed = 3.58;
-				mii_bank_poke(main, 0xc086, *byte);
+				mii->speed = MII_SPEED_TITAN;
+				mii_bank_poke(sw, 0xc086, *byte);
 			 	break;
 			case 1:
-				mii_bank_poke(main, 0xc086, *byte);
-				mii->speed = 1;
+				mii_bank_poke(sw, 0xc086, *byte);
+				mii->speed = MII_SPEED_NTSC;
 				break;
 			case 0xa:	// supposed to lock it too...
-				mii_bank_poke(main, 0xc086, *byte);
-				mii->speed = 1;
+				mii_bank_poke(sw, 0xc086, *byte);
+				mii->speed = MII_SPEED_NTSC;
 				break;
 			default:
 				printf("titan: unknown speed %02x\n", *byte);
