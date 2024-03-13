@@ -42,7 +42,6 @@ typedef struct mui_menu_t {
 	mui_window_t 			win;
 	uint					click_inside : 1,
 							drag_ev : 1,
-							closing: 1,				// prevent double-delete
 							timer_call_count : 2; 	// used by mui_menu_close_timer_cb
 	mui_control_ref_t		highlighted;	// mui_menuitem_control_t *
 	mui_time_t				sub_open_stamp;

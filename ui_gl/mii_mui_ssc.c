@@ -404,7 +404,7 @@ mii_mui_configure_ssc(
 	cf.r = cf.l + 280;
 	m->handshake = c = mui_button_new(w,
 					cf, MUI_BUTTON_STYLE_CHECKBOX,
-					"Handware Handshake",
+					"Hardware Handshake",
 					MII_SSC_HANDSHAKE);
 	c->key_equ = MUI_KEY_EQU(MUI_MODIFIER_ALT, 'h');
 	c = NULL;
