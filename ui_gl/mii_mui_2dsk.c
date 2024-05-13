@@ -14,6 +14,7 @@
 #include <libgen.h>
 #include "mui.h"
 
+#include "mii_mui_utils.h"
 #include "mii_mui_settings.h"
 
 enum {
@@ -31,10 +32,7 @@ typedef struct mii_mui_2dsk_t {
 	uint8_t 				drive_kind;
 	mui_control_t * 		load;
 	uint32_t 				selecting;
-	struct {
-		mui_control_t *icon, *fname, *button, *wp, *warning;
-	} 						drive[2];
-
+	mii_mui_file_select_t	drive[2];
 	mii_2dsk_conf_t * 		dst;
 	mii_2dsk_conf_t			config;
 } mii_mui_2dsk_t;
@@ -188,11 +186,11 @@ mii_mui_2dsk_load_conf(
 			mui_control_set_title(m->drive[i].button, "Eject");
 			if (check.warning) {
 				mui_control_set_title(m->drive[i].warning, check.warning);
-				mui_control_set_state(m->drive[i].wp, MUI_CONTROL_STATE_DISABLED);
+				mui_control_set_state(m->drive[i].checkbox, MUI_CONTROL_STATE_DISABLED);
 				free(check.warning);
 			} else {
 				mui_control_set_title(m->drive[i].warning, "");
-				mui_control_set_state(m->drive[i].wp, MUI_CONTROL_STATE_NORMAL);
+				mui_control_set_state(m->drive[i].checkbox, MUI_CONTROL_STATE_NORMAL);
 			}
 		} else {
 			config->drive[i].ro_file = config->drive[i].ro_format	= 0;
@@ -200,10 +198,10 @@ mii_mui_2dsk_load_conf(
 			mui_control_set_title(m->drive[i].fname, "Click \"Select\" to pick a file");
 			mui_control_set_state(m->drive[i].icon, MUI_CONTROL_STATE_DISABLED);
 			mui_control_set_title(m->drive[i].button, "Select…");
-			mui_control_set_state(m->drive[i].wp, MUI_CONTROL_STATE_NORMAL);
+			mui_control_set_state(m->drive[i].checkbox, MUI_CONTROL_STATE_NORMAL);
 			mui_control_set_title(m->drive[i].warning, "");
 		}
-		mui_control_set_value(m->drive[i].wp,
+		mui_control_set_value(m->drive[i].checkbox,
 			(config->drive[i].wp || config->drive[i].ro_file ||
 				config->drive[i].ro_format) ? 1 : 0);
 	}
@@ -225,7 +223,7 @@ _mii_2dsk_stdfile_cb(
 		case MUI_STDF_ACTION_SELECT: {
 			int idx = m->selecting == MII_2DSK_SELECT1 ? 0 : 1;
 			char * path = mui_stdfile_get_selected_path(w);
-			printf("%s select %s\n", __func__, path);
+		//	printf("%s select %s\n", __func__, path);
 			strncpy(m->config.drive[idx].disk, path,
 						sizeof(m->config.drive[idx].disk)-1);
 			free(path);
@@ -233,7 +231,7 @@ _mii_2dsk_stdfile_cb(
 			mii_mui_2dsk_load_conf(m, &m->config);
 		}	break;
 		case MUI_STDF_ACTION_CANCEL:
-			printf("%s cancel\n", __func__);
+		//	printf("%s cancel\n", __func__);
 			mui_window_dispose(w);
 			break;
 	}
@@ -247,7 +245,7 @@ _mii_2dsk_action_cb(
 		uint32_t 		what,
 		void * 			param)	// not used
 {
-	printf("%s %4.4s\n", __func__, (char*)&what);
+//	printf("%s %4.4s\n", __func__, (char*)&what);
 	mii_mui_2dsk_t * m = cb_param;
 	uint32_t uid = mui_control_get_uid(c);
 
@@ -257,7 +255,7 @@ _mii_2dsk_action_cb(
 			switch (uid) {
 				case MII_2DSK_SAVE: {
 					// save the config
-					printf("%s save\n", __func__);
+				//	printf("%s save\n", __func__);
 					if (m->dst)
 						*m->dst = m->config;
 					mui_window_action(&m->win,
@@ -269,7 +267,7 @@ _mii_2dsk_action_cb(
 				}	break;
 				case MII_2DSK_CANCEL: {
 					// cancel the config
-					printf("%s cancel\n", __func__);
+				//	printf("%s cancel\n", __func__);
 					mui_window_dispose(&m->win);
 				}	break;
 				case MII_2DSK_SELECT1:
@@ -279,11 +277,11 @@ _mii_2dsk_action_cb(
 					m->selecting = uid; // remember which drive we're selecting
 					int idx = uid == MII_2DSK_SELECT1 ? 0 : 1;
 					if (config->drive[idx].disk[0]) {
-						printf("%s eject %d\n", __func__, idx);
+					//	printf("%s eject %d\n", __func__, idx);
 						config->drive[idx].disk[0] = 0;
 						mii_mui_2dsk_load_conf(m, config);
 					} else {
-						printf("%s select %d\n", __func__, idx);
+					//	printf("%s select %d\n", __func__, idx);
 						mui_window_t * w = mui_stdfile_get(m->win.ui,
 							C2_PT(0, 0),
 							m->drive_kind == MII_2DSK_SMARTPORT ?
@@ -355,59 +353,31 @@ mii_mui_load_2dsk(
 	c->key_equ = MUI_KEY_EQU(0, 27);
 
 	c2_rect_set(&cf, margin, (margin / 2),
-					c2_rect_width(&w->frame) - margin - 120,
-					(margin/2) + base_size);
+					c2_rect_width(&w->frame) - margin,
+					(margin / 2) + base_size);
 	c2_rect_t cp = cf;
 	cp.l -= margin * 0.2;
 	cp.b += base_size * 1.3;
 	for (int i = 0; i < 2; i++) {
-		char buf[32];
-		snprintf(buf, sizeof(buf), "Drive %d:", i+1);
-		c = mui_groupbox_new(w, cp, buf, MUI_CONTROL_TEXTBOX_FRAME);
-
-		float icons_size = mui_font_find(ui, "icon_small")->size;
-		c2_rect_bottom_of(&cf, cp.t, base_size);
-		c2_rect_right_of(&cf, cp.l, margin * 0.5);
-		cf.b = cf.t + icons_size;
-		cf.r = cf.l + icons_size;
-		m->drive[i].icon = c = mui_textbox_new(w, cf,
-					MUI_ICON_FILE, "icon_small",
-					MUI_TEXT_ALIGN_MIDDLE | MUI_TEXT_ALIGN_CENTER | 0);
-		c->state = MUI_CONTROL_STATE_DISABLED;
-		cf.l = cf.r;
-		cf.r = cp.r - margin * 0.5;
-		m->drive[i].fname = c = mui_textbox_new(w, cf,
-							"Click \"Select\" to pick a file", NULL, 0);
-		c->state = MUI_CONTROL_STATE_DISABLED;
-
-		c2_rect_right_of(&cf, cp.r, margin * 0.8);
-		cf.r = c2_rect_width(&w->frame) - margin * 1.2;
-		c2_rect_inset(&cf, -4,-4);
-		m->drive[i].button = c = mui_button_new(w,
-						cf, MUI_BUTTON_STYLE_NORMAL,
-						"Select…" , i == 0 ?
-							MII_2DSK_SELECT1 : MII_2DSK_SELECT2);
-		c->key_equ = MUI_KEY_EQU(MUI_MODIFIER_ALT, '1' + i);
-
-		c2_rect_bottom_of(&cf, cp.b, margin * 0.4);
-		cf.l = cp.l + (margin * 0.7);
-		cf.r = cf.l + 200;
-		cf.b = cf.t + base_size;
-		m->drive[i].wp = c = mui_button_new(w,
-						cf, MUI_BUTTON_STYLE_CHECKBOX,
-						"Write Protect",
-						i == 0 ? MII_2DSK_WP1 : MII_2DSK_WP2);
-		// Smartport don't support write protect right now
+		mii_mui_file_select_t * fs = &m->drive[i];
+		mii_mui_fileselect_widget(fs, w, &cp,
+			i == 0 ? "Drive 1:" : "Drive 2:",
+			"Select…",
+			"Write Protect");
+		m->drive[i].button->uid = i == 0 ? MII_2DSK_SELECT1 : MII_2DSK_SELECT2;
+		m->drive[i].button->key_equ = MUI_KEY_EQU(MUI_MODIFIER_ALT, '1' + i);
 		if (drive_kind == MII_2DSK_SMARTPORT)
-			c->state = MUI_CONTROL_STATE_DISABLED;
-		c2_rect_right_of(&cf, cf.r, margin * 0.5);
-		cf.r = c2_rect_width(&w->frame) - margin * 1.2;
-		m->drive[i].warning = c = mui_textbox_new(w, cf,
-						"", NULL,
-						MUI_TEXT_ALIGN_MIDDLE|MUI_TEXT_ALIGN_RIGHT);
-		c2_rect_bottom_of(&cp, cp.b + (base_size * 2), margin * 0.2);
+			m->drive[i].checkbox->state = MUI_CONTROL_STATE_DISABLED;
+		else {
+			mui_control_set_title(m->drive[i].icon, MUI_ICON_FLOPPY5);
+		}
+		m->drive[i].checkbox->uid = i == 0 ? MII_2DSK_WP1 : MII_2DSK_WP2;
+
+		c2_rect_bottom_of(&cp, cp.b, margin);
 	}
-	c2_rect_top_of(&cp, cp.t, margin * 3.5);
+	cp = m->drive[1].box->frame;
+	cp.b = cp.t + 2;
+	c2_rect_top_of(&cp, m->drive[1].box->frame.t, margin * 0.4);
 	cp.l = margin * 4;
 	cp.r = c2_rect_width(&w->frame) - margin * 4;
 	c = mui_separator_new(w, cp);

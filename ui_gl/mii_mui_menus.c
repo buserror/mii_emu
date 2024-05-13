@@ -17,8 +17,6 @@
 #include "mii_mui_menus.h"
 #include "mii_mui_settings.h"
 
-/* this is heavily endian dependend, as is the FCC macro */
-#define FCC_INDEX(_fcc) (isdigit(_fcc>>24) ? ((_fcc >> 24) - '0') : 0)
 
 struct mii_x11_t;
 void
@@ -89,6 +87,17 @@ mii_config_save_cb(
 			mii_ui_reconfigure_slot(mii, config, conf->slot_id + 1);
 			mii_emu_save(&ui->cf, &ui->config);
 		}	break;
+		case MII_MUI_LOADBIN_SAVE: {
+			mii_loadbin_conf_t * conf = param;
+		//	mii_t * mii = &ui->mii;
+		//	mii_machine_config_t * config = &ui->config;
+			mii_th_signal_t sig = {
+				.cmd = SIGNAL_LOADBIN,
+				.ptr = conf,
+			};
+			mii_th_fifo_write(mii_thread_get_fifo(&ui->mii), sig);
+			mii_emu_save(&ui->cf, &ui->config);
+		}	break;
 	}
 	return 0;
 }
@@ -123,7 +132,11 @@ mii_menubar_action(
 				switch (items[i].uid) {
 					case FCC('v','d','c','0'):
 					case FCC('v','d','c','1'):
-					case FCC('v','d','c','2'): {
+					case FCC('v','d','c','2'):
+					case FCC('v','d','c','3'):
+					case FCC('v','d','c','4'):
+					case FCC('v','d','c','5'):
+					case FCC('v','d','c','6'): {
 						int idx = FCC_INDEX(items[i].uid);
 						if (mii->video.color_mode == idx)
 							strcpy(items[i].mark, MUI_GLYPH_TICK);
@@ -141,6 +154,10 @@ mii_menubar_action(
 						break;
 					case FCC('a','u','d','-'):
 						items[i].disabled = mii->speaker.volume <= 0.1;
+						break;
+					case FCC('s','a','u','d'):
+						// are we in silent mode ?
+						items[i].disabled = mii->speaker.speaker_off;
 						break;
 					case FCC('m','h','z','1'):
 						if (mii->speed <= 1.1 && mii->speed >= 0.9)
@@ -269,13 +286,16 @@ mii_menubar_action(
 					break;
 				case FCC('v','d','C','l'): {
 //					printf("%s Cycle video\n", __func__);
-					mii->video.color_mode = (mii->video.color_mode + 1) % 3;
+					// this is auto clamped
+					mii_video_set_mode(mii, mii->video.color_mode + 1);
 					ui->config.video_mode = mii->video.color_mode;
 				}	break;
 				case FCC('v','d','c','0'):
 				case FCC('v','d','c','1'):
 				case FCC('v','d','c','2'):
-					mii->video.color_mode = FCC_INDEX(item->uid);
+				case FCC('v','d','c','3'):
+				case FCC('v','d','c','4'):
+					mii_video_set_mode(mii, FCC_INDEX(item->uid));
 					ui->config.video_mode = mii->video.color_mode;
 					break;
 				case FCC('m','h','z','1'):
@@ -293,6 +313,12 @@ mii_menubar_action(
 				case FCC('s','t','e','p'): {
 					mii_th_signal_t sig = {
 						.cmd = SIGNAL_STEP,
+					};
+					mii_th_fifo_write(mii_thread_get_fifo(&ui->mii), sig);
+				}	break;
+				case FCC('n','e','x','t'): {
+					mii_th_signal_t sig = {
+						.cmd = SIGNAL_NEXT,
 					};
 					mii_th_fifo_write(mii_thread_get_fifo(&ui->mii), sig);
 				}	break;

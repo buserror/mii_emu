@@ -1,91 +1,62 @@
+# Makefile
+#
+# Copyright (C) 2020 Michel Pollet <buserror@gmail.com>
+#
+# SPDX-License-Identifier: MIT
 
 CC				= gcc
-CPPFLAGS		+= -Imui
-# for bsd_queue.h
-CPPFLAGS		+= -I../libmish/src
-CPPFLAGS		+= -DUI_HAS_XCB=1 -DUI_HAS_XKB=1
-OPTIMIZE		?= -O0 -g
-CFLAGS			+= --std=gnu99 -Wall -Wextra
-CFLAGS			+= $(OPTIMIZE)
-CFLAGS			+= -Wno-unused-parameter -Wno-unused-function
-# PIC is necessary for the shared library/plugin to work
-CFLAGS 			+= -fPIC
 
-CPPFLAGS		+= ${shell pkg-config --cflags pixman-1}
-LDLIBS			+= ${shell pkg-config --libs pixman-1}
-LDLIBS			+= $(shell pkg-config --libs \
-						xcb xcb-shm xcb-randr \
-						xkbcommon-x11)
-LDLIBS			+= -lm -ldl
+LIBMUI 			=
+MUI_SRC			:= $(wildcard $(LIBMUI)src/*.c)
 
-O 				:= $(BUILD_DIR)build-$(shell $(CC) -dumpmachine)
-BIN 			:= $(O)/bin
-OBJ 			:= $(O)/obj/libmui
-LIB 			:= $(O)/lib
+vpath %.c $(LIBMUI)src $(LIBMUI)mui_shell
 
-MUI_SRC			:= $(wildcard mui/*.c)
-SRC				:= $(MUI_SRC)
-MUI_OBJ			:= ${patsubst %, $(OBJ)/%, ${notdir ${SRC:.c=.o}}}
+# this is just so we compile the tests if not a submodule
+IS_SUBMODULE 	:= ${wildcard ../ui_gl/mii_mui.h}
 
-SRC_VPATH		:= mui tests
-SRC_VPATH		+= ../ui_gl
-vpath %.c $(SRC_VPATH)
+all				: static mui_shell
 
-CPPFLAGS		+= -I../contrib
+include $(LIBMUI)Makefile.common
 
-VERSION			:= ${shell git log -1 --date=short --pretty="%h %cd"}
-CPPFLAGS		+= -DUI_VERSION="\"$(VERSION)\""
+ifeq ($(IS_SUBMODULE),)
+all				: tests
+endif
 
+MUI_OBJ			:= ${patsubst %, $(OBJ)/%, ${notdir ${MUI_SRC:.c=.o}}}
 TARGET_LIB		:= $(LIB)/libmui.a
 
-all 			:  $(BIN)/mui_playground $(LIB)/ui_tests.so
-
-.PHONY			: static
-
+.PHONY			: mui_shell static tests
+mui_shell		: $(BIN)/mui_shell
 static			: $(TARGET_LIB)
-
-ifeq ($(V),1)
-Q :=
-else
-Q := @
-endif
+tests			: | $(TARGET_LIB)
+	$(MAKE) -j -C tests
+	@echo " ** To launch the demo, run "
+	@echo "   $(BIN)/mui_shell -f $(LIB)/mui_widgets_demo.so"
 
 $(TARGET_LIB) : $(MUI_OBJ) | $(LIB)
 	@echo "  AR      $@"
 	$(Q)$(AR) rcs $@ $^
 
-$(OBJ)/ui_tests.o : CPPFLAGS += -Itests -I../ui_gl
-$(LIB)/ui_tests.so : $(OBJ)/mii_mui_slots.o
-$(LIB)/ui_tests.so : $(OBJ)/mii_mui_loadbin.o
-$(LIB)/ui_tests.so : $(OBJ)/mii_mui_1mb.o
-$(LIB)/ui_tests.so : $(OBJ)/mii_mui_2dsk.o
-$(LIB)/ui_tests.so : $(OBJ)/mii_mui_about.o
-$(LIB)/ui_tests.so : $(OBJ)/mii_mui_ssc.o
-$(LIB)/ui_tests.so : $(OBJ)/mii_mui_prefs.o
+#
+# The shell program is used to test the UI library using plugins
+# It is made using XCB and XKB libraries to have a minimal dependency
+# on X11. Also, allows partial updates to be tested properly
+#
+$(OBJ)/mui_shell.o : CPPFLAGS += -DUI_HAS_XCB=1 -DUI_HAS_XKB=1
+ifeq ($(shell uname),NetBSD)
+# NetBSD requirements
+$(OBJ)/mui_shell.o : CPPFLAGS += $(shell pkg-config --cflags xorg-server xkbcommon)
+$(BIN)/mui_shell : LDLIBS += $(shell pkg-config --libs xorg-server)
+endif
 
-$(OBJ)/mii_mui_about.o : CPPFLAGS+=-DMII_ICON64_DEFINE
-
-# use a .temp file, otherwise the playground tries to reload before the file
-# is fully written, and it fails.
-# the ${filter} are there to make the sure object files are linked before the .a
-$(LIB)/ui_tests.so : $(OBJ)/ui_tests.o $(LIB)/libmui.a | $(O)
-	@echo "  LDSO      $@"
-	$(Q)$(CC) $(CPPFLAGS) $(CFLAGS) -shared -fPIC -o $@.temp \
-			${filter %.o, $^} ${filter %.a, $^} $(LDLIBS) && \
-		mv $@.temp $@
-
-$(BIN)/mui_playground : $(OBJ)/mui_playground.o $(LIB)/libmui.a
-
-$(OBJ)/%.o		: %.c | $(OBJ)
-	@echo "  CC" ${filter -O%, $(CPPFLAGS) $(CFLAGS)} "$<"
-	$(Q)$(CC) -MMD $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
-
-$(BIN)/%			:  | $(BIN)
-	@echo "  LD      $@"
-	$(Q)$(CC) $(LDFLAGS) -o $@ $^ $(LDLIBS)
-
-$(O) $(OBJ) $(BIN) $(LIB):
-	@mkdir -p $@
+$(BIN)/mui_shell : LDLIBS += $(shell pkg-config --libs \
+								xcb xcb-shm xcb-image \
+								xkbcommon xkbcommon-x11)
+$(BIN)/mui_shell : LDLIBS += -lm
+ifeq ($(shell uname),Linux)
+$(BIN)/mui_shell : LDLIBS += -ldl
+endif
+$(BIN)/mui_shell : $(OBJ)/mui_shell.o $(LIB)/libmui.a
 
 clean :
 	rm -rf $(O)
@@ -94,13 +65,13 @@ clean :
 # everytime a file is modified.
 watch			:
 	while true; do \
-		clear; $(MAKE) -j all; \
-		inotifywait -qre close_write mui tests ../ui_gl; \
+		clear; $(MAKE) -j all tests; \
+		inotifywait -qre close_write src mui_shell tests/* ../ui_gl; \
 	done
 
 compile_commands.json: lsp
 lsp:
-	{ $$(which gmake) CC=gcc V=1 --always-make --dry-run all ; } | \
+	{ $$(which gmake) CC=gcc V=1 --always-make --dry-run all tests ; } | \
 		sh ../utils/clangd_gen.sh >compile_commands.json
 
 -include $(OBJ)/*.d

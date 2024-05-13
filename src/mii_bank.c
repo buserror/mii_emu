@@ -45,6 +45,23 @@ mii_bank_dispose(
 	bank->access = NULL;
 }
 
+bool
+mii_bank_access(
+		mii_bank_t *bank,
+		uint16_t addr,
+		const uint8_t *data,
+		uint16_t len,
+		bool write)
+{
+	uint8_t page_index = (addr - bank->base) >> 8;
+	if (bank->access && bank->access[page_index].cb) {
+		if (bank->access[page_index].cb(bank, bank->access[page_index].param,
+					addr, (uint8_t *)data, write))
+			return true;
+	}
+	return false;
+}
+
 void
 mii_bank_write(
 		mii_bank_t *bank,
@@ -52,6 +69,7 @@ mii_bank_write(
 		const uint8_t *data,
 		uint16_t len)
 {
+	#if 0 // rather expensive test when profiling!
 	uint32_t end = bank->base + (bank->size << 8);
 	if (unlikely(addr < bank->base || (addr + len) > end)) {
 		printf("%s %s INVALID write addr %04x len %d %04x:%04x\n",
@@ -60,12 +78,9 @@ mii_bank_write(
 					abort();
 		return;
 	}
-	uint8_t page_index = (addr - bank->base) >> 8;
-	if (bank->access && bank->access[page_index].cb) {
-		if (bank->access[page_index].cb(bank, bank->access[page_index].param,
-					addr, (uint8_t *)data, true))
-			return;
-	}
+	#endif
+	if (mii_bank_access(bank, addr, data, len, true))
+		return;
 	uint32_t phy = bank->mem_offset + addr - bank->base;
 	do {
 		bank->mem[phy++] = *data++;
@@ -79,7 +94,7 @@ mii_bank_read(
 		uint8_t *data,
 		uint16_t len)
 {
-	#if 1 // rather expensive test when profiling!
+	#if 0 // rather expensive test when profiling!
 	uint32_t end = bank->base + (bank->size << 8);
 	if (unlikely(addr < bank->base) || unlikely((addr + len) > end)) {
 		printf("%s %s INVALID read addr %04x len %d %04x-%04x\n",
@@ -88,12 +103,8 @@ mii_bank_read(
 		return;
 	}
 	#endif
-	uint8_t page_index = (addr - bank->base) >> 8;
-	if (bank->access && bank->access[page_index].cb) {
-		if (bank->access[page_index].cb(bank, bank->access[page_index].param,
-					addr, data, false))
-			return;
-	}
+	if (mii_bank_access(bank, addr, data, len, false))
+		return;
 	uint32_t phy = bank->mem_offset + addr - bank->base;
 	do {
 		*data++ = bank->mem[phy++];

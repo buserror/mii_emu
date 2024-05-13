@@ -117,7 +117,7 @@ _mii_check_1mb_file(
 	fseek(f, 512, SEEK_SET);
 	fread(buf, 1, 4, f);
 	fclose(f);
-	printf("%s %02x %02x %02x %02x\n", __func__, buf[0], buf[1], buf[2], buf[3]);
+//	printf("%s %02x %02x %02x %02x\n", __func__, buf[0], buf[1], buf[2], buf[3]);
 	if (buf[0] != 0x20 || buf[1] != 0x58 || buf[2] != 0xfc || buf[3] != 0xa0) {
 		char *msg;
 		asprintf(&msg, "WARNING: '%s' Lacks the 'bootloader' in block #1, "
@@ -142,7 +142,7 @@ _mii_1mb_stdfile_cb(
 	switch (what) {
 		case MUI_STDF_ACTION_SELECT: {
 			char * path = mui_stdfile_get_selected_path(w);
-			printf("%s select %s\n", __func__, path);
+		//	printf("%s select %s\n", __func__, path);
 			if (_mii_check_1mb_file(w->ui, path) < 0) {
 				mui_control_set_title(m->fname, "Click \"Select\" to pick a file");
 				mui_control_set_state(m->fname, MUI_CONTROL_STATE_DISABLED);
@@ -163,7 +163,7 @@ _mii_1mb_stdfile_cb(
 			mui_window_dispose(w);
 		}	break;
 		case MUI_STDF_ACTION_CANCEL:
-			printf("%s cancel\n", __func__);
+		//	printf("%s cancel\n", __func__);
 			mui_window_dispose(w);
 			break;
 	}
@@ -177,17 +177,17 @@ _mii_1mb_action_cb(
 		uint32_t 		what,
 		void * 			param)	// not used
 {
-	printf("%s %4.4s\n", __func__, (char*)&what);
+//	printf("%s %4.4s\n", __func__, (char*)&what);
 	mii_mui_1mb_t * m = cb_param;
 	uint32_t uid = mui_control_get_uid(c);
 
 	switch (what) {
 		case MUI_CONTROL_ACTION_SELECT:
-			printf("%s control %4.4s\n", __func__, (char*)&uid);
+		//	printf("%s control %4.4s\n", __func__, (char*)&uid);
 			switch (uid) {
 				case MII_1MB_SAVE: {
 					// save the config
-					printf("%s save\n", __func__);
+			//		printf("%s save\n", __func__);
 					if (m->dst)
 						*m->dst = m->config;
 					mui_window_action(&m->win, MII_MUI_1MB_SAVE, m->dst);
@@ -195,12 +195,12 @@ _mii_1mb_action_cb(
 				}	break;
 				case MII_1MB_CANCEL: {
 					// cancel the config
-					printf("%s cancel\n", __func__);
+			//		printf("%s cancel\n", __func__);
 					mui_window_dispose(&m->win);
 				}	break;
 				case MII_1MB_SELECT: {
 					// select a file
-					printf("%s select\n", __func__);
+			//		printf("%s select\n", __func__);
 					mui_window_t * w = mui_stdfile_get(m->win.ui,
 						C2_PT(0, 0),
 						"Select a file (Exactly 1MB in size)",

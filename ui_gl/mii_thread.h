@@ -15,12 +15,18 @@ enum mii_th_state_e {
 	SIGNAL_RESET,
 	SIGNAL_STOP,
 	SIGNAL_STEP,
+	SIGNAL_NEXT,
 	SIGNAL_RUN,
+	SIGNAL_PASTE,
+	SIGNAL_LOADBIN,
 };
 
 typedef struct mii_th_signal_t {
 	uint8_t 	cmd;
-	uint8_t 	data;
+	union {
+		uint32_t 	data;
+		void * 		ptr;
+	};
 } mii_th_signal_t;
 
 DECLARE_FIFO(mii_th_signal_t, mii_th_fifo, 16);
@@ -33,7 +39,7 @@ typedef struct  mii_thread_t {
 	pthread_t			thread;
 	uint8_t		 		state;
 	struct mii_t *		mii;
-	mii_th_fifo_t 		signal;
+
 	mii_th_msg_fifo_t 	msg;
 } mii_thread_t;
 

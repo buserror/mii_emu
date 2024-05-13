@@ -12,7 +12,7 @@
 #include <string.h>
 
 #include "mui.h"
-#include "mii-icon-64.h"
+#include "mii_icon64.h"
 
 extern const unsigned char mui_geneva_font_data[];
 extern const unsigned int mui_geneva_font_size;
@@ -60,7 +60,7 @@ _mii_about_button_cb(
 		uint32_t 		what,
 		void * 			param)	// not used
 {
-	printf("%s %4.4s\n", __func__, (char*)&what);
+//	printf("%s %4.4s\n", __func__, (char*)&what);
 	mii_mui_about_t * m = cb_param;
 	uint32_t uid = mui_control_get_uid(c);
 
@@ -84,7 +84,7 @@ _mii_about_action_cb(
 		uint32_t 		what,
 		void * 			param)	// not used
 {
-	printf("%s %4.4s\n", __func__, (char*)&what);
+//	printf("%s %4.4s\n", __func__, (char*)&what);
 	mii_mui_about_t * m = cb_param;
 
 	switch (what) {
@@ -134,7 +134,7 @@ mii_mui_about(
 		mui_window_select(w);
 		return w;
 	}
-	printf("%s version: '%s'\n", __func__, MII_VERSION);
+//	printf("%s version: '%s'\n", __func__, MII_VERSION);
 	c2_pt_t where = {};
 	c2_rect_t wpos = C2_RECT_WH(where.x, where.y, 500, 255);
 	if (where.x == 0 && where.y == 0)

@@ -40,10 +40,10 @@ typedef struct mii_floppy_track_t {
 
 typedef struct mii_track_heatmap_t {
 	// 32 bytes of track data corresponds to one byte of heatmap
-	uint32_t 		seed, tex, cleared;
 	// this needs to be aligned, otherwise SSE code will die horribly
 	uint8_t 		map[MII_FLOPPY_TRACK_COUNT][MII_FLOPPY_HM_TRACK_SIZE]
-			__attribute__((aligned(16)));
+			__attribute__((aligned(32)));
+	uint32_t 		seed, tex, cleared;
 } mii_track_heatmap_t;
 
 typedef struct mii_floppy_heatmap_t {

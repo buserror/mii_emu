@@ -136,7 +136,7 @@ mii_argv_parse(
 		} else if (!strcmp(arg, "--audio-off") ||
 					!strcmp(arg, "--no-audio") ||
 					!strcmp(arg, "--silent")) {
-			mii->speaker.off = true;
+			mii->speaker.speaker_off = true;
 			*ioFlags |= MII_INIT_SILENT;
 		} else if (!strcmp(arg, "-vol") || !strcmp(arg, "--volume")) {
 			if (i < argc-1) {

@@ -115,7 +115,7 @@ _mii_ee_command(
 				res = 0;
 			}
 			break;
-		case MII_SLOT_DRIVE_LOAD:
+		case MII_SLOT_DRIVE_LOAD: {
 			const char *filename = param;
 			mii_dd_file_t *file = NULL;
 			if (filename && *filename) {
@@ -126,7 +126,7 @@ _mii_ee_command(
 			mii_dd_drive_load(&c->drive[0], file);
 			c->file = file ? file->map : (uint8_t*)mii_1mb_rom_data;
 			res = 0;
-			break;
+		}	break;
 	}
 	return res;
 }

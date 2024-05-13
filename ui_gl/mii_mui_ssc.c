@@ -12,6 +12,7 @@
 #include "mui.h"
 
 #include "mii_mui_settings.h"
+#include "mii_mui_utils.h"
 
 enum {
 	MII_SSC_WINDOW_ID 	= FCC('s','s','c','c'),
@@ -28,7 +29,9 @@ enum {
 
 typedef struct mii_mui_ssc_t {
 	mui_window_t			win;
-	mui_control_t * 		load, *icon, *fname, *select, *baud, *handshake;
+	mii_mui_file_select_t	dev;
+	mui_control_t *			load;
+	mui_control_t *			baud, *handshake;
 	mui_control_t *			parity[3];
 	mui_control_t *			bits[2];
 	mui_control_t *			stops[2];
@@ -88,21 +91,21 @@ mii_mui_ssc_load_conf(
 	}
 	char *fname = config->device;
 	if (fname[0] == 0) {
-		mui_control_set_title(m->fname, "Click \"Select\" to pick a device file");
-		mui_control_set_state(m->icon, MUI_CONTROL_STATE_DISABLED);
-		mui_control_set_state(m->fname, MUI_CONTROL_STATE_DISABLED);
+		mui_control_set_title(m->dev.fname, "Click \"Select\" to pick a device file");
+		mui_control_set_state(m->dev.icon, MUI_CONTROL_STATE_DISABLED);
+		mui_control_set_state(m->dev.fname, MUI_CONTROL_STATE_DISABLED);
 		ok = 0;
 	} else {
 		char *dup = strdup(fname);
-		mui_control_set_title(m->fname, basename(dup));
+		mui_control_set_title(m->dev.fname, basename(dup));
 		free(dup);
 		if (_mii_ssc_check_device_file(m->win.ui, config->device) < 0) {
 			ok = 0;
-			mui_control_set_state(m->icon, MUI_CONTROL_STATE_DISABLED);
-			mui_control_set_state(m->fname, MUI_CONTROL_STATE_DISABLED);
+			mui_control_set_state(m->dev.icon, MUI_CONTROL_STATE_DISABLED);
+			mui_control_set_state(m->dev.fname, MUI_CONTROL_STATE_DISABLED);
 		} else {
-			mui_control_set_state(m->icon, MUI_CONTROL_STATE_NORMAL);
-			mui_control_set_state(m->fname, MUI_CONTROL_STATE_NORMAL);
+			mui_control_set_state(m->dev.icon, MUI_CONTROL_STATE_NORMAL);
+			mui_control_set_state(m->dev.fname, MUI_CONTROL_STATE_NORMAL);
 		}
 	}
 	for (uint8_t i = 0; i < 2; i++)
@@ -132,20 +135,20 @@ _mii_ssc_stdfile_cb(
 			char * path = mui_stdfile_get_selected_path(w);
 			printf("%s select %s\n", __func__, path);
 			if (_mii_ssc_check_device_file(m->win.ui, path) < 0) {
-				mui_control_set_state(m->icon, MUI_CONTROL_STATE_DISABLED);
-				mui_control_set_state(m->fname, MUI_CONTROL_STATE_DISABLED);
+				mui_control_set_state(m->dev.icon, MUI_CONTROL_STATE_DISABLED);
+				mui_control_set_state(m->dev.fname, MUI_CONTROL_STATE_DISABLED);
 				mui_control_set_state(m->load, MUI_CONTROL_STATE_DISABLED);
 			} else {
 				strcpy(m->config.device, path);
-				mui_control_set_state(m->fname, MUI_CONTROL_STATE_NORMAL);
+				mui_control_set_state(m->dev.fname, MUI_CONTROL_STATE_NORMAL);
 				char *dup = strdup(path);
-				mui_control_set_title(m->fname, basename(dup));
+				mui_control_set_title(m->dev.fname, basename(dup));
 				free(dup);
-				mui_control_set_state(m->icon, MUI_CONTROL_STATE_NORMAL);
+				mui_control_set_state(m->dev.icon, MUI_CONTROL_STATE_NORMAL);
 				mui_control_set_state(m->load, MUI_CONTROL_STATE_NORMAL);
 				mui_control_set_state(m->load, MUI_CONTROL_STATE_NORMAL);
 			}
-			mui_control_set_state(m->icon, MUI_CONTROL_STATE_NORMAL);
+			mui_control_set_state(m->dev.icon, MUI_CONTROL_STATE_NORMAL);
 			mui_control_set_state(m->load, MUI_CONTROL_STATE_NORMAL);
 			mui_window_dispose(w);
 		}	break;
@@ -283,34 +286,16 @@ mii_mui_configure_ssc(
 	c->key_equ = MUI_KEY_EQU(0, 27);
 
 	c2_rect_set(&cf, margin, (margin/2),
-					c2_rect_width(&w->frame) - margin - (base_size*4) - margin,
+					c2_rect_width(&w->frame) - margin - 0,
 					(margin/2) + base_size);
+
 	c2_rect_t cp = cf;
 	cp.l -= margin * 0.2;
 	cp.b += base_size * 1.3;
-	c = mui_groupbox_new(w, cp, "Device:", MUI_CONTROL_TEXTBOX_FRAME);
 
-	float icons_size = mui_font_find(ui, "icon_small")->size;
-	c2_rect_bottom_of(&cf, cf.b, 0);
-	cf.b = cf.t + icons_size;
-	cf.r = cf.l + icons_size;
-	m->icon = c = mui_textbox_new(w, cf, MUI_ICON_FILE, "icon_small",
-				MUI_TEXT_ALIGN_MIDDLE | MUI_TEXT_ALIGN_CENTER | 0);
-	c->state = MUI_CONTROL_STATE_DISABLED;
-	cf.l = cf.r;
-	cf.r = c2_rect_width(&w->content) - margin - (base_size*4) - margin;
-	m->fname = c = mui_textbox_new(w, cf,
-				"Click \"Select\" to pick a device file", NULL,
-				MUI_TEXT_ALIGN_MIDDLE);
-	c->state = MUI_CONTROL_STATE_DISABLED;
-
-	cf = C2_RECT_WH(0, 0, base_size * 4, base_height);
-	c2_rect_bottom_of(&cf, cp.t, margin * 1.2);
-	c2_rect_right_of(&cf, cp.r, margin);
-	m->select = c = mui_button_new(w,
-					cf, MUI_BUTTON_STYLE_NORMAL,
-					"Select…" , MII_SSC_SELECT);
-	c->key_equ = MUI_KEY_EQU(MUI_MODIFIER_ALT, 's');
+	mii_mui_fileselect_widget(&m->dev, w, &cf, "Device:", "Select…", NULL);
+	m->dev.button->uid = MII_SSC_SELECT;
+	m->dev.button->key_equ = MUI_KEY_EQU(MUI_MODIFIER_ALT, 's');
 
 	c2_rect_right_of(&cf, 0, margin);
 	c2_rect_bottom_of(&cf, cf.b, margin);
@@ -323,7 +308,8 @@ mii_mui_configure_ssc(
 	c2_rect_right_of(&popr, cf.r, margin/2);
 	popr.b = cf.t + 34;
 	popr.r = popr.l + 160;
-	m->baud = c = mui_popupmenu_new(w, popr, "Popup", MII_SSC_BAUD);
+	m->baud = c = mui_popupmenu_new(w,
+				popr, "Popup", MII_SSC_BAUD, MUI_TEXT_ALIGN_CENTER);
 	mui_menu_items_t *items = mui_popupmenu_get_items(c);
 	mui_menu_items_add(items, (mui_menu_item_t){.title="1200", .uid=1200 });
 	mui_menu_items_add(items, (mui_menu_item_t){.title="2400", .uid=2400 });

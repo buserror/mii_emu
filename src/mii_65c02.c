@@ -26,10 +26,23 @@ mii_cpu_init(
 		.addr = 0,
 		.reset = 1,
 	};
+#if MII_65C02_DIRECT_ACCESS
+#else
 	cpu->state = NULL;
+#endif
 	return s;
 }
 
+#if MII_65C02_DIRECT_ACCESS
+#define _FETCH(_val) { \
+		s.addr = _val; s.w = 0; cpu->cycle++; \
+		s = cpu->access(cpu, s); \
+	}
+#define _STORE(_addr, _val) { \
+		s.addr = _addr; s.data = _val; s.w = 1; cpu->cycle++; \
+		s = cpu->access(cpu, s); \
+	}
+#else
 #define _FETCH(_val) { \
 		s.addr = _val; s.w = 0; cpu->cycle++; \
 		pt_yield(cpu->state); \
@@ -38,7 +51,7 @@ mii_cpu_init(
 		s.addr = _addr; s.data = _val; s.w = 1; cpu->cycle++; \
 		pt_yield(cpu->state); \
 	}
-
+#endif
 
 #define _NZC(_val) { \
 		uint16_t v = (_val); \
@@ -60,8 +73,12 @@ mii_cpu_run(
 		mii_cpu_t *cpu,
 		mii_cpu_state_t s)
 {
+#if MII_65C02_DIRECT_ACCESS
+	mii_op_desc_t d;
+#else
 	mii_op_desc_t d = mii_cpu_op[cpu->IR].desc;
 	pt_start(cpu->state);
+#endif
 next_instruction:
 	if (unlikely(s.reset)) {
 		s.reset = 0;
@@ -71,7 +88,7 @@ next_instruction:
 	  	cpu->S = 0xFF;
 		MII_SET_P(cpu, 0);
 	}
-	if (unlikely(s.irq) && cpu->P.I == 0) {
+	if (unlikely(s.irq && cpu->P.I == 0)) {
 		if (!cpu->IRQ)
 			cpu->IRQ = 1;
 	}
@@ -104,8 +121,12 @@ next_instruction:
 	d = mii_cpu_op[cpu->IR].desc;
 	cpu->ir_log = (cpu->ir_log << 8) | cpu->IR;
 	s.trap = cpu->trap && (cpu->ir_log & 0xffff) == cpu->trap;
-	if (unlikely(s.trap))
+	if (unlikely(s.trap)) {
 		cpu->ir_log = 0;
+#if MII_65C02_DIRECT_ACCESS
+		return s;
+#endif
+	}
 	switch (d.mode) {
 		case IMM:
 			_FETCH(cpu->PC++);		cpu->_D = s.data;
@@ -609,6 +630,7 @@ next_instruction:
 		/* Apparently these NOPs use 3 bytes, according to the tests */
 		case 0x5c: case 0xdc: case 0xfc:
 			_FETCH(cpu->PC++);
+			// fall through
 		/* Apparently these NOPs use 2 bytes, according to the tests */
 		case 0x02: case 0x22: case 0x42: case 0x62: case 0x82:
 		case 0xC2: case 0xE2: case 0x44: case 0x54: case 0xD4:
@@ -626,7 +648,15 @@ next_instruction:
 	if (d.w) {
 		_STORE(cpu->_P, cpu->_D);
 	}
+#if MII_65C02_DIRECT_ACCESS
+	// we don't need to do anything here, the store already did it
+	if (likely(cpu->instruction_run)) {
+		cpu->instruction_run--;
+		goto next_instruction;
+	}
+#else
 	goto next_instruction;
 	pt_end(cpu->state);
+#endif
 	return s;
 }

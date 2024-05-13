@@ -28,7 +28,7 @@ enum mii_mui_transition_e {
 	MII_MUI_TRANSITION_SHOW_UI,
 };
 
-#define MII_PIXEL_LAYERS	8
+#define MII_PIXEL_LAYERS	9
 
 DECLARE_C_ARRAY(float, float_array, 16);
 IMPLEMENT_C_ARRAY(float_array);
@@ -51,6 +51,7 @@ typedef struct mii_mui_t {
 	mui_event_t 			key;
 
 	c2_rect_t				video_frame; // current video frame
+	uint32_t 				video_drawn_seed;
 	float					mui_alpha;
 	bool	 				mui_visible;
 	void *					transision_state;
@@ -69,6 +70,8 @@ typedef struct mii_mui_t {
 				mui_drawable_t		hm_read;
 				mui_drawable_t		hm_write;
 			}					floppy[2];
+			// this is debug only!
+			mui_drawable_t 		video_heapmap;
 		};
 		mui_drawable_t			v[MII_PIXEL_LAYERS];
 	}						pixels;
@@ -113,3 +116,5 @@ mii_mui_get_video_position(
 void
 mii_config_open_slots_dialog(
 		mii_mui_t * ui);
+
+

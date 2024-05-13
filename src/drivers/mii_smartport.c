@@ -36,7 +36,6 @@ extern const unsigned char mii_smartport_rom_data[];
 #define MII_SM_DRIVE_COUNT 2
 
 typedef struct mii_card_sm_t {
-//	struct mii_card_sm_t *next;
 	mii_dd_t drive[MII_SM_DRIVE_COUNT];
 	struct mii_slot_t *slot;
 } mii_card_sm_t;
@@ -79,6 +78,9 @@ _mii_hd_callback(
 			mii_bank_t * bank = &mii->bank[mii->mem[buffer >> 8].write];
 			mii->cpu.P.C = mii_dd_read(
 							&c->drive[unit], bank, buffer, blk, 1) != 0;
+			// if Prodos is reading a block that happens to be video memory,
+			// make sure the video driver knows about it
+			mii_video_OOB_write_check(mii, buffer, 512);
 		}	break;
 		case 2: {// write block
 			if (!c->drive[unit].file) {
@@ -107,7 +109,7 @@ _mii_sm_callback(
 		mii_t *mii,
 		uint8_t trap)
 {
-	printf("%s\n", __func__);
+//	printf("%s\n", __func__);
 	int sid = ((mii->cpu.PC >> 8) & 0xf) - 1;
 	mii_card_sm_t *c = mii->slot[sid].drv_priv;
 
@@ -122,8 +124,8 @@ _mii_sm_callback(
 	uint8_t spUnit = mii_read_one(mii, spParams + 1);
 	uint16_t spBuffer = mii_read_word(mii, spParams + 2);
 
-	printf("%s cmd %02x params %04x pcount %d unit %02x buffer %04x\n", __func__,
-			spCommand, spParams, spPCount, spUnit, spBuffer);
+//	printf("%s cmd %02x params %04x pcount %d unit %02x buffer %04x\n", __func__,
+//			spCommand, spParams, spPCount, spUnit, spBuffer);
 	switch (spCommand) {
 		case 0: { // get status
 			if (spPCount != 3) {
@@ -131,77 +133,110 @@ _mii_sm_callback(
 				break;
 			}
 			uint8_t status = mii_read_one(mii, spParams + 4);
-			printf("%s: unit %d status %02x \n", __func__, spUnit, status);
+		//	printf("%s: unit %d status %02x \n", __func__, spUnit, status);
 			uint8_t st = 0x80 | 0x40 | 0x20;
 			uint32_t bsize = 0;
-			if (spUnit) spUnit--;
-			if (spUnit < MII_SM_DRIVE_COUNT && c->drive[spUnit].file) {
-				st |= 0x10;
-				bsize = (c->drive[spUnit].file->size + 511) / 512;
-			}
 			if (status == 0) {
 				mii->cpu.P.C = 0;
+				mii->cpu.A = 0;
 				/* Apple IIc reference says this ought to be a status byte,
 				 * but practice and A2Desktop says it ought to be a drive
 				 * count, so here goes... */
 //				mii_write_one(mii, spBuffer++, st);
-				mii_write_one(mii, spBuffer++, MII_SM_DRIVE_COUNT);
-				mii_write_one(mii, spBuffer++, bsize);
-				mii_write_one(mii, spBuffer++, bsize >> 8);
-				mii_write_one(mii, spBuffer++, bsize >> 16);
-			} else if (status == 3 && spUnit < MII_SM_DRIVE_COUNT) {
+				if (spUnit == 0) {
+					mii_write_one(mii, spBuffer++, MII_SM_DRIVE_COUNT);
+					mii_write_one(mii, spBuffer++, 0x00);
+					mii_write_one(mii, spBuffer++, 0x01);
+					mii_write_one(mii, spBuffer++, 0x13);
+				} else if (spUnit <= MII_SM_DRIVE_COUNT) {
+					if (c->drive[spUnit-1].file) {
+						st |= 0x10;
+						bsize = (c->drive[spUnit-1].file->size + 511) / 512;
+					}
+					mii_write_one(mii, spBuffer++, st);
+					mii_write_one(mii, spBuffer++, bsize);
+					mii_write_one(mii, spBuffer++, bsize >> 8);
+					mii_write_one(mii, spBuffer++, bsize >> 16);
+				} else {
+					mii->cpu.P.C = 1;
+					mii->cpu.A = 0x21; // bad status
+				}
+			} else if (status == 3) {
 				mii->cpu.P.C = 0;
-				mii_write_one(mii, spBuffer++, st);
-				mii_write_one(mii, spBuffer++, bsize);
-				mii_write_one(mii, spBuffer++, bsize >> 8);
-				mii_write_one(mii, spBuffer++, bsize >> 16);
-				char dname[17] = "\x8MII HD 0        ";
-				dname[8] = '0' + spUnit;
-				for (int i = 0; i < 17; i++)
-					mii_write_one(mii, spBuffer++, dname[i]);
-				mii_write_one(mii, spBuffer++, 0x02); // Profile
-				mii_write_one(mii, spBuffer++, 0x00); // Profile
-				mii_write_one(mii, spBuffer++, 0x01); // Version
-				mii_write_one(mii, spBuffer++, 0x13);
+				mii->cpu.A = 0;
+				if (spUnit > 0 && spUnit <= MII_SM_DRIVE_COUNT) {
+					if (c->drive[spUnit-1].file) {
+						st |= 0x10;
+						bsize = (c->drive[spUnit-1].file->size + 511) / 512;
+					}
+					mii_write_one(mii, spBuffer++, st);
+					mii_write_one(mii, spBuffer++, bsize);
+					mii_write_one(mii, spBuffer++, bsize >> 8);
+					mii_write_one(mii, spBuffer++, bsize >> 16);
+					char dname[17] = "\x8MII HD 0        ";
+					dname[8] = '0' + spUnit-1;
+					for (int i = 0; i < 17; i++)
+						mii_write_one(mii, spBuffer++, dname[i]);
+					mii_write_one(mii, spBuffer++, 0x02); // Profile
+					mii_write_one(mii, spBuffer++, 0x00); // Profile
+					mii_write_one(mii, spBuffer++, 0x01); // Version
+					mii_write_one(mii, spBuffer++, 0x13);
+				} else {
+					mii->cpu.P.C = 1;
+					mii->cpu.A = 0x21; // bad status
+				}
 			} else {
 				printf("%s: unit %d bad status %d\n",
 						__func__, spUnit, status);
 				mii->cpu.P.C = 1;
+				mii->cpu.A = 0x21; // bad status
 			}
 		}	break;
 		case 1: { // read
+			mii->cpu.P.C = 0;
+			mii->cpu.A = 0;
 			if (spPCount != 3) {
 				printf("%s: unit %d bad pcount %d\n",
 						__func__, spUnit, spPCount);
 				mii->cpu.P.C = 1;
 				break;
 			}
-			if (spUnit >= MII_SM_DRIVE_COUNT) {
-				printf("%s: unit %d out of range\n",
-						__func__, spUnit);
+			if (spUnit == 0 || spUnit >= MII_SM_DRIVE_COUNT) {
+				printf("%s: unit %d out of range\n", __func__, spUnit);
 				mii->cpu.P.C = 1;
+				mii->cpu.A = 0x28;
 				break;
 			}
-			uint32_t blk = mii_read_word(mii, spParams + 3) |
-								(mii_read_one(mii, spParams + 4) << 16) |
-								(mii_read_one(mii, spParams + 5) << 24);
-			printf("%s read block %x\n", __func__, blk);
+			spUnit--;
+			uint32_t blk = mii_read_one(mii, spParams + 4) |
+								(mii_read_one(mii, spParams + 5) << 8) |
+								(mii_read_one(mii, spParams + 6) << 16);
+		//	printf("%s read block 0x%6x\n", __func__, blk);
 			if (!c->drive[spUnit].file) {
 				mii->cpu.P.C = 1;
+				mii->cpu.A = 0x2f;
 				break;
 			}
 			if (blk >= c->drive[spUnit].file->size / 512) {
 				printf("%s: block %d out of range\n",
 						__func__, blk);
 				mii->cpu.P.C = 1;
+				mii->cpu.A = 0x2d;
 				break;
 			}
 			mii_bank_t * bank = &mii->bank[mii->mem[spBuffer >> 8].write];
 			mii->cpu.P.C = mii_dd_read(
 							&c->drive[spUnit], bank, spBuffer, blk, 1) != 0;
+			if (mii->cpu.P.C)
+				mii->cpu.A = 0x2d;
+			// if Prodos is reading a block that happens to be video memory,
+			// make sure the video driver knows about it
+			mii_video_OOB_write_check(mii, spBuffer, 512);
 		//	mii->cpu.P.C = 0;
 		}	break;
 		case 2: { // write
+			mii->cpu.P.C = 0;
+			mii->cpu.A = 0;
 			if (spPCount != 3) {
 				printf("%s: unit %d bad pcount %d\n",
 						__func__, spUnit, spPCount);
@@ -212,25 +247,31 @@ _mii_sm_callback(
 				printf("%s: unit %d out of range\n",
 						__func__, spUnit);
 				mii->cpu.P.C = 1;
+				mii->cpu.A = 0x28;
 				break;
 			}
-			uint32_t blk = mii_read_word(mii, spParams + 3) |
-								(mii_read_one(mii, spParams + 4) << 16) |
-								(mii_read_one(mii, spParams + 5) << 24);
-			printf("%s write block %x\n", __func__, blk);
+			spUnit--;
+			uint32_t blk = mii_read_one(mii, spParams + 4) |
+								(mii_read_one(mii, spParams + 5) << 8) |
+								(mii_read_one(mii, spParams + 6) << 16);
+		//	printf("%s write block %x\n", __func__, blk);
 			if (!c->drive[spUnit].file) {
 				mii->cpu.P.C = 1;
+				mii->cpu.A = 0x2f;
 				break;
 			}
 			if (blk >= c->drive[spUnit].file->size / 512) {
 				printf("%s: block %d out of range\n",
 						__func__, blk);
 				mii->cpu.P.C = 1;
+				mii->cpu.A = 0x2d;
 				break;
 			}
 			mii_bank_t * bank = &mii->bank[mii->mem[spBuffer >> 8].read];
 			mii->cpu.P.C = mii_dd_write(
 							&c->drive[spUnit], bank, spBuffer, blk, 1) != 0;
+			if (mii->cpu.P.C)
+				mii->cpu.A = 0x2d;
 		}	break;
 	}
 }
@@ -244,7 +285,7 @@ _mii_sm_init(
 	c->slot = slot;
 	slot->drv_priv = c;
 
-	printf("%s loading in slot %d\n", __func__, slot->id + 1);
+//	printf("%s loading in slot %d\n", __func__, slot->id + 1);
 	uint16_t addr = 0xc100 + (slot->id * 0x100);
 	mii_bank_write(
 			&mii->bank[MII_BANK_CARD_ROM],
@@ -304,7 +345,7 @@ _mii_sm_command(
 				res = 0;
 			}
 			break;
-		case MII_SLOT_DRIVE_LOAD ... MII_SLOT_DRIVE_LOAD + MII_SM_DRIVE_COUNT - 1:
+		case MII_SLOT_DRIVE_LOAD ... MII_SLOT_DRIVE_LOAD + MII_SM_DRIVE_COUNT - 1: {
 			int drive = cmd - MII_SLOT_DRIVE_LOAD;
 			const char *filename = param;
 			mii_dd_file_t *file = NULL;
@@ -315,7 +356,7 @@ _mii_sm_command(
 			}
 			mii_dd_drive_load(&c->drive[drive], file);
 			res = 0;
-			break;
+		}	break;
 	}
 	return res;
 }

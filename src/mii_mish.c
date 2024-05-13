@@ -81,11 +81,7 @@ show_state:
 			return;
 		}
 		uint8_t val = strtol(argv[2], NULL, 16);
-		if (val > MII_VIDEO_MODE_COUNT) {
-			printf("rgb: invalid mode %d\n", val);
-			return;
-		}
-		mii->video.color_mode = val;
+		mii_video_set_mode(mii, val);
 		return;
 	}
 
@@ -389,44 +385,15 @@ _mii_mish_step(
 			printf("mii: can't step/next, not stopped\n");
 			return;
 		}
-		if (argv[1]) {
-			int n = strtol(argv[1], NULL, 10);
-			mii->trace.step_inst = n;
-		} else
-			mii->trace.step_inst = 1;
-		mii->state = MII_STEP;
+		int count = 1;
+		if (argv[1])
+			count = strtol(argv[1], NULL, 10);
+		mii_cpu_step(mii, count);
 		return;
 	}
 	if (argv[0][0] == 'n') {
 		mii_t * mii = param;
-		if (mii->state != MII_STOPPED) {
-			printf("mii: can't step/next, not stopped\n");
-			return;
-		}
-		// read current opcode, find how how many bytes it take,
-		// then put a temporary breakpoint to the next PC.
-		// all of that if this is not a relative branch of course, in
-		// which case we use a normal 'step' behaviour
-		uint8_t op;
-		mii_mem_access(mii, mii->cpu.PC, &op, false, false);
-		if (op == 0x20) {	// JSR here?
-			// set a temp breakpoint on reading 3 bytes from PC
-			for (int i = 0; i < (int)sizeof(mii->debug.bp_map) * 8; i++) {
-				if ((mii->debug.bp_map & (1 << i)))
-					continue;
-				mii->debug.bp[i].addr = mii->cpu.PC + 3;
-				mii->debug.bp[i].kind = MII_BP_R;
-				mii->debug.bp[i].size = 1;
-				mii->debug.bp[i].silent = 1;
-				mii->debug.bp_map |= 1 << i;
-				mii->state = MII_RUNNING;
-				return;
-			}
-			printf("no more breakpoints available\n");
-		} else {
-			mii->trace.step_inst = 1;
-			mii->state = MII_STEP;
-		}
+		mii_cpu_next(mii);
 		return;
 	}
 	if (argv[0][0] == 'c') {
@@ -490,6 +457,58 @@ _mii_mish_audio(
 					vol, mii->speaker.vol_multiplier);
 	} else {
 		printf("audio: unknown command %s\n", argv[1]);
+	}
+}
+
+static void
+_mii_mish_bsave(
+		void * param,
+		int argc,
+		const char * argv[])
+{
+	mii_t * mii = param;
+	if (argc < 4) {
+		printf("bsave: missing argument <file> <addr> <size>\n");
+		return;
+	}
+	const char * file = argv[1];
+	uint16_t addr = strtol(argv[2], NULL, 16);
+	if (!strcmp(argv[0], "bsave")) {
+		uint16_t size = strtol(argv[3], NULL, 16);
+		if (addr + size > 0x10000) {
+			printf("bsave: size too big\n");
+			return;
+		}
+		FILE * f = fopen(file, "wb");
+		if (!f) {
+			printf("bsave: can't open %s\n", file);
+			return;
+		}
+		mii_bank_t * bank = &mii->bank[MII_BANK_MAIN];
+
+		fwrite(bank->mem + addr, size, 1, f);
+		fclose(f);
+		printf("bsave: %s saved %d bytes at %04x\n", file, size, addr);
+	} else if (!strcmp(argv[0], "bload")) {
+		FILE * f = fopen(file, "rb");
+		if (!f) {
+			printf("bsave: can't open %s\n", file);
+			return;
+		}
+		fseek(f, 0, SEEK_END);
+		uint16_t size = ftell(f);
+		fseek(f, 0, SEEK_SET);
+		if (addr + size > 0x10000) {
+			printf("bsave: size too big\n");
+			return;
+		}
+		mii_bank_t * bank = &mii->bank[MII_BANK_MAIN];
+		fread(bank->mem + addr, size, 1, f);
+		fclose(f);
+		printf("bsave: %s loaded %d bytes at %04x\n", file, size, addr);
+	} else {
+		printf("%s: unknown command\n", argv[0]);
+		return;
 	}
 }
 
@@ -582,3 +601,12 @@ MISH_CMD_HELP(audio,
 		" volume: set volume (0.0 to 1.0)."
 		);
 MII_MISH(audio, _mii_mish_audio);
+
+
+MISH_CMD_NAMES(bsave, "bsave","bload");
+MISH_CMD_HELP(bsave,
+		"bsave/bload: save/load binary data from ram",
+		" bsave <file> <addr> <size>: save binary data to file.",
+		" bload <file> <addr>: load binary data from file."
+		);
+MII_MISH(bsave, _mii_mish_bsave);

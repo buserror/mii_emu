@@ -4,7 +4,10 @@
 
 # MII Apple //e Emulator
 
-Note: Changelog has moves to [CHANGELOG.md](CHANGELOG.md)
+*Note:* New versions and Changelog are at [CHANGELOG.md](CHANGELOG.md)
+
+*Note2:* UI Library has moved to [libmui](https://github.com/buserror/libmui)
+
 
 I know there are many out there, but none of them were ticking my fancy, so I decide to write my own. To start with it was "How hard can it be really?" then it snowballed as more and more things were fixed & added. It's been shelved for a while because well, it lacked documentation, headers, licence and stuff, so I spent some time cleaning it up for release.
 
@@ -30,15 +33,16 @@ I wanted something:
 </center>
 
 ## What can it do?
- * 65c02 //e with 128K of ram.
+ * 65c02 //e with 128K of ram (RAM exensible to 2MB).
  * Support all known graphic modes:
     * Double-hires in mono and color, with automatic switch
     * All the other modes in color/mono
-    * Color, Green, Amber rendering
-    * Simulated 'scanlines' to make it look vintage
+    * Color (NTSC/RGB), Green, Amber rendering
+    * Simulated 'scanlines' & artifacts to make it look vintage
  * Speaker audio. ALSA For playback.
     * Adds a small 'attack' filter when playing back to soften the often annoying 'click' of typical audio effects from the apple II.
  * Mouse Card -- mouse isn't captured like in some other emulators.
+ * Super Serial Card -- can open a /dev/tty device, or a 'loopback' device.
  * No Slot Clock
  * Joystick Support
  * Smartport DMA 'hard drive' card
@@ -66,6 +70,7 @@ I wanted something:
    * For more details on development, see [Compiling](docs/Compiling.md)
    * Then just type `make` and it should compile.
    * To run it, just type `build-x86_64-linux-gnu/bin/mii_emu_gl` and it should start.
+   * If you want to install it, I suggest 'make avail' this will install a symlink into /usr/local/bin pointing back to the source tree, so you can run it from anywhere.
 
 ## Command line options
 If you run it with no options, and there are no config file, it will present
@@ -158,9 +163,10 @@ There are just a few keys that are mapped for anything useful. List is not exaus
 
 ## What it could do with
  * The main window is 1280x720 on purpose, so it could do Full Screen.
- * Port it to Raspbery Pi. I don't expect compiling issues, just video issues with GLes
+ * ~~Port it to Raspbery Pi~~. This was reported to work on a raspi 5.
  * Make a tool to 'flatten' overlay files back into the primary image.
  * Make a UI for the debugger, instead of telnet.
+ * A mockinbird sound card emulation [In Progress].
 
 <div align="center">
   <img src="docs/screen/screen_total.png" alt="Total Replay">

@@ -56,7 +56,10 @@ mii_floppy_init(
 	for (int i = 0; i < MII_FLOPPY_TRACK_COUNT + 1; i++) {
 		f->tracks[i].dirty = 0;
 		f->tracks[i].virgin = 1;
-		f->tracks[i].bit_count = 6550 * 8;
+		// this affects the disk 'speed' -- larger number will slow down the
+		// apparent speed of the disk, according to disk utilities. This value
+		// gives 299-300 RPM, which is the correct speed for a 5.25" floppy.
+		f->tracks[i].bit_count = 6400 * 8;
 		// fill the whole array up to the end..
 		uint8_t *track = f->track_data[i];
 		if (i != MII_FLOPPY_NOISE_TRACK) {
@@ -632,10 +635,10 @@ mii_floppy_nibblize_sector(
 {
 	unsigned int gap;
 
-	if (track == 0 )
-		printf("NIB: vol %d track %d sector %d pos %5d\n",
-				vol, track, sector, dst->bit_count);
-	gap = sector == 0 ? 120 : track == 0 ? 30 : 20;
+//	if (track == 0 )
+//		printf("NIB: vol %d track %d sector %d pos %5d\n",
+//				vol, track, sector, dst->bit_count);
+	gap = sector == 0 ? 100 : track == 0 ? 20 : 20;
 	for (uint8_t i = 0; i < gap; ++i)
 		mii_track_write_bits(dst, track_data, 0xFF << 2, 10);
 	// Address Field
@@ -710,8 +713,9 @@ mii_floppy_load_dsk(
 			mii_floppy_nibblize_sector(VOLUME_NUMBER, i, phys_sector,
 						src, dst, track_data);
 		}
-	//	printf("%s: track %2d has %d bits %d bytes\n",
-	//			__func__, i, dst->bit_count, dst->bit_count >> 3);
+		if (i == 0)
+			printf("%s: track %2d has %d bits %d bytes\n",
+					__func__, i, dst->bit_count, dst->bit_count >> 3);
 	}
 	// DSK is read only
 	f->write_protected |= MII_FLOPPY_WP_RO_FORMAT;

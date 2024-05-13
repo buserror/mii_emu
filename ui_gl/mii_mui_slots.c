@@ -79,6 +79,10 @@ static const struct {
 	[MII_SLOT_DRIVER_MOUSE] 	= { "Mouse", 0 },
 	[MII_SLOT_DRIVER_SSC] 		= { "Super Serial", 1 },
 	[MII_SLOT_DRIVER_ROM1MB]	= { "ROM 1MB", 1 },
+//	[MII_SLOT_DRIVER_MOCKINGBOARD] = { "Mockingboard", },
+#ifdef MII_DANII
+	[MII_SLOT_DRIVER_DANII]		= { "DAN ][", 0 },
+#endif
 	{ NULL, 0 },
 };
 
@@ -403,7 +407,8 @@ mii_mui_configure_slots(
 		c2_rect_right_of(&cf, cf.r, 6);
 		cf.r = cf.l + 240;
 		c = mui_popupmenu_new(w, cf,
-						"Popup", MII_SLOT_DRIVER_POP + i);
+						"Popup", MII_SLOT_DRIVER_POP + i,
+						MUI_TEXT_ALIGN_CENTER);
 		mui_menu_items_t * items = mui_popupmenu_get_items(c);
 		mui_menu_items_clear(items);
 		for (int j = 0; _mii_slot_drivers[j].label; j++) {

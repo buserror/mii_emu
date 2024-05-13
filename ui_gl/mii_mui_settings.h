@@ -79,7 +79,7 @@ typedef struct mii_joystick_conf_t {
 } mii_joystick_conf_t;
 
 typedef struct mii_loadbin_conf_t {
-	uint16_t 				active: 1, audo_reload : 1;
+	uint16_t 				active: 1, auto_reload : 1;
 	uint16_t 				bank;		// unused for now
 	uint16_t 				addr;		// address in bank
 	char 					path[MII_PATH_SIZE_MAX];
@@ -92,6 +92,10 @@ enum mii_mui_driver_e {
 	MII_SLOT_DRIVER_MOUSE,
 	MII_SLOT_DRIVER_SSC,
 	MII_SLOT_DRIVER_ROM1MB,
+	MII_SLOT_DRIVER_MOCKINGBOARD,
+#ifdef MII_DANII
+	MII_SLOT_DRIVER_DANII,
+#endif
 	MII_SLOT_DRIVER_COUNT
 };
 
@@ -104,6 +108,7 @@ typedef struct mii_machine_config_t {
 							titan_accelerator : 1;
 	uint32_t				video_mode;
 	mii_joystick_conf_t 	joystick;
+	mii_loadbin_conf_t		loadbin;
 	struct {
 		uint16_t				driver;
 		union {

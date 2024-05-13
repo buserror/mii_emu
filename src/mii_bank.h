@@ -65,6 +65,13 @@ mii_bank_read(
 		uint16_t addr,
 		uint8_t *data,
 		uint16_t len);
+bool
+mii_bank_access(
+		mii_bank_t *bank,
+		uint16_t addr,
+		const uint8_t *data,
+		uint16_t len,
+		bool write);
 
 /* return the number of pages dirty (written into since last time) between
  * addr1 and addr2 (inclusive) */

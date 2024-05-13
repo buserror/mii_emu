@@ -12,18 +12,24 @@
 #include "mui.h"
 
 #include "mii_mui_settings.h"
+#include "mii_mui_utils.h"
 
 enum {
 	MII_LBIN_WINDOW_ID 		= FCC('l','b','i','n'),
 	MII_LBIN_SAVE 			= FCC('s','a','v','e'),
 	MII_LBIN_CANCEL 		= FCC('c','a','n','c'),
 	MII_LBIN_SELECT 		= FCC('s','e','l','e'),
-};
+	MII_LBIN_AUTO_RELOAD 	= FCC('a','u','t','o'),
 
+	MII_LBIN_ADDR_0300		= FCC('a','d','d','0'),
+	MII_LBIN_ADDR_0800		= FCC('a','d','d','1'),
+	MII_LBIN_ADDR_2000		= FCC('a','d','d','2'),
+};
 
 typedef struct mii_mui_loadbin_t {
 	mui_window_t			win;
-	mui_control_t * 		load, *icon, *fname;
+	mii_mui_file_select_t	file;
+	mui_control_t *			load;
 	mii_loadbin_conf_t *	dst, config;
 } mii_mui_loadbin_t;
 
@@ -39,11 +45,12 @@ _mii_loadbin_stdfile_cb(
 		case MUI_STDF_ACTION_SELECT: {
 			char * path = mui_stdfile_get_selected_path(w);
 			printf("%s select %s\n", __func__, path);
-			mui_control_set_state(m->fname, MUI_CONTROL_STATE_NORMAL);
+			mui_control_set_state(m->file.fname, MUI_CONTROL_STATE_NORMAL);
+			strncpy(m->config.path, path, sizeof(m->config.path)-1);
 			char *dup = strdup(path);
-			mui_control_set_title(m->fname, basename(dup));
+			mui_control_set_title(m->file.fname, basename(dup));
 			free(dup);
-			mui_control_set_state(m->icon, MUI_CONTROL_STATE_NORMAL);
+			mui_control_set_state(m->file.icon, MUI_CONTROL_STATE_NORMAL);
 			mui_control_set_state(m->load, MUI_CONTROL_STATE_NORMAL);
 			mui_window_dispose(w);
 		}	break;
@@ -94,6 +101,19 @@ _mii_loadbin_action_cb(
 						MUI_STDF_FLAG_REGEXP);
 					mui_window_set_action(w, _mii_loadbin_stdfile_cb, m);
 				}	break;
+				case MII_LBIN_AUTO_RELOAD: {
+					// toggle auto reload
+					m->config.auto_reload = !!mui_control_get_value(c);
+					printf("%s auto reload %d\n", __func__, m->config.auto_reload);
+				}	break;
+				case MII_LBIN_ADDR_0300:
+				case MII_LBIN_ADDR_0800:
+				case MII_LBIN_ADDR_2000: {
+					int idx = FCC_INDEX(uid);
+					static const uint16_t addrs[] = { 0x0300, 0x0800, 0x2000 };
+					m->config.addr = addrs[idx];
+					printf("%s load addr $%04x\n", __func__, m->config.addr);
+				}	break;
 			}
 			break;
 	}
@@ -114,7 +134,7 @@ mii_mui_load_binary(
 		return w;
 	}
 	c2_pt_t where = {};
-	c2_rect_t wpos = C2_RECT_WH(where.x, where.y, 480, 294);
+	c2_rect_t wpos = C2_RECT_WH(where.x, where.y, 580, 294);
 	if (where.x == 0 && where.y == 0)
 		c2_rect_offset(&wpos,
 			(ui->screen_size.x / 2) - (c2_rect_width(&wpos) / 2),
@@ -144,41 +164,46 @@ mii_mui_load_binary(
 					"Cancel", MII_LBIN_CANCEL);
 	c->key_equ = MUI_KEY_EQU(0, 27);
 
-	c2_rect_right_of(&cf, 0, margin);
-	c = mui_button_new(w,
-					cf, MUI_BUTTON_STYLE_NORMAL,
-					"Select…" , MII_LBIN_SELECT);
-	c->key_equ = MUI_KEY_EQU(MUI_MODIFIER_ALT, 's');
-
 	cf.b = cf.t + base_size;
 	c2_rect_top_of(&cf, cf.t, margin);
 	c2_rect_right_of(&cf, 0, margin);
 	cf.r = cf.l + 200;
 	c = mui_button_new(w,
 					cf, MUI_BUTTON_STYLE_CHECKBOX,
-					"Auto Reload", 0);
+					"Auto Reload", MII_LBIN_AUTO_RELOAD);
 	c->key_equ = MUI_KEY_EQU(MUI_MODIFIER_ALT, 'r');
 	// this tell libmui that it can clear the radio values of the 'sister'
 	// radio buttons when one matching the uid&mask is selected
 	uint32_t uid_mask = FCC(0xff,0xff,0xff,0);
 	c2_rect_top_of(&cf, cf.t, 10);
-	cf.l += margin * 2;
+//	cf.l += margin * 2;
 	cf.r = cf.l + 110;
-	c = mui_button_new(w,
-					cf, MUI_BUTTON_STYLE_RADIO,
-					"$0300", FCC('a','d','d','0'));
+	c = mui_button_new(w, cf, MUI_BUTTON_STYLE_RADIO,
+					"$0300", MII_LBIN_ADDR_0300);
 	c->uid_mask = uid_mask;
 	c->value = 1;
-	c2_rect_right_of(&cf, cf.r, margin);
-	c = mui_button_new(w,
-					cf, MUI_BUTTON_STYLE_RADIO,
-					"$0800", FCC('a','d','d','1'));
+	int inter_button_margin = margin/3;
+	c2_rect_right_of(&cf, cf.r, inter_button_margin);
+	c = mui_button_new(w, cf, MUI_BUTTON_STYLE_RADIO,
+					"$0800", MII_LBIN_ADDR_0800);
 	c->uid_mask = uid_mask;
-	c2_rect_right_of(&cf, cf.r, margin);
-	c = mui_button_new(w,
-					cf, MUI_BUTTON_STYLE_RADIO,
-					"$2000", FCC('a','d','d','2'));
+	c2_rect_right_of(&cf, cf.r, inter_button_margin);
+	c = mui_button_new(w, cf, MUI_BUTTON_STYLE_RADIO,
+					"$2000", MII_LBIN_ADDR_2000);
 	c->uid_mask = uid_mask;
+
+	c2_rect_right_of(&cf, cf.r, inter_button_margin);
+	cf.r = cf.l + 90;
+	c = mui_textbox_new(w, cf, "Other: $", NULL, 0);
+	c->state = MUI_CONTROL_STATE_DISABLED;
+	c2_rect_right_of(&cf, cf.r, 4);
+	c2_rect_t tbf = cf;
+	tbf.r = c2_rect_width(&w->frame) - margin*2;
+	tbf.b = cf.t + base_size * 1.3;
+	c2_rect_bottom_of(&tbf, cf.t, -margin/4);
+	c = mui_textedit_control_new(w, tbf, MUI_CONTROL_TEXTBOX_FRAME);
+	mui_textedit_set_text(c, "4000");
+	c->state = MUI_CONTROL_STATE_DISABLED;
 
 	c2_rect_right_of(&cf, 0, margin);
 	c2_rect_top_of(&cf, cf.t, margin / 2);
@@ -190,19 +215,10 @@ mii_mui_load_binary(
 	c2_rect_t cp = cf;
 	cp.l -= margin * 0.2;
 	cp.b += base_size * 1.3;
-	c = mui_groupbox_new(w, cp, "File to load:", MUI_CONTROL_TEXTBOX_FRAME);
 
-	float icons_size = mui_font_find(ui, "icon_small")->size;
-	c2_rect_bottom_of(&cf, cf.b, 0);
-	cf.b = cf.t + icons_size;
-	cf.r = cf.l + icons_size;
-	m->icon = c = mui_textbox_new(w, cf, MUI_ICON_FILE, "icon_small",
-				MUI_TEXT_ALIGN_MIDDLE | MUI_TEXT_ALIGN_CENTER | 0);
-	c->state = MUI_CONTROL_STATE_DISABLED;
-	cf.l = cf.r;
-	cf.r = c2_rect_width(&w->content) - margin;
-	m->fname = c = mui_textbox_new(w, cf, "Click \"Select\" to pick a file", NULL, 0);
-	c->state = MUI_CONTROL_STATE_DISABLED;
+	mii_mui_fileselect_widget(&m->file, w, &cf, "Device:", "Select…", NULL);
+	m->file.button->uid = MII_LBIN_SELECT;
+	m->file.button->key_equ = MUI_KEY_EQU(MUI_MODIFIER_ALT, 's');
 
 	c = NULL;
 	TAILQ_FOREACH(c, &w->controls, self) {
@@ -210,7 +226,41 @@ mii_mui_load_binary(
 			continue;
 		mui_control_set_action(c, _mii_loadbin_action_cb, m);
 	}
+	m->config = *config;
 
+	if (m->config.path[0]) {
+		char * path = m->config.path;
+		mui_control_set_state(m->file.fname, MUI_CONTROL_STATE_NORMAL);
+		char *dup = strdup(path);
+		mui_control_set_title(m->file.fname, basename(dup));
+		free(dup);
+		mui_control_set_state(m->file.icon, MUI_CONTROL_STATE_NORMAL);
+		mui_control_set_state(m->load, MUI_CONTROL_STATE_NORMAL);
+	} else {
+		m->config.path[0] = 0;
+	//	mui_control_set_state(m->load, MUI_CONTROL_STATE_NORMAL);
+	}
+	switch (m->config.addr) {
+		case 0x0300:
+			mui_control_set_value(
+					mui_control_get_by_id(w,
+								FCC_INDEXED(MII_LBIN_ADDR_0300, 0)), 1);
+			break;
+		case 0x0800:
+			mui_control_set_value(
+					mui_control_get_by_id(w,
+								FCC_INDEXED(MII_LBIN_ADDR_0300, 1)), 1);
+			break;
+		case 0x2000:
+			mui_control_set_value(
+					mui_control_get_by_id(w,
+								FCC_INDEXED(MII_LBIN_ADDR_0300, 2)), 1);
+			break;
+	}
+	// now check the auto reload
+	mui_control_set_value(
+			mui_control_get_by_id(w, MII_LBIN_AUTO_RELOAD),
+			m->config.auto_reload);
 	return w;
 }
 

@@ -7,8 +7,6 @@
  *
  */
 
-#include "mii.h"
-
 // https://github.com/ivanizag/izapple2/blob/master/cardMouse.go
 // https://hackaday.io/project/19925-aiie-an-embedded-apple-e-emulator/log/188017-entry-23-here-mousie-mousie-mousie
 // https://github.com/ct6502/apple2ts/blob/main/src/emulator/mouse.ts
@@ -170,7 +168,7 @@ _mii_mouse_init(
 
 	// Set 8 entrypoints to sofstwitches 2 to 1f
 	for (int i = 0; i < 14; i++) {
-		uint8_t base = 0x60 + 0x05 * i;
+		uint8_t base = 0x30 + 0x05 * i;
 		data[0x12+i] = base;
 		data[base+0] = 0x8D; // STA $C0x2
 		data[base+1] = 0x82 + i + ((slot->id + 1) << 4);
@@ -212,12 +210,12 @@ _mii_mouse_access(
 			if (write) {
 				byte &= 0xf;
 				mii_bank_poke(main, MOUSE_MODE + c->slot_offset, byte);
-				printf("%s: mouse mode %02x\n", __func__, byte);
 				mii->mouse.enabled = byte & mouseEnabled;
-				printf("Mouse %s\n", mii->mouse.enabled ? "enabled" : "disabled");
-				printf(" Interupt: %s\n", byte & mouseIntMoveEnabled ? "enabled" : "disabled");
-				printf(" Button:   %s\n", byte & mouseIntButtonEnabled ? "enabled" : "disabled");
-				printf(" VBlank:   %s\n", byte & mouseIntVBlankEnabled ? "enabled" : "disabled");
+				printf("%s: mode %02x: %s Move:%d Button:%d VBL:%d\n", __func__,
+						byte, mii->mouse.enabled ? "ON " : "OFF",
+						byte & mouseIntMoveEnabled ? 1 : 0,
+						byte & mouseIntButtonEnabled ? 1 : 0,
+						byte & mouseIntVBlankEnabled ? 1 : 0);
 				c->mode = byte;
 			}
 		}	break;
@@ -256,9 +254,9 @@ _mii_mouse_access(
 				mii->mouse.max_y = mii_bank_peek(main, CLAMP_MAX_LO) |
 									(mii_bank_peek(main, CLAMP_MAX_HI) << 8);
 			}
-			printf("Mouse clamp to %d,%d - %d,%d\n",
-					mii->mouse.min_x, mii->mouse.min_y,
-					mii->mouse.max_x, mii->mouse.max_y);
+		//	printf("Mouse clamp to %d,%d - %d,%d\n",
+		//			mii->mouse.min_x, mii->mouse.min_y,
+		//			mii->mouse.max_x, mii->mouse.max_y);
 			break;
 		case 8: // home mouse
 			mii->mouse.x = mii->mouse.min_x;

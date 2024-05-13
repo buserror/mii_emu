@@ -29,7 +29,7 @@
 #include "mii_mui_gl.h"
 #include "miigl_counter.h"
 #define MII_ICON64_DEFINE
-#include "mii-icon-64.h"
+#include "mii_icon64.h"
 
 /*
  * Note: This *assumes* that the GL implementation has support for
@@ -49,10 +49,6 @@ typedef struct mii_x11_t {
 	Display *			dpy;
 	Window 				win;
 
-	XVisualInfo *		vis;
-	Colormap 			cmap;
-	XSetWindowAttributes swa;
-	GLXFBConfig 		fbc;
 	Atom 				wm_delete_window;
 	int 				width, height;
 	GLXContext 			glContext;
@@ -155,6 +151,8 @@ mii_x11_init(
 		if ((glx_major == 1 && glx_minor < 3) || (glx_major < 1))
 			die("[X11]: Error: Invalid GLX version!\n");
 	}
+	GLXFBConfig 		fbc;
+	XVisualInfo *		vis = NULL;
 	{
 		/* find and pick matching framebuffer visual */
 		int fb_count;
@@ -163,26 +161,24 @@ mii_x11_init(
 			GLX_DRAWABLE_TYPE, GLX_WINDOW_BIT,
 			GLX_RENDER_TYPE, GLX_RGBA_BIT,
 			GLX_X_VISUAL_TYPE, GLX_TRUE_COLOR,
-			GLX_RED_SIZE, 8,
-			GLX_GREEN_SIZE, 8,
-			GLX_BLUE_SIZE, 8,
-			GLX_ALPHA_SIZE, 8,
+			GLX_RED_SIZE, 8, GLX_GREEN_SIZE, 8,
+			GLX_BLUE_SIZE, 8, GLX_ALPHA_SIZE, 8,
 			None
 		};
-		GLXFBConfig *fbc = glXChooseFBConfig(ui->dpy,
+		GLXFBConfig *fbc_list = glXChooseFBConfig(ui->dpy,
 								DefaultScreen(ui->dpy), attr, &fb_count);
-		if (!fbc)
+		if (!fbc_list)
 			die("[X11]: Error: failed to retrieve framebuffer configuration\n");
 		{
 			/* pick framebuffer with most samples per pixel */
 			int fb_best = -1, best_num_samples = -1;
 			for (int i = 0; i < fb_count; ++i) {
-				XVisualInfo *vi = glXGetVisualFromFBConfig(ui->dpy, fbc[i]);
+				XVisualInfo *vi = glXGetVisualFromFBConfig(ui->dpy, fbc_list[i]);
 				if (vi) {
 					int sample_buffer, samples;
-					glXGetFBConfigAttrib(ui->dpy, fbc[i],
+					glXGetFBConfigAttrib(ui->dpy, fbc_list[i],
 								GLX_SAMPLE_BUFFERS, &sample_buffer);
-					glXGetFBConfigAttrib(ui->dpy, fbc[i],
+					glXGetFBConfigAttrib(ui->dpy, fbc_list[i],
 								GLX_SAMPLES, &samples);
 					if ((fb_best < 0) ||
 							(sample_buffer && samples > best_num_samples))
@@ -190,34 +186,35 @@ mii_x11_init(
 					XFree(vi);
 				}
 			}
-			ui->fbc = fbc[fb_best];
-			XFree(fbc);
-			ui->vis = glXGetVisualFromFBConfig(ui->dpy, ui->fbc);
+			fbc = fbc_list[fb_best];
+			XFree(fbc_list);
+			vis = glXGetVisualFromFBConfig(ui->dpy, fbc);
 		}
 	}
 	{
 		/* create window */
-		ui->cmap = XCreateColormap(ui->dpy,
-						RootWindow(ui->dpy, ui->vis->screen),
-						ui->vis->visual, AllocNone);
-		ui->swa.colormap = ui->cmap;
-		ui->swa.background_pixmap = None;
-		ui->swa.border_pixel = 0;
-		ui->swa.event_mask =
-			ExposureMask | KeyPressMask | KeyReleaseMask |
-			ButtonPress | ButtonReleaseMask | ButtonMotionMask |
-			Button1MotionMask | Button3MotionMask |
-			Button4MotionMask | Button5MotionMask |
-			PointerMotionMask | StructureNotifyMask | FocusChangeMask;
+		XSetWindowAttributes swa = {
+			.colormap = XCreateColormap(ui->dpy,
+						RootWindow(ui->dpy, vis->screen),
+						vis->visual, AllocNone),
+			.background_pixmap = None,
+			.border_pixel = 0,
+			.event_mask =
+				ExposureMask | KeyPressMask | KeyReleaseMask |
+				ButtonPress | ButtonReleaseMask | ButtonMotionMask |
+				Button1MotionMask | Button3MotionMask |
+				Button4MotionMask | Button5MotionMask |
+				PointerMotionMask | StructureNotifyMask | FocusChangeMask,
+		};
 		ui->win = XCreateWindow(ui->dpy,
-					RootWindow(ui->dpy, ui->vis->screen), 0, 0,
-					WINDOW_WIDTH, WINDOW_HEIGHT, 0, ui->vis->depth, InputOutput,
-					ui->vis->visual,
-					CWBorderPixel | CWColormap | CWEventMask,
-					&ui->swa);
+					RootWindow(ui->dpy, vis->screen), 0, 0,
+					WINDOW_WIDTH, WINDOW_HEIGHT, 0, vis->depth, InputOutput,
+					vis->visual, CWBorderPixel | CWColormap | CWEventMask,
+					&swa);
 		if (!ui->win)
 			die("[X11]: Failed to create window\n");
-		XFree(ui->vis);
+		XFree(vis);
+		XFreeColormap(ui->dpy, swa.colormap);
 		{
 			char title[128];
 			sprintf(title, "MII //e Emulator");
@@ -276,14 +273,15 @@ mii_x11_init(
 				!create_context) {
 			fprintf(stdout, "[X11]: glXCreateContextAttribARB() not found...\n");
 			fprintf(stdout, "[X11]: ... using old-style GLX context\n");
-			ui->glContext = glXCreateNewContext(ui->dpy, ui->fbc, GLX_RGBA_TYPE, 0, True);
+			ui->glContext = glXCreateNewContext(
+						ui->dpy, fbc, GLX_RGBA_TYPE, 0, True);
 		} else {
 			GLint attr[] = {
-				GLX_CONTEXT_MAJOR_VERSION_ARB, 2,
-				GLX_CONTEXT_MINOR_VERSION_ARB, 2,
+				GLX_CONTEXT_MAJOR_VERSION_ARB, 3,
+				GLX_CONTEXT_MINOR_VERSION_ARB, 0,
 				None
 			};
-			ui->glContext = create_context(ui->dpy, ui->fbc, 0, True, attr);
+			ui->glContext = create_context(ui->dpy, fbc, 0, True, attr);
 			XSync(ui->dpy, False);
 			if (gl_err || !ui->glContext) {
 				attr[1] = 1;
@@ -291,7 +289,7 @@ mii_x11_init(
 				gl_err = false;
 				fprintf(stdout, "[X11] Failed to create OpenGL 3.0 context\n");
 				fprintf(stdout, "[X11] ... using old-style GLX context!\n");
-				ui->glContext = create_context(ui->dpy, ui->fbc, 0, True, attr);
+				ui->glContext = create_context(ui->dpy, fbc, 0, True, attr);
 			}
 		}
 		XSync(ui->dpy, False);
@@ -301,6 +299,29 @@ mii_x11_init(
 		glXMakeCurrent(ui->dpy, ui->win, ui->glContext);
 	}
 	return 0;
+}
+
+
+static void
+mui_read_clipboard(
+		struct mui_t *mui)
+{
+	FILE *f = popen("xclip -selection clipboard -o", "r");
+	if (!f) {
+		perror("popen xclip");
+		return;
+	}
+	mui_utf8_t clip = {};
+	char buf[1024];
+	size_t r = 0;
+	do {
+		r = fread(buf, 1, sizeof(buf), f);
+		if (r > 0)
+			mui_utf8_append(&clip, (uint8_t*)buf, r);
+	} while (r > 0);
+	pclose(f);
+	mui_utf8_free(&mui->clipboard);
+	mui->clipboard = clip;
 }
 
 static int
@@ -400,8 +421,29 @@ mii_x11_handle_event(
 					case MUI_KEY_RIGHT: mii_key = 'U' - 'A' + 1; break;
 					case MUI_KEY_LEFT: 	mii_key = 'H' - 'A' + 1; break;
 				}
-			//	printf("key %04x %4x\n", mii_key, mui->modifier_keys);
-				mii_keypress(mii, mii_key);
+//				printf("key %04x %4x\n", mii_key, mui->modifier_keys);
+				/* control shift V is hard coded! */
+				if (mii_key == 0x016 &&
+						(mui->modifier_keys & MUI_MODIFIER_SHIFT) &&
+						(mui->modifier_keys & MUI_MODIFIER_CTRL)) {
+					printf("Paste\n");
+					mui_read_clipboard(mui);
+					if (mui->clipboard.count) {
+						mui_utf8_add(&mui->clipboard, 0);
+						// convert newlines
+						for (uint i = 0; i < mui->clipboard.count; i++)
+							if (mui->clipboard.e[i] == '\n')
+								mui->clipboard.e[i] = '\r';
+						mii_th_signal_t sig = {
+							.cmd = SIGNAL_PASTE,
+							.ptr = mui->clipboard.e,
+						};
+						mui->clipboard.e = NULL;
+						mui->clipboard.count = mui->clipboard.size = 0;
+						mii_th_fifo_write(mii_thread_get_fifo(mii), sig);
+					}
+				} else
+					mii_keypress(mii, mii_key);
 			}
 			XFree(code);
 		}	break;
@@ -487,7 +529,6 @@ mii_x11_terminate(
 	glXMakeCurrent(ui->dpy, 0, 0);
 	glXDestroyContext(ui->dpy, ui->glContext);
 	XUnmapWindow(ui->dpy, ui->win);
-	XFreeColormap(ui->dpy, ui->cmap);
 	XDestroyWindow(ui->dpy, ui->win);
 	XCloseDisplay(ui->dpy);
 }
@@ -502,6 +543,10 @@ static const struct {
 	[MII_SLOT_DRIVER_MOUSE] 	= { "mouse", },
 	[MII_SLOT_DRIVER_SSC] 		= { "ssc", },
 	[MII_SLOT_DRIVER_ROM1MB]	= { "eecard", },
+	[MII_SLOT_DRIVER_MOCKINGBOARD] = { "mockingboard", },
+#ifdef MII_DANII
+	[MII_SLOT_DRIVER_DANII] 	= { "danii", },
+#endif
 };
 
 void
@@ -575,6 +620,7 @@ _mii_ui_load_config(
 		*ioFlags |= MII_INIT_TITAN;
 	mii->speaker.muted = config->audio_muted;
 	mii->video.color_mode = config->video_mode;
+	mii_video_set_mode(mii, config->video_mode);
 	for (int i = 0; i < 7; i++) {
 		if (config->slot[i].driver == MII_SLOT_DRIVER_NONE)
 			continue;
@@ -594,7 +640,7 @@ _mii_ui_load_config(
 }
 
 // I want at least the 'silent' flags to be 'sticky'
-static uint32_t g_startup_flags = 0;
+uint32_t g_startup_flags = 0;
 
 void
 mii_x11_reload_config(
@@ -602,7 +648,7 @@ mii_x11_reload_config(
 {
 	mii_t * mii = &ui->video.mii;
 	mii_machine_config_t * config = &ui->video.config;
-	uint32_t flags = MII_INIT_DEFAULT | (g_startup_flags & MII_INIT_SILENT);
+	uint32_t flags = MII_INIT_DEFAULT | g_startup_flags;
 
 	if (mii->state != MII_INIT) {
 		printf("%s mii is running, terminating thread\n", __func__);
@@ -613,7 +659,7 @@ mii_x11_reload_config(
 	mii_mui_menu_slot_menu_update(&ui->video);
 	printf("%s (re)loading config\n", __func__);
 	// if we're silent from the command line, we are *always* silent.
-	mii->speaker.off = !!(g_startup_flags & MII_INIT_SILENT);
+	mii->speaker.speaker_off = !!(g_startup_flags & MII_INIT_SILENT);
 	mii_init(mii);
 	_mii_ui_load_config(mii, config, &flags);
 	mii_prepare(mii, flags);
@@ -708,7 +754,7 @@ main(
 				if (evt.xclient.message_type ==
 							XInternAtom(ui->dpy, "WM_PROTOCOLS", False) &&
 						(Atom)evt.xclient.data.l[0] == ui->wm_delete_window) {
-					printf("Window close requested!\n");
+				//	printf("Window close requested!\n");
 					goto cleanup;
 				}
 			}

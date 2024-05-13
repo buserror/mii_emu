@@ -22,7 +22,7 @@ OS2Version: 4
 OS2_WeightWidthSlopeOnly: 0
 OS2_UseTypoMetrics: 1
 CreationTime: 1406487198
-ModificationTime: 1710318804
+ModificationTime: 1712598375
 PfmFamily: 17
 TTFWeight: 400
 TTFWidth: 5
@@ -2630,8 +2630,8 @@ NameList: AGL For New Fonts
 DisplaySize: -96
 AntiAlias: 1
 FitToEm: 0
-WinInfo: 224 14 9
-BeginChars: 349 339
+WinInfo: 144 18 12
+BeginChars: 351 341
 
 StartChar: .notdef
 Encoding: 336 -1 0
@@ -7504,16 +7504,16 @@ EndTTInstrs
 LayerCount: 2
 Fore
 SplineSet
-500 467 m 2,0,1
- 517 467 517 467 529.5 454 c 128,-1,2
- 542 441 542 441 542 425 c 128,-1,3
- 542 409 542 409 529 396 c 2,4,-1
- 271 133 l 1,5,-1
- 12 396 l 2,6,7
- 0 408 0 408 0 425 c 128,-1,8
- 0 442 0 442 12.5 454.5 c 128,-1,9
- 25 467 25 467 42 467 c 2,10,-1
- 500 467 l 2,0,1
+500 467 m 6,0,1
+ 517 467 517 467 529.5 454 c 132,-1,2
+ 542 441 542 441 542 425 c 132,-1,3
+ 542 409 542 409 529 396 c 6,4,-1
+ 271 133 l 5,5,-1
+ 12 396 l 6,6,7
+ 0 408 0 408 0 425 c 132,-1,8
+ 0 442 0 442 12.5 454.5 c 132,-1,9
+ 25 467 25 467 42 467 c 6,10,-1
+ 500 467 l 6,0,1
 EndSplineSet
 Validated: 1
 EndChar
@@ -54120,13 +54120,13 @@ SplineSet
  667 210 l 5,55,-1
  667 85 l 5,52,-1
 EndSplineSet
-Validated: 524329
+Validated: 41
 EndChar
 
 StartChar: uniE151
 Encoding: 338 57681 338
 Width: 750
-Flags: WO
+Flags: W
 LayerCount: 2
 Fore
 SplineSet
@@ -54173,6 +54173,47 @@ SplineSet
  0 -98 l 1,38,-1
 EndSplineSet
 Validated: 37
+EndChar
+
+StartChar: uniE152
+Encoding: 339 57682 339
+Width: 449
+Flags: WO
+LayerCount: 2
+Fore
+SplineSet
+104 529 m 2,0,1
+ 104 546 104 546 117 558.5 c 128,-1,2
+ 130 571 130 571 146 571 c 128,-1,3
+ 162 571 162 571 175 558 c 2,4,-1
+ 438 300 l 1,5,-1
+ 175 41 l 2,6,7
+ 163 29 163 29 146 29 c 128,-1,8
+ 129 29 129 29 116.5 41.5 c 128,-1,9
+ 104 54 104 54 104 71 c 2,10,-1
+ 104 529 l 2,0,1
+EndSplineSet
+EndChar
+
+StartChar: uniE153
+Encoding: 340 57683 340
+Width: 542
+Flags: W
+LayerCount: 2
+Fore
+SplineSet
+438 71 m 6,0,1
+ 438 54 438 54 425 41.5 c 132,-1,2
+ 412 29 412 29 396 29 c 132,-1,3
+ 380 29 380 29 367 42 c 6,4,-1
+ 104 300 l 5,5,-1
+ 367 559 l 6,6,7
+ 379 571 379 571 396 571 c 132,-1,8
+ 413 571 413 571 425.5 558.5 c 132,-1,9
+ 438 546 438 546 438 529 c 6,10,-1
+ 438 71 l 6,0,1
+EndSplineSet
+Validated: 1
 EndChar
 EndChars
 EndSplineFont

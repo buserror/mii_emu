@@ -211,7 +211,7 @@ _mii_disk2_reset(
 		struct mii_slot_t *slot )
 {
 	mii_card_disk2_t *c = slot->drv_priv;
-	printf("%s\n", __func__);
+//	printf("%s\n", __func__);
 	c->selected = 1;
 	_mii_floppy_motor_off_cb(mii, c);
 	c->selected = 0;
@@ -247,11 +247,11 @@ _mii_disk2_access(
 	int read = 0;
 	switch (psw) {
 		case 0x00 ... 0x07: {
+			static const int8_t delta[4][4] = {
+				{0, 1, 2, -1}, {-1, 0, 1, 2}, {-2, -1, 0, 1}, {1, -2, -1, 0},
+			};
 			if (on) {
-				if ((f->stepper + 3) % 4 == p)
-					_mii_disk2_switch_track(mii, c, -2);
-				else if ((f->stepper + 1) % 4 == p)
-					_mii_disk2_switch_track(mii, c, 2);
+				_mii_disk2_switch_track(mii, c, delta[f->stepper][p] * 2);
 				f->stepper = p;
 			}
 		}	break;
@@ -265,14 +265,15 @@ _mii_disk2_access(
 				mii_raise_signal(c->sig + SIG_MOTOR, 1);
 			} else {
 				int32_t timer = mii_timer_get(mii, c->timer_off);
-				mii_timer_set(mii, c->timer_off, timer + 1000000); // one second
+				mii_timer_set(mii, c->timer_off,
+						timer + (1000000 * mii->speed)); // one second
 			}
 		}	break;
 		case 0x0A:
 		case 0x0B: {
 			if (on != c->selected) {
 				c->selected = on;
-				printf("SELECTED DRIVE: %d\n", c->selected);
+			//	printf("SELECTED DRIVE: %d\n", c->selected);
 				c->floppy[on].motor = f->motor;
 				f->motor = 0;
 				mii_raise_signal(c->sig + SIG_MOTOR, 0);
@@ -492,7 +493,7 @@ static const uint8_t lss_rom16s[16][16] = {
 [READ|LOAD|QA1|RP0]={	0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A,0x0A },
 };
 
-static const uint8_t SEQUENCER_ROM_16[256] = {
+static const uint8_t SEQUENCER_ROM_16[256] __attribute__((unused)) = {
     // See Understanding the Apple IIe, Figure 9.11 The DOS 3.3 Logic State Sequencer
     // Note that the column order here is NOT the same as in Figure 9.11 for Q7 H (Write).
     //
@@ -625,8 +626,8 @@ _mii_disk2_lss_tick(
 				if (f->tracks[track_id].virgin) {
 					f->tracks[track_id].virgin = 0;
 					f->bit_position = 0;
-					if (track_id == 0)
-						_mii_disk2_vcd_debug(c, 1);
+				//	if (track_id == 0)
+				//		_mii_disk2_vcd_debug(c, 1);
 				}
 				f->seed_dirty++;
 			}
@@ -694,13 +695,17 @@ _mii_mish_d2(
 		mii_floppy_t *f = &c->floppy[sel];
 		if (argv[2]) {
 			int track = atoi(argv[2]);
+			if (track < 0 || track >= MII_FLOPPY_TRACK_COUNT) {
+				printf("Invalid track %d\n", track);
+				return;
+			}
 			int count = 256;
 			if (argv[3]) {
 				if (!strcmp(argv[3], "save")) {
 					// save one binary file in tmp with just that track
 					uint8_t *data = f->track_data[track];
 					char *filename;
-					asprintf(&filename, "/tmp/track_%d.bin", track);
+					asprintf(&filename, "/tmp/track_%02d.bin", track);
 					int fd = open(filename, O_CREAT | O_WRONLY, 0666);
 					write(fd, data, MII_FLOPPY_DEFAULT_TRACK_SIZE);
 					close(fd);
@@ -729,7 +734,7 @@ _mii_mish_d2(
 				printf("\n");
 			}
 		} else {
-			printf("track <track 0-36> [count]\n");
+			printf("track <track 0-34> [count]\n");
 		}
 		return;
 	}
@@ -783,6 +788,7 @@ _mii_mish_d2(
 	if (!strcmp(argv[1], "vcd")) {
 		mii_card_disk2_t *c = _mish_d2;
 		_mii_disk2_vcd_debug(c, !c->vcd);
+		return;
 	}
 }
 
@@ -791,6 +797,16 @@ _mii_mish_d2(
 MISH_CMD_NAMES(d2, "d2");
 MISH_CMD_HELP(d2,
 		"d2: disk ][ internals",
-		" <default>: dump status"
+		" <default>: dump status",
+		" list: list drives",
+		" sel [0-1]: select drive",
+		" wp [0-1]: write protect",
+		" track <track 0-34> [count]: dump track",
+		" track <track 0-34> save: save in /tmp/trackXX.bin",
+		" dirty: mark track as dirty",
+		" resync: resync all tracks",
+		" map: show track map",
+		" trace: toggle debug trace",
+		" vcd: toggle VCD debug"
 		);
 MII_MISH(d2, _mii_mish_d2);

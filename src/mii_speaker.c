@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <unistd.h>
 
 #include "mii.h"
 #include "mii_speaker.h"
@@ -99,8 +100,8 @@ mii_speaker_init(
 	s->timer_id = mii_timer_register(mii,
 			_mii_speaker_timer_cb, s, 0, __func__);
 #ifdef HAS_ALSA
-	printf("%s audio is %s\n", __func__, s->off ? "off" : "on");
-	if (!s->off)
+	printf("%s audio is %s\n", __func__, s->speaker_off ? "off" : "on");
+	if (!s->speaker_off)
 		_alsa_init(s);	// this can/will change fsize
 #endif
 	mii_speaker_volume(s, 1);
@@ -135,7 +136,7 @@ _mii_speaker_timer_cb(
 {
 	mii_speaker_t *s = (mii_speaker_t *)param;
 
-	if (s->muted || s->off)
+	if (s->muted || s->speaker_off)
 		goto done;
 	mii_audio_frame_t *f = &s->frame[s->fplay];
 	// if the frame is empty, we mark the fact we are in underrun,

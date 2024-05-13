@@ -161,7 +161,7 @@ mii_settings_save(
 		else if (cl->ignore)
 			fprintf(f, "%s\n", cl->line);
 		else
-			fprintf(f, "%s %s\n", cl->key, cl->value ? cl->value : "");
+			fprintf(f, "%s=%s\n", cl->key, cl->value ? cl->value : "");
 	}
 	fclose(f);
 	return 0;
@@ -196,6 +196,10 @@ static const struct {
 	[MII_SLOT_DRIVER_MOUSE] 	= { "mouse", },
 	[MII_SLOT_DRIVER_SSC] 		= { "ssc", },
 	[MII_SLOT_DRIVER_ROM1MB]	= { "eecard", },
+	[MII_SLOT_DRIVER_MOCKINGBOARD] = { "mockingboard", },
+#ifdef MII_DANII
+	[MII_SLOT_DRIVER_DANII]		= { "danii" },
+#endif
 };
 
 int
@@ -230,6 +234,17 @@ mii_emu_save(
 		sprintf(label, "%d", config->joystick.axes[i]);
 		mii_config_set(cf, section, name, label);
 	}
+	section = mii_config_get_section(cf, "loadbin", true);
+	mii_config_set(cf, section, "path",
+				config->loadbin.path);
+	sprintf(label, "%d", config->loadbin.active);
+	mii_config_set(cf, section, "active", label);
+	sprintf(label, "%d", config->loadbin.bank);
+	mii_config_set(cf, section, "bank", label);
+	sprintf(label, "%d", config->loadbin.addr);
+	mii_config_set(cf, section, "addr", label);
+	sprintf(label, "%d", config->loadbin.auto_reload);
+	mii_config_set(cf, section, "auto_reload", label);
 
 	for (int i = 0; i < 7; i++) {
 		char key[32];
@@ -333,6 +348,24 @@ mii_emu_load(
 			if (cl)
 				config->joystick.axes[i] = atoi(cl->value);
 		}
+	}
+	section = mii_config_get_section(cf, "loadbin", false);
+	if (section) {
+		mii_config_line_t * cl = mii_config_get(cf, section, "path");
+		if (cl)
+			strcpy(config->loadbin.path, cl->value);
+		cl = mii_config_get(cf, section, "active");
+		if (cl)
+			config->loadbin.active = atoi(cl->value);
+		cl = mii_config_get(cf, section, "bank");
+		if (cl)
+			config->loadbin.bank = atoi(cl->value);
+		cl = mii_config_get(cf, section, "addr");
+		if (cl)
+			config->loadbin.addr = atoi(cl->value);
+		cl = mii_config_get(cf, section, "auto_reload");
+		if (cl)
+			config->loadbin.auto_reload = atoi(cl->value);
 	}
 
 	for (int i = 0; i < 7; i++) {

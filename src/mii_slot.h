@@ -41,9 +41,6 @@ typedef struct mii_slot_drv_t {
 	void (*reset)(
 			mii_t * mii,
 			struct mii_slot_t *slot);
-	void (*run)(
-			mii_t * mii,
-			struct mii_slot_t *slot);
 	// access to the slot's soft switches.
 	uint8_t (*access)(
 			mii_t * mii,

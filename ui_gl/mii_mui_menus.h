@@ -17,9 +17,10 @@ extern mui_menu_item_t m_machine_menu[];
 extern mui_menu_item_t m_cpu_menu[];
 
 #ifdef MII_MUI_MENUS_C
+#define MII_MUI_APPLE_LOGO_DEFINE
 #include "mii_mui_apple_logo.h"
 mui_menu_item_t m_color_apple_menu[] = {
-	{ .color_icon = mii_color_apple_pixels, .is_menutitle = 1, },
+	{ .color_icon = mii_mui_apple_logo, .is_menutitle = 1, },
 	{ .title = "About MII…",
 			.uid = FCC('a','b','o','t') },
 //	{ .title = "-", },
@@ -53,13 +54,19 @@ mui_menu_item_t m_video_menu[] = {
 			.key_equ = MUI_KEY_EQU(MUI_MODIFIER_RCTRL, MUI_KEY_F11),
 			.kcombo = MUI_GLYPH_CONTROL MUI_GLYPH_F11 },
 	{ .title = "-", },
-	{ .title = "Color",
+	{ .title = "Color NTSC",
 			.mark = MUI_GLYPH_TICK,
 			.uid = FCC('v','d','c','0') },
-	{ .title = "Green",
+	{ .title = "Color NTSC (Alt)",
+			.mark = MUI_GLYPH_TICK,
 			.uid = FCC('v','d','c','1') },
-	{ .title = "Amber",
+	{ .title = "Color Mega2",
+			.mark = MUI_GLYPH_TICK,
 			.uid = FCC('v','d','c','2') },
+	{ .title = "Green",
+			.uid = FCC('v','d','c','3') },
+	{ .title = "Amber",
+			.uid = FCC('v','d','c','4') },
 	{ },
 };
 mui_menu_item_t m_audio_menu[] = {
@@ -100,6 +107,7 @@ mui_menu_item_t m_machine_menu[] = {
 			.submenu = m_video_menu },
 	{ .title = "Audio",
 			.kcombo = MUI_GLYPH_SUBMENU,
+			.uid = FCC('s','a','u','d'),
 			.submenu = m_audio_menu },
 	{ },
 };

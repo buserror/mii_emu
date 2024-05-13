@@ -19,6 +19,12 @@
 #include "mii_65c02.h"
 #include "minipt.h"
 
+#if MII_65C02_DIRECT_ACCESS
+static mii_cpu_state_t
+_mii_cpu_direct_access_cb(
+		struct mii_cpu_t *cpu,
+		mii_cpu_state_t   access );
+#endif
 
 mii_slot_drv_t * mii_slot_drv_list = NULL;
 
@@ -107,7 +113,7 @@ mii_dump_trace_state(
 	static const char *s_flags = "CZIDBRVN";
 	for (int i = 0; i < 8; i++)
 		printf("%c", MII_GET_P_BIT(cpu, i) ? s_flags[i] : tolower(s_flags[i]));
-	if (s.sync) {
+//	if (s.sync) {
 		uint8_t op[16];
 		for (int i = 0; i < 4; i++) {
 			mii_mem_access(mii, mii->cpu.PC + i, op + i, false, false);
@@ -123,8 +129,8 @@ mii_dump_trace_state(
 				printf(" ; taken");
 		}
 		printf("\n");
-	} else
-		printf("\n");
+//	} else
+//		printf("\n");
 }
 
 void
@@ -180,15 +186,16 @@ mii_page_table_update(
 	if (likely(!mii->mem_dirty))
 		return;
 	mii->mem_dirty = 0;
-	bool altzp 		= SW_GETSTATE(mii, SWALTPZ);
-	bool page2 		= SW_GETSTATE(mii, SWPAGE2);
-	bool store80 	= SW_GETSTATE(mii, SW80STORE);
-	bool hires 		= SW_GETSTATE(mii, SWHIRES);
-	bool ramrd 		= SW_GETSTATE(mii, SWRAMRD);
-	bool ramwrt 	= SW_GETSTATE(mii, SWRAMWRT);
-	bool intcxrom 	= SW_GETSTATE(mii, SWINTCXROM);
-	bool slotc3rom 	= SW_GETSTATE(mii, SWSLOTC3ROM);
-	bool intc8rom	= SW_GETSTATE(mii, INTC8ROM);
+	uint32_t sw = mii->sw_state;
+	bool altzp 		= SWW_GETSTATE(sw, SWALTPZ);
+	bool page2 		= SWW_GETSTATE(sw, SWPAGE2);
+	bool store80 	= SWW_GETSTATE(sw, SW80STORE);
+	bool hires 		= SWW_GETSTATE(sw, SWHIRES);
+	bool ramrd 		= SWW_GETSTATE(sw, SWRAMRD);
+	bool ramwrt 	= SWW_GETSTATE(sw, SWRAMWRT);
+	bool intcxrom 	= SWW_GETSTATE(sw, SWINTCXROM);
+	bool slotc3rom 	= SWW_GETSTATE(sw, SWSLOTC3ROM);
+	bool intc8rom	= SWW_GETSTATE(sw, INTC8ROM);
 
 	if (unlikely(mii->trace_cpu))
 		printf("%04x: MEM update altzp:%d page2:%d store80:%d "
@@ -215,15 +222,15 @@ mii_page_table_update(
 	}
 	// c1-cf are at ROM state when we arrive here
 	if (!intcxrom) {
-		mii_page_set(mii, MII_BANK_CARD_ROM, _SAME, 0xc1, 0xcf);
+		mii_page_set(mii, MII_BANK_CARD_ROM, MII_BANK_CARD_ROM, 0xc1, 0xcf);
 		if (!slotc3rom)
 			mii_page_set(mii, MII_BANK_ROM, _SAME, 0xc3, 0xc3);
 		if (intc8rom)
 			mii_page_set(mii, MII_BANK_ROM, _SAME, 0xc8, 0xcf);
 	}
-	bool bsrread 	= SW_GETSTATE(mii, BSRREAD);
-	bool bsrwrite 	= SW_GETSTATE(mii, BSRWRITE);
-	bool bsrpage2 	= SW_GETSTATE(mii, BSRPAGE2);
+	bool bsrread 	= SWW_GETSTATE(sw, BSRREAD);
+	bool bsrwrite 	= SWW_GETSTATE(sw, BSRWRITE);
+	bool bsrpage2 	= SWW_GETSTATE(sw, BSRPAGE2);
 	mii_page_set(mii,
 		bsrread ?
 			altzp ? MII_BANK_AUX_BSR : MII_BANK_BSR :
@@ -342,6 +349,7 @@ mii_access_soft_switches(
 	bool res = false;
 	uint8_t on = 0;
 	mii_bank_t * sw = &mii->bank[MII_BANK_SW];
+	const uint16_t sw_save = mii->sw_state;
 
 	/*
 	 * This allows driver (titan accelerator etc) to have their own
@@ -403,22 +411,19 @@ mii_access_soft_switches(
 				SW_SETSTATE(mii, BSRREAD, !offSwitch);
 			}
 			SW_SETSTATE(mii, BSRPAGE2, !(addr & 0x08));
-			mii->mem_dirty = 1;
+			mii->mem_dirty = sw_save != mii->sw_state;
 		}	break;
 		case SWPAGE2OFF:
 		case SWPAGE2ON:
-			res = true;
-			SW_SETSTATE(mii, SWPAGE2, addr & 1);
-			mii_bank_poke(sw, SWPAGE2, (addr & 1) << 7);
-			mii->mem_dirty = 1;
+			// ACTUAL switch is already done in mii_access_video()
+			res = true; // mii_access_video(mii, addr, byte, write);
+			mii->mem_dirty = true;
 			break;
 		case SWHIRESOFF:
 		case SWHIRESON:
-			res = true;
-			SW_SETSTATE(mii, SWHIRES, addr & 1);
-			mii_bank_poke(sw, SWHIRES, (addr & 1) << 7);
-			mii->mem_dirty = 1;
-		//	printf("HIRES %s\n", (addr & 1) ? "ON" : "OFF");
+			// ACTUAL switch is already done in mii_access_video()
+			res = true; // mii_access_video(mii, addr, byte, write);
+			mii->mem_dirty = true;
 			break;
 		case SWSPEAKER:
 			res = true;
@@ -434,8 +439,10 @@ mii_access_soft_switches(
 			// IIgs register, read by prodos tho
 			break;
 	}
-	if (res && !mii->mem_dirty)
+	if (res) {
+		mii_page_table_update(mii);
 		return res;
+	}
 	if (write) {
 		switch (addr) {
 			case SW80STOREOFF:
@@ -443,56 +450,55 @@ mii_access_soft_switches(
 				res = true;
 				SW_SETSTATE(mii, SW80STORE, addr & 1);
 				mii_bank_poke(sw, SW80STORE, (addr & 1) << 7);
-				mii->mem_dirty = 1;
 				break;
 			case SWRAMRDOFF:
 			case SWRAMRDON:
 				res = true;
 				SW_SETSTATE(mii, SWRAMRD, addr & 1);
 				mii_bank_poke(sw, SWRAMRD, (addr & 1) << 7);
-				mii->mem_dirty = 1;
 				break;
 			case SWRAMWRTOFF:
 			case SWRAMWRTON:
 				res = true;
 				SW_SETSTATE(mii, SWRAMWRT, addr & 1);
 				mii_bank_poke(sw, SWRAMWRT, (addr & 1) << 7);
-				mii->mem_dirty = 1;
 				break;
 			case SWALTPZOFF:
 			case SWALTPZON:
 				res = true;
 				SW_SETSTATE(mii, SWALTPZ, addr & 1);
 				mii_bank_poke(sw, SWALTPZ, (addr & 1) << 7);
-				mii->mem_dirty = 1;
 				break;
 			case SWINTCXROMOFF:
 			case SWINTCXROMON:
 				res = true;
 				SW_SETSTATE(mii, SWINTCXROM, addr & 1);
 				mii_bank_poke(sw, SWINTCXROM, (addr & 1) << 7);
-				mii->mem_dirty = 1;
 				break;
 			case SWSLOTC3ROMOFF:
 			case SWSLOTC3ROMON:
 				res = true;
 				SW_SETSTATE(mii, SWSLOTC3ROM, addr & 1);
 				mii_bank_poke(sw, SWSLOTC3ROM, (addr & 1) << 7);
-				mii->mem_dirty = 1;
 				break;
 			case SWRAMWORKS_BANK:
 				mii_bank_poke(sw, SWRAMWORKS_BANK, *byte);
 				mii_bank_update_ramworks(mii, *byte);
 				break;
 		}
+		mii->mem_dirty += sw_save != mii->sw_state;
 	} else {
 		switch (addr) {
 			case SWBSRBANK2:
-				*byte = SW_GETSTATE(mii, BSRPAGE2) ? 0x80 : 0;
+				*byte = SW_GETSTATE(mii, BSRPAGE2) << 7;
 				res = true;
 				break;
 			case SWBSRREADRAM:
-				*byte = SW_GETSTATE(mii, BSRREAD) ? 0x80 : 0;
+				*byte = SW_GETSTATE(mii, BSRREAD) << 7;
+				res = true;
+				break;
+			case SWPAGE2OFF:
+			case SWPAGE2ON:	// already done by the video code
 				res = true;
 				break;
 			case SWRAMRD:
@@ -504,28 +510,32 @@ mii_access_soft_switches(
 				res = true;
 				*byte = mii_bank_peek(sw, addr);
 				break;
-			case 0xc020: // toggle TAPE output ?!?!
-				res = true;
-				break;
 			case 0xc068:
 				res = true;
 				// IIgs register, read by prodos tho
 				break;
+			case 0xc020: // toggle TAPE output ?!?!
+			//	res = true;
+			//	break;
 			default:
 				res = true;
+			//	if (addr != 0xc00b)
+			//		printf("VAPOR LOCK %04x\n", addr);
+				// this doesn't work. Well it does the job of returning
+				// something semi random, but it's not ready to be a TRUE
+				// vapor lock.
+				*byte = mii_video_get_vapor(mii);
+#if 0
 				/*
 				 * this is moderately important, return some random value
 				 * as it is supposed to represent what's on the bus at the time,
 				 * typically video being decoded etc.
 				 */
-				*byte = mii->random[mii->random_index++];
-				mii->random_index &= 0xff;
+//				*byte = mii->random[mii->random_index++];
+//				mii->random_index &= 0xff;
+#endif
 				break;
 		}
-	}
-	if (!res) {
-	//	printf("%s addr %04x write %d %02x\n", __func__, addr, write, *byte);
-	//	mii->state = MII_STOPPED;
 	}
 	mii_page_table_update(mii);
 	return res;
@@ -576,6 +586,7 @@ mii_keypress(
 	mii_bank_poke(sw, SWKBD, key);
 }
 
+/* ramworks came populated in chunks, this duplicates these rows of chips */
 #define B(x) ((unsigned __int128)1ULL << (x))
 static const unsigned __int128 _mii_ramworks3_config[] = {
 	B(0x00)|B(0x01)|B(0x02)|B(0x03),
@@ -625,6 +636,10 @@ mii_init(
 
 	mii_reset(mii, true);
 	mii->cpu_state = mii_cpu_init(&mii->cpu);
+#if MII_65C02_DIRECT_ACCESS
+	mii->cpu.access_param = mii;
+	mii->cpu.access = _mii_cpu_direct_access_cb;
+#endif
 	for (int i = 0; i < 7; i++)
 		mii->slot[i].id = i;
 //	srandom(time(NULL));
@@ -732,11 +747,14 @@ mii_mem_access(
 	if (wr) {
 		uint8_t m = mii->mem[page].write;
 		mii_bank_t * b = &mii->bank[m];
-		if (b->ro) {
-		//	printf("%s write to RO bank %s %04x:%02x\n",
-		//		__func__, b->name, addr, *d);
-		} else
+		if (!b->ro)
 			mii_bank_write(b, addr, d, 1);
+		else {
+			// writing to ROM *is* sort of OK in certain circumstances, if
+			// there is a 'special' handler of the rom page. the NSC and the
+			// mockinboard are examples of this.
+			mii_bank_access(b, addr, d, 1, true);
+		}
 	} else {
 		uint8_t m = mii->mem[page].read;
 		mii_bank_t * b = &mii->bank[m];
@@ -751,7 +769,9 @@ _mii_handle_trap(
 //	printf("%s TRAP hit PC: %04x\n", __func__, mii->cpu.PC);
 	mii->cpu_state.sync = 1;
 	mii->cpu_state.trap = 0;
+#if MII_65C02_DIRECT_ACCESS == 0
 	mii->cpu.state = NULL;
+#endif
 	uint8_t trap = mii_read_one(mii, mii->cpu.PC);
 	mii->cpu.PC += 1;
 //	printf("%s TRAP %02x return PC %04x\n", __func__, trap, mii->cpu.PC);
@@ -847,6 +867,73 @@ mii_timer_run(
 	}
 }
 
+#if MII_65C02_DIRECT_ACCESS
+static mii_cpu_state_t
+_mii_cpu_direct_access_cb(
+		struct mii_cpu_t *cpu,
+		mii_cpu_state_t   access )
+{
+	mii_t *mii = cpu->access_param;
+
+	uint8_t cycle = mii->timer.last_cycle;
+	mii_timer_run(mii,
+				mii->cpu.cycle > cycle ? mii->cpu.cycle - cycle :
+					mii->cpu.cycle);
+	mii->timer.last_cycle = mii->cpu.cycle;
+
+	const uint16_t addr = access.addr;
+	int wr = access.w;
+
+	if (access.sync) {
+		// log PC for the running disassembler display
+		mii->trace.log[mii->trace.idx] = mii->cpu.PC;
+		mii->trace.idx = (mii->trace.idx + 1) & (MII_PC_LOG_SIZE - 1);
+	}
+	if (unlikely(mii->debug.bp_map)) {
+		for (int i = 0; i < (int)sizeof(mii->debug.bp_map) * 8; i++) {
+			if (!(mii->debug.bp_map & (1 << i)))
+				continue;
+			if (addr >= mii->debug.bp[i].addr &&
+					addr < mii->debug.bp[i].addr + mii->debug.bp[i].size) {
+				if (((mii->debug.bp[i].kind & MII_BP_R) && !wr) ||
+						((mii->debug.bp[i].kind & MII_BP_W) && wr)) {
+
+					if (1 || !mii->debug.bp[i].silent) {
+						printf("BREAKPOINT %d at %04x PC:%04x\n",
+							i, addr, mii->cpu.PC);
+						mii_dump_run_trace(mii);
+						mii_dump_trace_state(mii);
+						mii->cpu.instruction_run = 0;
+						mii->state = MII_STOPPED;
+					}
+				}
+				if (!(mii->debug.bp[i].kind & MII_BP_STICKY))
+					mii->debug.bp_map &= ~(1 << i);
+				mii->debug.bp[i].kind |= MII_BP_HIT;
+			}
+		}
+	}
+	mii_mem_access(mii, addr, &access.data, wr, true);
+	return access;
+}
+void
+mii_run(
+		mii_t *mii)
+{
+	/* this runs all cycles for one instruction */
+	if (unlikely(mii->state != MII_RUNNING || mii->trace_cpu > 1)) {
+		printf("tracing\n");
+		mii->cpu.instruction_run = 0;
+	} else
+		mii->cpu.instruction_run = 100000;
+
+	mii->cpu_state = mii_cpu_run(&mii->cpu, mii->cpu_state);
+
+	if (unlikely(mii->cpu_state.trap))
+		_mii_handle_trap(mii);
+}
+#else
+
 void
 mii_run(
 		mii_t *mii)
@@ -900,11 +987,8 @@ mii_run(
 	// log PC for the running disassembler display
 	mii->trace.log[mii->trace.idx] = mii->cpu.PC;
 	mii->trace.idx = (mii->trace.idx + 1) & (MII_PC_LOG_SIZE - 1);
-	for (int i = 0; i < 7; i++) {
-		if (mii->slot[i].drv && mii->slot[i].drv->run)
-			mii->slot[i].drv->run(mii, &mii->slot[i]);
-	}
 }
+#endif
 
 //! Read one byte from and addres, using the current memory mapping
 uint8_t
@@ -950,4 +1034,52 @@ mii_write_word(
 	mii_mem_access(mii, addr, &d, 1, false);
 	d = w >> 8;
 	mii_mem_access(mii, addr + 1, &d, 1, false);
+}
+
+void
+mii_cpu_step(
+		mii_t *mii,
+		uint32_t count )
+{
+	if (mii->state != MII_STOPPED) {
+		printf("mii: can't step/next, not stopped\n");
+		return;
+	}
+	mii->trace.step_inst = count ? count : 1;
+	__sync_synchronize();
+	mii->state = MII_STEP;
+}
+
+void
+mii_cpu_next(
+		mii_t *mii)
+{
+	if (mii->state != MII_STOPPED) {
+		printf("mii: can't step/next, not stopped\n");
+		return;
+	}
+	// read current opcode, find how how many bytes it take,
+	// then put a temporary breakpoint to the next PC.
+	// all of that if this is not a relative branch of course, in
+	// which case we use a normal 'step' behaviour
+	uint8_t op;
+	mii_mem_access(mii, mii->cpu.PC, &op, false, false);
+	printf("NEXT opcode %04x:%02x\n", mii->cpu.PC, op);
+	if (op == 0x20) {	// JSR here?
+		// set a temp breakpoint on reading 3 bytes from PC
+		if (mii->debug.bp_map != 0xffff) {
+			int i = ffsl(~mii->debug.bp_map) - 1;
+			mii->debug.bp[i].addr = mii->cpu.PC + 3;
+			mii->debug.bp[i].kind = MII_BP_R;
+			mii->debug.bp[i].size = 1;
+			mii->debug.bp[i].silent = 1;
+			mii->debug.bp_map |= 1 << i;
+			__sync_synchronize();
+			mii->state = MII_RUNNING;
+			return;
+		}
+		printf("%s no more breakpoints available\n", __func__);
+	} else {
+		mii_cpu_step(mii, 1);
+	}
 }

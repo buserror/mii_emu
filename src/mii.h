@@ -97,16 +97,23 @@ typedef uint64_t (*mii_timer_p)(
  * principal emulator state, for a faceless emulation
  */
 typedef struct mii_t {
+	mii_cpu_t 		cpu;
+	mii_cpu_state_t	cpu_state;
+	/* this is the video frame/VBL rate vs 60hz, default to MII_SPEED_NTSC */
+	float			speed;
 	unsigned int	state;
 	/*
 	 * These are 'cycle timers' -- they count down from a set value,
-	 * and stop at 0 (or possiblu -1 or -2, depending on the instructions)
+	 * and stop at 0 (or possibly -1 or -2, depending on the instructions)
 	 * and call the callback (if present).
 	 * The callback returns the number of cycles to wait until the next
 	 * call.
 	 */
 	struct {
-		uint64_t map;
+		uint64_t 	map;
+#if MII_65C02_DIRECT_ACCESS
+		uint8_t		last_cycle;
+#endif
 		struct {
 			mii_timer_p 		cb;
 			void *				param;
@@ -114,10 +121,6 @@ typedef struct mii_t {
 			const char *		name; // debug
 		} timers[64];
 	}				timer;
-	/* this is the video frame/VBL rate vs 60hz, default to 1.0 */
-	float			speed;
-	mii_cpu_t 		cpu;
-	mii_cpu_state_t	cpu_state;
 	/*
 	 * bank index for each memory page number, this is recalculated
 	 * everytime a MMU soft switch is triggered
@@ -139,7 +142,7 @@ typedef struct mii_t {
 	mii_trace_t		trace;
 	int				trace_cpu;
 	mii_trap_t		trap;
-	mii_signal_pool_t sig_pool;
+	mii_signal_pool_t sig_pool;	// vcd support
 	/*
 	 * Used for debugging only
 	 */
@@ -172,6 +175,7 @@ enum {
 	MII_INIT_NSC 			= (1 << 0), // Install no slot clock
 	MII_INIT_TITAN			= (1 << 1), // Install Titan 'card'
 	MII_INIT_SILENT			= (1 << 2), // No audio, ever
+	MII_INIT_MOCKINGBOARD	= (1 << 3), // Install mockingboard
 	// number of 256KB banks added to the ramworks
 	MII_INIT_RAMWORKS_BIT	= 4, // bit 4 in flags. Can be up to 12
 
@@ -355,3 +359,12 @@ mii_register_trap(
 #define MII_MISH_KIND MISH_FCC('m','i','i',' ')
 #define MII_MISH(_name,_cmd) \
 	MISH_CMD_REGISTER_KIND(_name, _cmd, 0, MII_MISH_KIND)
+
+
+void
+mii_cpu_step(
+		mii_t *mii,
+		uint32_t count );
+void
+mii_cpu_next(
+		mii_t *mii);

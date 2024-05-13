@@ -40,7 +40,7 @@
  * this will stop the current instruction and start fetching at new_pc
  *
  */
-typedef union mii_cpu_state_t {
+typedef union mii_cpu_state_t  {
 	struct {
 		uint16_t 	addr;
 		uint8_t 	data;
@@ -50,9 +50,20 @@ typedef union mii_cpu_state_t {
 					irq : 1,
 					nmi : 1,
 					trap : 1;
-	};
+	} __attribute__((packed));
 	uint32_t 		raw;
-} mii_cpu_state_t;
+} mii_cpu_state_t ;
+
+#ifndef MII_65C02_DIRECT_ACCESS
+#define MII_65C02_DIRECT_ACCESS		1
+#endif
+
+#if MII_65C02_DIRECT_ACCESS
+struct mii_cpu_t;
+typedef mii_cpu_state_t (*mii_cpu_direct_access_cb)(
+		struct mii_cpu_t *cpu,
+		mii_cpu_state_t   access );
+#endif
 
 /* CPU state machine */
 typedef struct mii_cpu_t {
@@ -87,9 +98,7 @@ typedef struct mii_cpu_t {
 	uint8_t 	IR;
 	uint8_t		IRQ;	// IRQ (0) or NMI (1) or BRK (2)
 	uint8_t		cycle;	// for current instruction
-	/* State of the protothread for the CPU state machine (minipt.h) */
-	void *		state;
-
+	uint32_t 	instruction_run;	// how many instructions to run
 	/* sequence of instruction that will trigger a trap flag.
 	 * this is used to trigger 'call backs' to the main code
 	 * typically use a pair of NOPs sequence that is unlikely to exist in
@@ -99,8 +108,18 @@ typedef struct mii_cpu_t {
 	uint32_t	ir_log;
 
 	uint64_t 	total_cycle;
+#if MII_65C02_DIRECT_ACCESS
+	mii_cpu_direct_access_cb access;
+	void *					access_param;	// typically struct mii_t*
+#else
+	/* State of the protothread for the CPU state machine (minipt.h) */
+	void *		state;
+#endif
+
+#ifdef MII_TEST
 	/* Debug only; Only used by the test units. */
 	uint8_t * 	ram; 	// DEBUG
+#endif
 } mii_cpu_t;
 
 mii_cpu_state_t

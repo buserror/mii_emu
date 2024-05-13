@@ -1,20 +1,32 @@
 
-# What is this?
-This is a contender for the World Record for Feature Creep Side Project. It is pretty high in the contender list as it's a bolt on to *another* contender for the World Record for Feature Creep Side Project (the MII Apple //e emulator).
+# What the hell is this?
+This is a contender for the World Record for Feature Creep Side Project. It is pretty high in the contender list as it's a bolt on to *another* contender for the World Record for Feature Creep Side Project (the [MII Apple //e emulator](http://github.com/buserror/mii_emu)).
 
 It is a library that duplicate a lot of a Macintosh Classic "Toolbox" APIs. It is not a complete implementation, but it is enough to make a few simple applications, also, all the bits I needed for the MII emulator.
+
+<center>
+   <img src="doc/widgets.gif" alt="10 seconds demo">
+   <i>10 seconds demo</i>
+</center>
 
 # Why?
 Well I wanted a UI library for MII -- something without tons of dependencies, and I didn't want the typical 'game like' style with "Arrow Keys + Return + Escape" sort of menus.
 
 I started with Nuklear immediate mode UI, but it both look super ugly, AND is very limited as soon as you want to do something 'custom', and I didn't see myself hacking into that codebase. One thing I particularly dislike is the 'layout' engine that decide to put stuff where it wants, and it's *never* in the 'right' place, like a hard case of 'computer say so' -- typicaly result into
-something like Programmer's Art. That's why Linux On The Deskop is famous for it's Pixel Perfection polished UIs. *Cough*.
+something like Programmer's Art, just worse. That's why Linux On The Deskop is famous for it's Pixel Perfection polished UIs. *Cough*.
 
 The other things I don't like with the trendy IM UIs is that they promise you that you don't have to keep a separate state around blah blah, however they forget to mention that there IS a state kept for you, based on hash values, and if you are unlucky enough to have a hash clash, you are screwed. I've seen that happen in real life, and it's not pretty to debug.
+
+I miss the days were UIs were /crafted/ not just decided for you bad a bad 'layouting' engine with huge rectangular flat buttons and no sense whatsoever of 'design' or usability.
 
 Also, I realized I had quite a few bits that I could use to make my own library anyway, so I started to do that.
 
 Also, I like making my own toys. There, happy now?
+
+<center>
+   <img src="doc/control_demo.png" alt="Basic Controls">
+   <i>Control Demo</i>
+</center>
 
 # What can it do?
 Well, it has a few of the classic 'managers' that the Macintosh Toolbox had. Or the later GS/OS. However it behaves more like a modern system, it's not 'synchronous' like the old toolbox. Stuff gets redrawn even if you are clicking/dragging etc without having to 'do it yourself'.
@@ -28,6 +40,12 @@ One small drawback is that the output *has* to be ARGB -- so if you want to rend
 luckily, you only have to draw/convert the 'dirty' regions, so it's not too bad.
 
 It could be possible to 'vectorize' the rendering to vertice buffers and stuff, but really, it's not needed, it's fast enough as it is and it would fall back the 'lets redraw everything' behaviour of the IMmediate UI libraries.
+
+<center>
+   <img src="doc/static_text.png" alt="Basic text boxes">
+   <i>Some basic text boxes</i>
+</center>
+
 
 # How does it differ from the original?
 Well, in terms of looks, it's kinda like I started with MacOS8/9, but removed all the grayscale bits.
@@ -52,7 +70,7 @@ It can create windows, and it can draw into them. Has up to 15 'layers', and can
 
 I deliberately limited the number of coordinate systems to 2 -- like the old one; so you get the 'screen coordinates' and the 'window content coordinates'. I was half tempted to create a fully hierarchical system, but realized it was really not neeeded, and would just make things more complicated.
 
-It's a 'smart' window manager, it keeps track of an 'invalid' list of rectangles, and clips to that when redrawing, so it doesn't redraw the whole window every time, yeah, like the original. None of that 'lets redraw absolutely everything every frame' stuff.
+It's a 'smart' window manager, it keeps track of an 'invalid' list of rectangles, and clips to that when redrawing, so it doesn't redraw the whole window every time, yeah, like the original. None of that 'lets redraw absolutely everything every frame' stuff like Immediate Mode UIs.
    - It's missing bits like 'zooming' (TODO), and 'resizing' (TODO).
    - It doesn't do transparent windows. It is by design, it draws windows 'top down' to optimize clipping -- adding transparency wouldn't be hard, but I'd have to draw the windows 'bottom up' to handle blending, and we'd revert back to drawing a lot of stuff for very little return.
    - Also, you can always alpha blend the whole *ui* 'screen' to wherever you want, so it's not like you can't have transparency.
@@ -66,7 +84,7 @@ Menubar, menus, checkmarks, keyboard shortcuts, all that stuff. Made to looks li
 
 ## Control Manager
 Buttons, checkboxes, radio buttons, scrollbars (vertical), wrapping textboxes, all that stuff.
-   - It's missing bits like Edit Field (TODO), and a Slider.
+   - It's missing bits like Edit Field (Work in Progress), and a Slider.
    - There IS a prototype version of a text edit control, but it's not quite right yet -- works fine for a one liner etc, but not for a multi line text box. Not far off tho.
 ## List Manager
 More or less hard coded to display filenames so far, but plain lists are actually easier than this so. Handle arrow keys/page up/down, scroll wheel, etc.
@@ -75,11 +93,21 @@ More or less hard coded to display filenames so far, but plain lists are actuall
 ## Alerts
 It has the typical 'Cancel'+'OK' alert.
    - Could do with more types of alerts (TODO).
+<center>
+   <img src="doc/alert.png" alt="Basic Alert">
+   <i>Basic Alert Dialog</i>
+</center>
+
 ## Standard File
-It has the classic 'Open' a file dialog. Haven't needed the other one. yet.
+It has the classic 'Open' a file dialog. Haven't needed the other one. yet. This one one of the primary goal of the UI library to start with, so I spent quite a bit of time getting it 'right', quite happy about how it turned out.
    - Could do with a 'Save' dialog (TODO).
-   - Maybe a 'period correct' way to handle previously visited folders... Currently it can same the last folder you visited *per file type*.
-   - You can use arrow keys, page/up down, and you can even typehead to the file you want, like in the old days.
+   + It has an extra popup with the last few used directories.
+   - You can use arrow keys, page/up down, and you can even typehead to the file you want, like in the old MacOS!
+
+<center>
+   <img src="doc/standard_get_file.png" alt="Standard Get File">
+   <i>Standard Get File</i>
+</center>
 
 ## Resource Manager
 Nope! Not there; I'd need some sort of ResEdit and stuff -- and now that is *ONE* Feature Creep Too Far thank you very much.
@@ -99,17 +127,17 @@ That's it, all the other bits I already had 'in stock' -- the 2D geometry bits I
 # How do I build it?
 It's a simple Makefile, so you just need to do a 'make' in the root directory. It will build the library, and the tests/demos/samples.
 To build the tests/demos/samples, you'll need:
-* xcb xcb-shm xcb-randr xkbcommon-x11 -- this is just to run the 'playground' demo, which is a simple window with a few buttons and stuff.
+* xcb xcb-shm xcb-randr xkbcommon-x11 -- this is just to run the 'mui_shell' demo, which is a simple window with a few buttons and stuff.
 ## Nvidia Driver gotcha
-* *Note* that if you use the nvidia binary driver (I do), you will need to add a flag to your config, otherwise the playground won't work.
+* *Note* that if you use the nvidia binary driver (I do), you will need to add a flag to your config, otherwise the mui_shell won't work.
    - Add: 'Option \"AllowSHMPixmaps\" \"1\"' to the "Device"  In your /etc/X11/xorg.conf file.
 
 # How do I use it?
-Well the best way is to hack around *mui_playground.c* and *ui_tests.c*. It's a simple window with a few buttons and stuff, and it's a good place to start.
+Well the best way is to hack around *mui_shell.c* and *mui_widgets_demo.c*. It's a simple window with a few buttons and stuff, and it's a good place to start.
 
-The cool thing about ui_playground is that it loads ui_test.so as a *plugin* and auto-reload it if it detects a change. So you can hack around ui_test.c, and it will reload it and run it again! You can code a new dialog insanely fast with that, pretty must as fast as you would with a resource editor.
+The cool thing about ui_mui_shell is that it loads mui_widgets_demo.so as a *plugin* and auto-reload it if it detects a change. So you can hack around mui_widgets_demo.c, and it will reload it and run it again! You can code a new dialog insanely fast with that, pretty must as fast as you would with a resource editor.
 
-A good trick is to use 'make watch' on the *libmui* directory in a terminal tab, and it will rebuild the library and the playground automatically when you change something, that with the 'auto save' of your editor, and you will have a constantly building/running playground as you hack around.
+A good trick is to use 'make watch' on the *libmui* directory in a terminal tab, and it will rebuild the library and the mui_shell automatically when you change something, that with the 'auto save' of your editor, and you will have a constantly building/running mui_shell as you hack around.
 
 Have fun!
 
@@ -134,3 +162,4 @@ Have fun!
      - nope
   * And Wayland then? Wayland is The Future after all!
      - nope
+<center><h1>Now, GET OFF MY LAWN!</h1></center>

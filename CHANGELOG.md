@@ -3,10 +3,40 @@
 </p>
 
 # MII Version Changelog
+## 1.9
+#### Video
+ * Video driver now only draw when the apple II video *really* changes. It keeps track of touched lines across the screen, and only updates when needed. This saves a considerable amount of CPU time.
+ * Redid the monochrome video rendering, low-res, double low-res and dhires
+   now have luminance based on the color, and not just a fixed value. This
+    makes the monochrome rendering a lot more accurate (and attractive).
+
+ * Added 2 other RGB color palettes, an alternate NTSC and the Mega2 (apple IIgs) one.
+
+| NTSC Palette                         | Mega2 Palette                        |
+|--------------------------------------|--------------------------------------|
+| ![NTSC](docs/screen/v19ntsc.png)     | ![Mega2](docs/screen/v19mega2.png)   |
+|--------------------------------------|--------------------------------------|
+ * Added AVX/SSE/generic vectorial versions of some code paths, for speed.
+ * Added some more 'artifacts' color frindges to the HIRES rendering as well.
+
+<p align="center">
+   <img src="docs/screen/v19artifacts.png" alt="Artifacts">
+</p>
+
+#### Other bits
+ * Fixed a bug in the floppy stepper motor code that was preventing some floppies (demos, but also some prodos disks) from booting.
+ * Reworked the SmartPort code a bit, should be more compatible with some prodos programs. Also fixed a crash in block reading code.
+* Joystick can now be plugged after starting the emulator, it will be detected.
+* Changed the way the 65c02 core emulator is interfaced to the rest of the emulation. It was made to be 'pretty' but was also quite suboptimal, so I made it a bit less pretty, but it is now easily twice as fast as before.
+* While before the emulator was using perhaps 25% of a core on my current machine, now it uses about 9% CPU for the same task.
+* The 'floppy' and 'hard drive' file selector dialog now has a small popup menu with the last few directory used, so you can quickly switch between them.
+* Added support for 'pasting' text in the emulator. Paste your pet BASIC programs, it works now. (Control-SHIFT-V -- not in a menu yet).
+* There is a non-functional Mockingboard driver in the code, it's not hooked up to the UI, it still needs work (mostly make the audio output work).
+* UI library got a massive overhaul, since it was released separately it had to get a serious cleanup. Some files are duplicated unfortunately, but that is needed to be able to use it as a standalone library.
+
 ## 1.8
  * Changed the floppy disk view. *It now rotates*, and the heat map is now a
-   'trail' of the head, showing where it's been. It's a bit more useful, and
-   looks cooler.
+   'trail' of the head, showing where it's been. It looks awesome!
 
 <div align="center">
   <img src="docs/screen/v18new_display.gif" alt="New Floppy display">

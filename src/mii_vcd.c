@@ -106,7 +106,7 @@ mii_vcd_flush_log(
 {
 	uint64_t seen = 0;
 	uint64_t oldbase = 0;	// make sure it's different
-	char out[48];
+	char out[256];
 
 	if (mii_vcd_fifo_isempty(&vcd->log) || !vcd->output)
 		return;
