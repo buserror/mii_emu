@@ -15,6 +15,7 @@
 #include "mii.h"
 #include "mii_bank.h"
 #include "mii_rom_iiee_video.h"
+#include "mii_rom_iic_video.h"
 #include "mii_sw.h"
 #include "minipt.h"
 
@@ -537,6 +538,8 @@ _mii_line_render_text(
 	int i = mii->video.line >> 3;
 	a += ((i & 0x07) << 7) | ((i >> 3) << 5) | ((i >> 3) << 3);
 	mii->video.line_addr = a;
+	const uint8_t *rom_base = mii->emu == MII_EMU_IIEE ?
+								mii_rom_iiee_video : mii_rom_iic_video;
 
 	bool 	col80 	= SW_GETSTATE(mii, SW80COL);
 	bool 	altset 	= SW_GETSTATE(mii, SWALTCHARSET);
@@ -555,7 +558,7 @@ _mii_line_render_text(
 			if (c >= 0x40 && c <= 0x7f)
 				c = (int)c + flash;
 		}
-		const uint8_t * rom = iie_enhanced_video + (c << 3);
+		const uint8_t * rom = rom_base + (c << 3);
 		uint8_t bits = rom[mii->video.line & 0x07];
 		for (int pi = 0; pi < 7; pi++) {
 			uint8_t pixel = (bits >> pi) & 1;
@@ -902,8 +905,9 @@ mii_access_video(
 		case SWALTCHARSET:
 		case SWRDDHIRES:
 			res = true;
+			/* we OR the return flag, as the lower 7 bits are keyboard related */
 			if (!write)
-				*byte = mii_bank_peek(sw, addr);
+				*byte |= mii_bank_peek(sw, addr);
 			break;
 		case SWHIRESOFF:
 		case SWHIRESON:
@@ -967,6 +971,8 @@ mii_access_video(
 			SW_SETSTATE(mii, SWMIXED, addr & 1);
 			mii_bank_poke(sw, SWMIXED, (addr & 1) << 7);
 			_mii_video_mode_changed(mii);
+			if (!write)
+				*byte = mii_video_get_vapor(mii);
 			break;
 	}
 	return res;

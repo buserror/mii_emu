@@ -13,6 +13,39 @@
 
 #include "mii_floppy.h"
 #include "mii_woz.h"
+#include "mii_dsk.h"
+#include "mii_nib.h"
+
+typedef void (*mii_floppy_write_sector_cb)(
+		mii_dd_file_t *file,
+		uint8_t *track_data,
+		mii_floppy_track_map_t *map,
+		uint8_t track_id,
+		uint8_t sector,
+		uint8_t data_sector[342 + 1] );
+
+
+uint16_t
+mii_floppy_crc(	//
+		uint16_t crc,				  // Initial value
+		uint8_t *data,
+		size_t	 length)
+{
+//	uint16_t crc = 0xFFFF;		  // Initial value
+	const uint16_t polynomial = 0x1021; // Polynomial used in CRC16-CCITT
+
+	for (size_t i = 0; i < length; i++) {
+		crc ^= (data[i] << 8);	  // Move the byte into the CRC-16's high byte
+		for (uint8_t bit = 0; bit < 8; bit++) {
+			if (crc & 0x8000) {	  // If the top bit is set, shift left
+				crc = (crc << 1) ^ polynomial; // and XOR with polynomial
+			} else {
+				crc = crc << 1;
+			}
+		}
+	}
+	return crc;
+}
 
 void
 mii_floppy_init(
@@ -50,7 +83,7 @@ mii_floppy_init(
 	}
 	// copy all that random stuff across the rest of the 'track'
 	int rbi = 0;
-	for (int bi = 256; bi < MII_FLOPPY_DEFAULT_TRACK_SIZE; bi++)
+	for (int bi = 256; bi < MII_FLOPPY_MAX_TRACK_SIZE; bi++)
 		random[bi] = random[rbi++ % 256];
 	// important, the +1 means we initialize the random track too
 	for (int i = 0; i < MII_FLOPPY_TRACK_COUNT + 1; i++) {
@@ -64,21 +97,21 @@ mii_floppy_init(
 		uint8_t *track = f->track_data[i];
 		if (i != MII_FLOPPY_NOISE_TRACK) {
 #if 0
-			memset(track, 0, MII_FLOPPY_DEFAULT_TRACK_SIZE);
+			memset(track, 0, MII_FLOPPY_MAX_TRACK_SIZE);
 #else
-			for (int bi = 0; bi < MII_FLOPPY_DEFAULT_TRACK_SIZE; bi++)
+			for (int bi = 0; bi < MII_FLOPPY_MAX_TRACK_SIZE; bi++)
 				track[bi] = random[rbi++ % 256];
 #endif
 		}
 	}
 }
 
-static void
-mii_track_write_bits(
-	mii_floppy_track_t * dst,
-	uint8_t * track_data,
-	uint32_t bits,
-	uint8_t count )
+void
+mii_floppy_write_track_bits(
+		mii_floppy_track_t * dst,
+		uint8_t * track_data,
+		uint32_t bits,
+		uint8_t count )
 {
 	while (count--) {
 		uint32_t 	byte_index 	= dst->bit_count >> 3;
@@ -89,15 +122,16 @@ mii_track_write_bits(
 	}
 }
 
-static uint32_t
-mii_track_read_bits(
+uint32_t
+mii_floppy_read_track_bits(
 	mii_floppy_track_t * src,
 	uint8_t * track_data,
 	uint32_t pos,
 	uint8_t count )
 {
 	uint32_t bits = 0;
-	while (count--) {
+	// align on 8 bits boudary
+	while (count && (pos & 7) != 0) {
 		pos = pos % src->bit_count;
 		uint32_t 	byte_index 	= pos >> 3;
 		uint8_t 	bit_index 	= 7 - (pos & 7);
@@ -105,8 +139,122 @@ mii_track_read_bits(
 		bits |= !!(track_data[byte_index] & (1 << bit_index));
 		// we CAN have a wrap around here, but it's ok
 		pos++;
+		count--;
+	}
+	// now we can read 8 bits at a time
+	while (count >= 8) {
+		pos = pos % src->bit_count;
+		uint32_t 	byte_index 	= pos >> 3;
+		bits = (bits << 8) | track_data[byte_index];
+		pos += 8;
+		count -= 8;
+	}
+	// get any remaining bits
+	while (count) {
+		pos = pos % src->bit_count;
+		uint32_t 	byte_index 	= pos >> 3;
+		uint8_t 	bit_index 	= 7 - (pos & 7);
+		bits <<= 1;
+		bits |= !!(track_data[byte_index] & (1 << bit_index));
+		// we CAN have a wrap around here, but it's ok
+		pos++;
+		count--;
 	}
 	return bits;
+}
+
+/*
+ * At least PRODOS doesn't necessarily write the sector data in exactly
+ * the same place as it was loaded from... so a valid sector map when loading
+ * is not nessarily exact when saving.
+ * This code check the data header, and if it is not 0xd5aaad, we look back
+ * a few bit then forward until we find it again, and update the data position
+ * in the sector map.
+ */
+static int
+mii_floppy_realign_sector_map(
+		mii_floppy_track_t *track,
+		uint8_t *track_data,
+		mii_floppy_track_map_t *map,
+		uint8_t sector )
+{
+	// now it is entirely possible that the sector has moved a bit,
+	// at least prodos does that, so we need to re-find it.
+	uint32_t win = mii_floppy_read_track_bits(
+						track, track_data, map->sector[sector].data, 24);
+	if (win != 0xd5aaad) {
+//			printf("%s: track %2d sector %2d has moved %08x\n",
+//					__func__, track_id, i,
+//					mii_floppy_read_track_bits(track, track_data, map->sector[sector]].data, 24));
+
+		uint32_t pos = map->sector[sector].data;
+		win = mii_floppy_read_track_bits(
+						track, track_data, pos - 24, 24);
+		for (int j = 0; j < 100; j++) {
+			win = (win << 1) | mii_floppy_read_track_bits(track, track_data, pos, 1);
+			win &= 0xffffff;
+			if (win == 0xd5aaad) {
+		//		printf("%s: track %2d sector %2d found at %d (was %d)\n",
+		//				__func__, track_id, i, pos, map->sector[sector].data);
+				map->sector[sector].data = pos - 23;
+				break;
+			}
+			pos++;
+		}
+	}
+	return win == 0xd5aaad ? 0 : -1;
+}
+
+/*
+ * This reads the sector nibbles. I realign all to 8 bits, and also skips
+ * any spurious zero bits that might be in the data.
+ * Return the number of spurious zero bits found. This is not necessarily
+ * an error.
+ */
+int
+mii_floppy_read_sector_nibbles(
+		mii_floppy_track_t *track,
+		uint8_t *track_data,
+		mii_floppy_track_map_t *map,
+		uint8_t sector,
+		uint8_t data_sector[342 + 1] )
+{
+	// if the data is not byte aligned, we have to
+	// read the whole lot, this will align it to 8 bits
+	int j = 0, bit = map->sector[sector].data + (3 * 8), errors = 0;
+	while (j < 342 + 1) {
+		uint8_t b = mii_floppy_read_track_bits(track, track_data, bit, 8);
+		while (!(b & 0x80)) {
+			errors++;
+			bit++;
+			b = mii_floppy_read_track_bits(track, track_data, bit, 8);
+		}
+		bit += 8;
+		data_sector[j++] = b;
+	}
+	return errors;
+}
+
+int
+mii_floppy_read_sector(
+		mii_floppy_track_t *track,
+		uint8_t *track_data,
+		mii_floppy_track_map_t *map,
+		uint8_t sector,
+		uint8_t data[256] )
+{
+	int res = 0;
+
+	uint8_t data_sector[342 + 1];
+
+	int errors = mii_floppy_read_sector_nibbles(
+						track, track_data, map, sector, data_sector);
+	if (errors)
+		printf("%s warning sector %d has %d spurious zero bits\n",
+				__func__, sector, errors);
+	res = mii_floppy_decode_sector(data_sector, data);
+
+	return res;
 }
 
 /*
@@ -131,29 +279,29 @@ mii_floppy_find_next_sync(
 	do {
 		do {
 			window = (window << 1) |
-							mii_track_read_bits(src, track_data, pos, 1);
+							mii_floppy_read_track_bits(src, track_data, pos, 1);
 			pos++;
 			if ((window & 0x3ff) == 0b1111111100)
 				break;
 		} while (tries-- > 0 );
 		wi = 10;
-		if (mii_track_read_bits(src, track_data, pos, 1) == 0) {
+		if (mii_floppy_read_track_bits(src, track_data, pos, 1) == 0) {
 			pos++;
 			wi++;
 		}
 		do {
-			uint16_t w = mii_track_read_bits(src, track_data, pos + wi, 9);
+			uint16_t w = mii_floppy_read_track_bits(src, track_data, pos + wi, 9);
 			if (w == 0b111111110)
 				wi += 9;
 			else if ((w & 0b111111110) == 0b111111110) {
 				wi += 8;
 				break;
 			}
-			if (mii_track_read_bits(src, track_data, pos + wi, 1) == 0) {
+			if (mii_floppy_read_track_bits(src, track_data, pos + wi, 1) == 0) {
 				wi++;
 			} else
 				break;
-			if (mii_track_read_bits(src, track_data, pos + wi, 1) == 0) {
+			if (mii_floppy_read_track_bits(src, track_data, pos + wi, 1) == 0) {
 				wi++;
 			}
 		} while (tries-- > 0 &&  wi < 2000);
@@ -169,8 +317,6 @@ mii_floppy_find_next_sync(
 	*io_pos = pos;
 	return wi;
 }
-
-#define DE44(a, b) 	((((a) & 0x55) << 1) | ((b) & 0x55))
 
 
 /*
@@ -197,7 +343,7 @@ mii_floppy_map_track(
 	int pass = 0;
 	do {
 		wi = mii_floppy_find_next_sync(src, track_data, &pos);
-		uint32_t header = mii_track_read_bits(src, track_data, pos, 24);
+		uint32_t header = mii_floppy_read_track_bits(src, track_data, pos, 24);
 		if (wi == 0) {
 			printf("T%2d pos:%5d hmap:%04x dmap:%04x done?\n",
 					track_id, pos, hmap, dmap);
@@ -229,9 +375,9 @@ mii_floppy_map_track(
 				track_id, wi, pos, src->bit_count, header);
 		uint8_t hb[8];
 		for (int hi = 0; hi < 8; hi++)
-			hb[hi] = mii_track_read_bits(src, track_data,
+			hb[hi] = mii_floppy_read_track_bits(src, track_data,
 						pos + 24 + (hi * 8), 8);
-		uint32_t tailer = mii_track_read_bits(src, track_data,
+		uint32_t tailer = mii_floppy_read_track_bits(src, track_data,
 						pos + 24 + (8 * 8), 20);
 		uint8_t vol 	= DE44(hb[0], hb[1]);
 		uint8_t track 	= DE44(hb[2], hb[3]);
@@ -274,10 +420,10 @@ mii_floppy_map_track(
 //				track, sector, vol, chk, want, tailer);
 		pos += 24 + 8 * 8 + 24;	// skip the whole header
 
-		if (track_id == 0 && sector == 0) {
+		if (0 && track_id == 0 && sector == 0) {
 			printf("pos %5d/%5d\n", pos, src->bit_count);
 			for (int bi = 0; bi < 10; bi++) {
-				uint32_t bits = mii_track_read_bits(src, track_data,
+				uint32_t bits = mii_floppy_read_track_bits(src, track_data,
 									pos + (bi * 10), 10);
 				printf("%010b\n", bits);
 			}
@@ -304,9 +450,10 @@ get_new_sync:
 	return res;
 }
 
-/* This reposition the sector 0 to the beginning of the track,
-  hopefully also realign the nibbles to something readable.
-  See Sather 9-28 for details
+/*
+ * This reposition the sector 0 to the beginning of the track,
+ * hopefully also realign the nibbles to something readable.
+ * See Sather 9-28 for details
  */
 void
 mii_floppy_resync_track(
@@ -342,385 +489,67 @@ mii_floppy_resync_track(
 	uint8_t *new_track = malloc(6656);
 	while (new.bit_count < src->bit_count)	{
 		int cnt = src->bit_count - new.bit_count > 32 ? 32 : src->bit_count - new.bit_count;
-		uint32_t bits = mii_track_read_bits(src, track_data, pos, cnt);
-		mii_track_write_bits(&new, new_track, bits, cnt);
+		uint32_t bits = mii_floppy_read_track_bits(src, track_data, pos, cnt);
+		mii_floppy_write_track_bits(&new, new_track, bits, cnt);
 		pos += cnt;
 	}
 //		printf("%s: Track %2d has been resynced!\n", __func__, track_id);
-	memcpy(track_data, new_track, MII_FLOPPY_DEFAULT_TRACK_SIZE);
+	memcpy(track_data, new_track, MII_FLOPPY_MAX_TRACK_SIZE);
 	free(new_track);
 	src->dirty = 1;
 
 }
 
 /*
- * NIB isn't ideal to use with our bitstream, as it's lacking the sync
- * bits.
- * Anyway, We can recreate the proper bitstream by finding sectors headers,
- * filling up a few 'correct' 10 bits sync uint8_ts, then plonk said sector
- * as is.
+ * This iterates all the sectors, looking for changed ones using the CRC
+ * and call the callback to write them back to the file.
+ * Callback can be DSK or NIB specific.
  */
 static void
-mii_nib_rebit_track(
-	uint8_t *src_track,
-	mii_floppy_track_t * dst,
-	uint8_t * dst_track)
+mii_floppy_write_track(
+		mii_floppy_t *f,
+		mii_dd_file_t *file,
+		uint8_t track_id,
+		mii_floppy_write_sector_cb cb )
 {
-	dst->bit_count = 0;
-	dst->virgin = 0;
-	uint32_t window = 0;
-	int srci = 0;
-	int seccount = 0;
-	int state = 0;		// look for address field
-	int tid = 0, sid;
-	uint16_t hmap = 0, dmap = 0;
-	do {
-		window = (window << 8) | src_track[srci++];
-		switch (state) {
-			case 0: {
-				if (window != 0xffd5aa96)
-					break;
-			//	uint32_t pos = dst->bit_count;
-				for (int i = 0; i < (seccount == 0 ? 40 : 20); i++)
-					mii_track_write_bits(dst, dst_track, 0xff << 2, 10);
-				uint8_t * h = src_track + srci - 4;	// incs first 0xff
-				tid = DE44(h[6], h[7]);
-				sid = DE44(h[8], h[9]);
-			//	printf("Track %2d sector %2d pos %5d\n", tid, sid, pos);
-				hmap |= 1 << sid;
-				memcpy(dst_track + (dst->bit_count >> 3), h, 15);
-				dst->bit_count += 15 * 8;
-				srci += 11;
-				state = 1;
-			}	break;
-			case 1: {
-				if (window != 0xffd5aaad)
-					break;
-				for (int i = 0; i < 4; i++)
-					mii_track_write_bits(dst, dst_track, 0xff << 2, 10);
-			//	printf("\tdata at %d\n", dst->bit_count);
-				dmap |= 1 << sid;
-				uint8_t *h = src_track + srci - 4;
-				memcpy(dst_track + (dst->bit_count >> 3), h, 4 + 342 + 4);
-				dst->bit_count += (4 + 342 + 4) * 8;
-				srci += 4 + 342;
-				seccount++;
-				state = 0;
-			}	break;
+	mii_floppy_track_t *track = &f->tracks[track_id];
+	uint8_t *track_data = f->track_data[track_id];
+
+	if (!track->has_map) {
+		printf("%s: track %d has no map\n", __func__, track_id);
+		return;
+	}
+	// look for changed sectors, re-calculate crc, when a sector is found changed,
+	// convert it back from 6:2 encoding, write it using the corresponding sector
+	// map for this format, then update the crc.
+	for (int i = 0; i < 16; i++) {
+		mii_floppy_track_map_t *map = &track->map;
+
+		// now it is entirely possible that the sector has moved a bit,
+		// at least prodos does that, so we need to re-find it.
+		if (mii_floppy_realign_sector_map(track, track_data, map, i)) {
+			printf("%s: track %2d sector %2d not found %08x\n",
+					__func__, track_id, i,
+					mii_floppy_read_track_bits(track, track_data, map->sector[i].data, 24));
+			continue;
 		}
-	} while (srci < 6656);
-	printf("%s %d sectors found hmap %04x dmap %04x - %5d bits\n",
-			__func__, seccount, hmap, dmap, dst->bit_count);
-	if (hmap != 0xffff || dmap != 0xffff)
-		printf("%s: track %2d incomplete? (header 0x%04x data 0x%04x)\n",
-				__func__, tid, ~hmap, ~dmap);
-}
+		uint8_t data_sector[342 + 1];
 
-static int
-mii_floppy_load_nib(
-	mii_floppy_t *f,
-	mii_dd_file_t *file )
-{
-	const char *filename = basename(file->pathname);
-	printf("%s: loading NIB %s\n", __func__, filename);
-	for (int i = 0; i < 35; i++) {
-		uint8_t *track = file->map + (i * 6656);
-		mii_nib_rebit_track(track, &f->tracks[i], f->track_data[i]);
-		if (f->tracks[i].bit_count < 100) {
-			printf("%s: %s: Invalid track %d has zero bits!\n", __func__,
-					filename, i);
-			return -1;
+		int errors = mii_floppy_read_sector_nibbles(
+							track, track_data, map, i, data_sector);
+		if (errors) {
+			printf("%s: T %2d S %2d has %d spurious zeroes\n",
+					__func__, track_id, i, errors);
 		}
-	//	printf("Track %d converted to %d bits\n", i, f->tracks[i].bit_count);
-		f->tracks[i].dirty = 0;
+		uint8_t * src = data_sector;
+		uint16_t crc = mii_floppy_crc(-1, src, 342);
+		if (crc == map->sector[i].crc)
+			continue;
+
+		cb(file, track_data, map, track_id, i, data_sector);
+		// update the crc
+		map->sector[i].crc = crc;
 	}
-	return 0;
-}
-
-static int
-mii_floppy_write_track_woz(
-	mii_floppy_t *f,
-	mii_dd_file_t *file,
-	int track_id )
-{
-	mii_woz_header_t *header = (mii_woz_header_t *)file->map;
-
-	int version = !strncmp((char*)header, "WOZ", 3);
-	if (!version) {
-		printf("%s: not a WOZ file %4.4s\n", __func__, (char*)&header->magic_le);
-		return 0;
-	}
-	version += !strncmp((char*)header, "WOZ2", 4);
-
-	/* I don't really want to recalculate the CRC. Seems pointless in a file
-	  like this, and i'd have to walk 250KB+ of data each time I update
-	  anything.
-	  Mark is as cleared, perhapps I need a tool to 'fix' it later, or JUST
-	  at closing time ?*/
-	header->crc_le = 0;
-
-	mii_woz_tmap_t *tmap = NULL;
-	if (version == 1) {
-		mii_woz1_info_t *info = (mii_woz1_info_t *)(header + 1);
-		tmap = (mii_woz_tmap_t *)((uint8_t *)info +
-					le32toh(info->chunk.size_le) + sizeof(mii_woz_chunk_t));
-		mii_woz1_trks_t *trks = (mii_woz1_trks_t *)((uint8_t *)tmap +
-					le32toh(tmap->chunk.size_le) + sizeof(mii_woz_chunk_t));
-
-		trks->track[track_id].bit_count_le = htole32(f->tracks[track_id].bit_count);
-		uint32_t byte_count = (le32toh(trks->track[track_id].bit_count_le) + 7) >> 3;
-		memcpy(trks->track[track_id].bits,
-				f->track_data[track_id], byte_count);
-		trks->track[track_id].byte_count_le = htole16(byte_count);
-	} else {
-		mii_woz2_info_t *info = (mii_woz2_info_t *)(header + 1);
-		tmap = (mii_woz_tmap_t *)((uint8_t *)info +
-					le32toh(info->chunk.size_le) + sizeof(mii_woz_chunk_t));
-		mii_woz2_trks_t *trks = (mii_woz2_trks_t *)((uint8_t *)tmap +
-					le32toh(tmap->chunk.size_le) + sizeof(mii_woz_chunk_t));
-
-		uint8_t *track = file->map +
-					(le16toh(trks->track[track_id].start_block_le) << 9);
-
-		trks->track[track_id].bit_count_le = htole32(f->tracks[track_id].bit_count);
-		uint32_t byte_count = (le32toh(trks->track[track_id].bit_count_le) + 7) >> 3;
-		memcpy(track, f->track_data[track_id], byte_count);
-	}
-	f->tracks[track_id].dirty = 0;
-	return 0;
-}
-
-static uint64_t
-mii_floppy_woz_load_tmap(
-	mii_floppy_t *f,
-	mii_woz_tmap_t *tmap )
-{
-	uint64_t used_tracks = 0;
-	int tmap_size = le32toh(tmap->chunk.size_le);
-	for (int ti = 0; ti < (int)sizeof(f->track_id) && ti < tmap_size; ti++) {
-		f->track_id[ti] = tmap->track_id[ti] == 0xff ?
-							MII_FLOPPY_NOISE_TRACK : tmap->track_id[ti];
-		if (tmap->track_id[ti] != 0xff)
-			used_tracks |= 1L << f->track_id[ti];
-	}
-	return used_tracks;
-}
-
-static int
-mii_floppy_load_woz(
-	mii_floppy_t *f,
-	mii_dd_file_t *file )
-{
-	const char *filename = basename(file->pathname);
-	printf("%s: loading WOZ %s\n", __func__, filename);
-	mii_woz_header_t *header = (mii_woz_header_t *)file->map;
-
-	int version = !strncmp((char*)header, "WOZ", 3);
-	if (!version) {
-		printf("%s: not a WOZ file %4.4s\n", __func__, (char*)&header->magic_le);
-		return 0;
-	}
-	version += !strncmp((char*)header, "WOZ2", 4);
-	mii_woz_tmap_t *tmap = NULL;
-	uint64_t used_tracks = 0;
-
-	if (version == 1) {
-		mii_woz1_info_t *info = (mii_woz1_info_t *)(header + 1);
-		tmap = (mii_woz_tmap_t *)((uint8_t *)info +
-					le32toh(info->chunk.size_le) + sizeof(mii_woz_chunk_t));
-		mii_woz1_trks_t *trks = (mii_woz1_trks_t *)((uint8_t *)tmap +
-					le32toh(tmap->chunk.size_le) + sizeof(mii_woz_chunk_t));
-		used_tracks = mii_floppy_woz_load_tmap(f, tmap);
-#if 1
-		printf("WOZ: version %d, type %d\n",
-				info->version, info->disk_type );
-		printf("WOZ: creator '%s'\n", info->creator);
-		printf("WOZ: track map %4.4s size %d\n",
-				(char*)&tmap->chunk.id_le,
-				le32toh(tmap->chunk.size_le));
-		printf("WOZ: Track chunk %4.4s size %d\n",
-				(char*)&trks->chunk.id_le, le32toh(trks->chunk.size_le));
-#endif
-		int max_track = le32toh(trks->chunk.size_le) / sizeof(trks->track[0]);
-		for (int i = 0; i < MII_FLOPPY_TRACK_COUNT && i < max_track; i++) {
-			uint8_t *track = trks->track[i].bits;
-			if (!(used_tracks & (1L << i))) {
-		//		printf("WOZ: Track %d not used\n", i);
-				continue;
-			}
-			f->tracks[i].virgin = 0;
-			memcpy(f->track_data[i], track, le16toh(trks->track[i].byte_count_le));
-			f->tracks[i].bit_count = le32toh(trks->track[i].bit_count_le);
-		}
-	} else {
-		mii_woz2_info_t *info = (mii_woz2_info_t *)(header + 1);
-		tmap = (mii_woz_tmap_t *)((uint8_t *)info +
-					le32toh(info->chunk.size_le) + sizeof(mii_woz_chunk_t));
-		mii_woz2_trks_t *trks = (mii_woz2_trks_t *)((uint8_t *)tmap +
-					le32toh(tmap->chunk.size_le) + sizeof(mii_woz_chunk_t));
-		used_tracks = mii_floppy_woz_load_tmap(f, tmap);
-#if 1
-		printf("WOZ: version %d, type %d, sides %d, largest track %d, optimal bit timing: %d\n",
-				info->version, info->disk_type, info->sides,
-				le16toh(info->largest_track_le) * 512,
-				info->optimal_bit_timing);
-		printf("WOZ: creator '%s'\n", info->creator);
-		printf("WOZ: track map %4.4s size %d\n",
-				(char*)&tmap->chunk.id_le,
-				le32toh(tmap->chunk.size_le));
-		printf("WOZ: Track chunk %4.4s size %d\n",
-				(char*)&trks->chunk.id_le, le32toh(trks->chunk.size_le));
-#endif
-		/* TODO: this doesn't work yet... */
-		//f->bit_timing = info->optimal_bit_timing;
-		for (int i = 0; i < MII_FLOPPY_TRACK_COUNT; i++) {
-			if (!(used_tracks & (1L << i))) {
-			//	printf("WOZ: Track %d not used\n", i);
-				continue;
-			}
-			uint8_t *track = file->map +
-						(le16toh(trks->track[i].start_block_le) << 9);
-			uint32_t byte_count = (le32toh(trks->track[i].bit_count_le) + 7) >> 3;
-			f->tracks[i].virgin = 0;
-			memcpy(f->track_data[i], track, byte_count);
-			f->tracks[i].bit_count = le32toh(trks->track[i].bit_count_le);
-		}
-	}
-	return version;
-}
-
-#define NIBBLE_SECTOR_SIZE  416
-#define NIBBLE_TRACK_SIZE   6656
-#define DSK_SECTOR_SIZE     256
-#define MAX_SECTORS         16
-#define VOLUME_NUMBER       254
-#define DSK_TRACK_SIZE      (DSK_SECTOR_SIZE * MAX_SECTORS)
-
-//static const size_t nib_disksz = 232960;
-//static const size_t dsk_disksz = 143360;
-
-//  DOS 3.3 Physical sector order (index is physical sector,
-//  value is DOS sector)
-static const uint8_t DO[] = {
-	0x0, 0x7, 0xE, 0x6, 0xD, 0x5, 0xC, 0x4,
-	0xB, 0x3, 0xA, 0x2, 0x9, 0x1, 0x8, 0xF
-};
-// ProDOS Physical sector order (index is physical sector,
-// value is ProDOS sector).
-static const uint8_t PO[] = {
-	0x0, 0x8, 0x1, 0x9, 0x2, 0xa, 0x3, 0xb,
-	0x4, 0xc, 0x5, 0xd, 0x6, 0xe, 0x7, 0xf
-};
-
-static const uint8_t TRANS62[] = {
-	0x96, 0x97, 0x9a, 0x9b, 0x9d, 0x9e, 0x9f, 0xa6,
-	0xa7, 0xab, 0xac, 0xad, 0xae, 0xaf, 0xb2, 0xb3,
-	0xb4, 0xb5, 0xb6, 0xb7, 0xb9, 0xba, 0xbb, 0xbc,
-	0xbd, 0xbe, 0xbf, 0xcb, 0xcd, 0xce, 0xcf, 0xd3,
-	0xd6, 0xd7, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde,
-	0xdf, 0xe5, 0xe6, 0xe7, 0xe9, 0xea, 0xeb, 0xec,
-	0xed, 0xee, 0xef, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6,
-	0xf7, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff
-};
-
-// This function is derived from Scullin Steel Co.'s apple2js code
-// https://github.com/whscullin/apple2js/blob/e280c3d/js/formats/format_utils.ts#L140
-/* Further recycled for MII .DSK decoding, using 10 bits sync words etc. */
-static void
-mii_floppy_nibblize_sector(
-		uint8_t vol, uint8_t track, uint8_t sector,
-		const uint8_t *data,
-		mii_floppy_track_t *dst,
-		uint8_t * track_data )
-{
-	unsigned int gap;
-
-//	if (track == 0 )
-//		printf("NIB: vol %d track %d sector %d pos %5d\n",
-//				vol, track, sector, dst->bit_count);
-	gap = sector == 0 ? 100 : track == 0 ? 20 : 20;
-	for (uint8_t i = 0; i < gap; ++i)
-		mii_track_write_bits(dst, track_data, 0xFF << 2, 10);
-	// Address Field
-	const uint8_t checksum = vol ^ track ^ sector;
-	mii_track_write_bits(dst, track_data, 0xd5aa96, 24);
-	mii_track_write_bits(dst, track_data, (vol >> 1) | 0xAA, 8);
-	mii_track_write_bits(dst, track_data, vol | 0xAA, 8);
-	mii_track_write_bits(dst, track_data, (track >> 1)  | 0xAA, 8);
-	mii_track_write_bits(dst, track_data, track  | 0xAA, 8);
-	mii_track_write_bits(dst, track_data, (sector >> 1)  | 0xAA, 8);
-	mii_track_write_bits(dst, track_data, sector | 0xAA, 8);
-	mii_track_write_bits(dst, track_data, (checksum >> 1) | 0xAA, 8);
-	mii_track_write_bits(dst, track_data, checksum | 0xAA, 8);
-	mii_track_write_bits(dst, track_data, 0xdeaaeb, 24);
-	// Gap 2 (5)
-	for (int i = 0; i < 5; ++i)
-		mii_track_write_bits(dst, track_data, 0xFF << 2, 10);
-	// Data Field
-	mii_track_write_bits(dst, track_data, 0xd5aaad, 24);
-	uint8_t nibbles[0x156] = {};
-	const unsigned ptr2 = 0;
-	const unsigned ptr6 = 0x56;
-
-	int i2 = 0x55;
-	for (int i6 = 0x101; i6 >= 0; --i6) {
-		uint8_t val6 = data[i6 % 0x100];
-		uint8_t val2 = nibbles[ptr2 + i2];
-		val2 = (val2 << 1) | (val6 & 1); val6 >>= 1;
-		val2 = (val2 << 1) | (val6 & 1); val6 >>= 1;
-		nibbles[ptr6 + i6] = val6;
-		nibbles[ptr2 + i2] = val2;
-		if (--i2 < 0)
-			i2 = 0x55;
-	}
-	uint8_t last = 0;
-	for (int i = 0; i != 0x156; ++i) {
-		const uint8_t val = nibbles[i];
-		mii_track_write_bits(dst, track_data, TRANS62[last ^ val], 8);
-		last = val;
-	}
-	mii_track_write_bits(dst, track_data, TRANS62[last], 8);
-	mii_track_write_bits(dst, track_data, 0xdeaaeb, 24);
-	// Gap 3
-	mii_track_write_bits(dst, track_data, 0xFF << 2, 10);
-}
-
-static int
-mii_floppy_load_dsk(
-	mii_floppy_t *f,
-	mii_dd_file_t *file )
-{
-	const char *filename = basename(file->pathname);
-
-    const char *ext = rindex(filename, '.');
-    ext = ext ? ext+1 : "";
-	const uint8_t * secmap = DO;
-    if (!strcasecmp(ext, "PO"))  {
-		printf("%s opening %s as PO.\n", __func__, filename);
-   		secmap = PO;
-    } else {
-		printf("%s opening %s as DO.\n", __func__, filename);
-    }
-	for (int i = 0; i < 35; ++i) {
-		mii_floppy_track_t *dst = &f->tracks[i];
-		uint8_t *track_data = f->track_data[i];
-		dst->bit_count = 0;
-		dst->virgin = 0;
-		for (int phys_sector = 0; phys_sector < MAX_SECTORS; phys_sector++) {
-			const uint8_t dos_sector = secmap[phys_sector];
-			uint32_t off = ((MAX_SECTORS * i + dos_sector) * DSK_SECTOR_SIZE);
-			uint8_t *src = file->map + off;
-			mii_floppy_nibblize_sector(VOLUME_NUMBER, i, phys_sector,
-						src, dst, track_data);
-		}
-		if (i == 0)
-			printf("%s: track %2d has %d bits %d bytes\n",
-					__func__, i, dst->bit_count, dst->bit_count >> 3);
-	}
-	// DSK is read only
-	f->write_protected |= MII_FLOPPY_WP_RO_FORMAT;
-
-	return 0;
 }
 
 int
@@ -737,14 +566,23 @@ mii_floppy_update_tracks(
 	for (int i = 0; i < MII_FLOPPY_TRACK_COUNT; i++) {
 		if (!f->tracks[i].dirty)
 			continue;
-//		printf("%s: track %d is dirty, saving\n", __func__, i);
+		printf("%s: track %d is dirty, saving\n", __func__, i);
 		switch (file->format) {
 			case MII_DD_FILE_NIB:
+				mii_floppy_write_track(f, file, i, _mii_floppy_nib_write_sector);
 				break;
 			case MII_DD_FILE_WOZ:
-				mii_floppy_write_track_woz(f, file, i);
+				mii_floppy_woz_write_track(f, file, i);
 //				printf("%s: WOZ track %d updated\n", __func__, i);
 				break;
+			case MII_DD_FILE_DSK:
+			case MII_DD_FILE_PO:
+			case MII_DD_FILE_DO:
+				mii_floppy_write_track(f, file, i, _mii_floppy_dsk_write_sector);
+//				printf("%s: DSK track %d updated\n", __func__, i);
+				break;
+			default:
+				printf("%s: unsupported format %d\n", __func__, file->format);
 		}
 		f->tracks[i].dirty = 0;
 	}
@@ -762,15 +600,15 @@ mii_floppy_load(
 	int res = -1;
 	switch (file->format) {
 		case MII_DD_FILE_NIB:
-			res = mii_floppy_load_nib(f, file);
+			res = mii_floppy_nib_load(f, file);
 			break;
 		case MII_DD_FILE_WOZ:
-			res = mii_floppy_load_woz(f, file);
+			res = mii_floppy_woz_load(f, file);
 			break;
 		case MII_DD_FILE_DSK:
 		case MII_DD_FILE_PO:
 		case MII_DD_FILE_DO:
-			res = mii_floppy_load_dsk(f, file);
+			res = mii_floppy_dsk_load(f, file);
 			break;
 		default:
 			printf("%s: unsupported format %d\n", __func__, file->format);
@@ -781,5 +619,25 @@ mii_floppy_load(
 	else
 		f->write_protected &= ~MII_FLOPPY_WP_RO_FILE;
 	f->seed_dirty = f->seed_saved = rand();
+#if 0
+	// dump the floppy track maps to check on offsets etc
+	for (int i = 0; i < MII_FLOPPY_TRACK_COUNT; i++) {
+		mii_floppy_track_map_t *map = &f->tracks[i].map;
+		if (!f->tracks[i].has_map)
+			continue;
+		printf("Track %2d\n", i);
+		// also show the first 24 bits of data, to check for sync
+		for (int j = 0; j < 16; j++) {
+			printf("\tSector %2d header :%4d:%5d data %3d:%5d crc %04x sync %06x %06x\n",
+					j, map->sector[j].hsync, map->sector[j].header,
+					map->sector[j].dsync, map->sector[j].data, map->sector[j].crc,
+					mii_floppy_read_track_bits(&f->tracks[i], f->track_data[i],
+						map->sector[j].header, 24),
+					mii_floppy_read_track_bits(&f->tracks[i], f->track_data[i],
+						map->sector[j].data, 24));
+//			printf("\n");
+		}
+	}
+#endif
 	return res;
 }

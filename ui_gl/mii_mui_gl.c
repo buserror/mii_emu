@@ -196,8 +196,8 @@ mii_mui_gl_prepare_textures(
 			// the init() call clears the structure, keep our id around
 			unsigned int tex = dr->texture.id;
 			mui_drawable_init(dr,
-					C2_PT(MII_FLOPPY_DEFAULT_TRACK_SIZE, MII_FLOPPY_TRACK_COUNT),
-					8, floppy[fi]->track_data, MII_FLOPPY_DEFAULT_TRACK_SIZE);
+					C2_PT(MII_FLOPPY_MAX_TRACK_SIZE, MII_FLOPPY_TRACK_COUNT),
+					8, floppy[fi]->track_data, MII_FLOPPY_MAX_TRACK_SIZE);
 			dr->texture.id = tex;
 			_prep_grayscale_texture(dr);
 			if (!f->heat) {
@@ -206,8 +206,9 @@ mii_mui_gl_prepare_textures(
 #elif defined(__SSE2__)
 				posix_memalign((void**)&f->heat, 16, sizeof(*f->heat));
 #else
-				f->heat = calloc(1, sizeof(*f->heat));
+				f->heat = malloc(sizeof(*f->heat));
 #endif
+				memset(f->heat, 0, sizeof(*f->heat));
 			}
 			dr = &ui->pixels.floppy[fi].hm_read;
 			tex = dr->texture.id;
@@ -402,7 +403,7 @@ mii_mui_gl_run(
 			ui->floppy[fi].seed_load = f->seed_dirty;
 		//	printf("Floppy %d: Reloading texture\n", fi);
 			int bc = (f->tracks[0].bit_count + 7) / 8;
-			int max = MII_FLOPPY_DEFAULT_TRACK_SIZE;
+			int max = MII_FLOPPY_MAX_TRACK_SIZE;
 			ui->floppy[fi].max_width = (double)bc / (double)max;
 			glBindTexture(GL_TEXTURE_2D, dr->texture.id);
 			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,

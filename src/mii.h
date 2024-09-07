@@ -15,6 +15,7 @@
 #include "mii_bank.h"
 #include "mii_slot.h"
 #include "mii_video.h"
+#include "mii_audio.h"
 #include "mii_speaker.h"
 #include "mii_mouse.h"
 #include "mii_analog.h"
@@ -22,6 +23,11 @@
 
 #define likely(x)		__builtin_expect(!!(x), 1)
 #define unlikely(x)		__builtin_expect(!!(x), 0)
+
+enum {
+	MII_EMU_IIEE = 0,
+	MII_EMU_IIC,
+};
 
 enum {
 	MII_BANK_MAIN = 0,		// main 48K address space
@@ -97,6 +103,7 @@ typedef uint64_t (*mii_timer_p)(
  * principal emulator state, for a faceless emulation
  */
 typedef struct mii_t {
+	uint 			emu; // MII_EMU_*
 	mii_cpu_t 		cpu;
 	mii_cpu_state_t	cpu_state;
 	/* this is the video frame/VBL rate vs 60hz, default to MII_SPEED_NTSC */
@@ -166,9 +173,7 @@ typedef struct mii_t {
 	mii_mouse_t		mouse;
 	mii_dd_system_t	dd;
 	mii_analog_t	analog;
-
-	uint8_t 		random[256];
-	uint8_t 		random_index;
+	mii_audio_sink_t audio;
 } mii_t;
 
 enum {
@@ -341,7 +346,7 @@ extern mii_slot_drv_t * mii_slot_drv_list;
 			mii_slot_drv_list = &_mii_driver; \
 		}
 
-#define MII_TRAP 0xdbfb
+#define MII_TRAP 0xebfb
 /*
  * Request a trap ID for the given callback. Calling code is responsible
  * for setting up the trap using the 2 magic NOPs in sequence.

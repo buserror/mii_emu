@@ -86,14 +86,14 @@ _mii_floppy_check_file(
 	int iswoz = 0;
 	if (!strcasecmp(suffix, ".nib")) {
 		want_size = NIB_SIZE;
-		out->file_ro_format = 1;
+		out->file_ro_format = 0;
 	} else if (!strcasecmp(suffix, ".dsk")) {
 		want_size = DSK_SIZE;
-		out->file_ro_format = 1;
+		out->file_ro_format = 0;
 	} else if (!strcasecmp(suffix, ".po") ||
 				!strcasecmp(suffix, ".do")) {
 		want_size = DSK_SIZE;
-		out->file_ro_format = 1;
+		out->file_ro_format = 0;
 	} else if (!strcasecmp(suffix, ".woz") ||
 				!strcasecmp(suffix, ".woz1") ||
 				!strcasecmp(suffix, ".woz2")) {
@@ -321,7 +321,7 @@ mii_mui_load_2dsk(
 		return w;
 	}
 	c2_pt_t where = {};
-	c2_rect_t wpos = C2_RECT_WH(where.x, where.y, 640, 340);
+	c2_rect_t wpos = C2_RECT_WH(where.x, where.y, 640, 370);
 	c2_rect_offset(&wpos,
 		(ui->screen_size.x / 2) - (c2_rect_width(&wpos) / 2),
 		(ui->screen_size.y * 0.45) - (c2_rect_height(&wpos) / 2));
@@ -382,8 +382,8 @@ mii_mui_load_2dsk(
 	cp.r = c2_rect_width(&w->frame) - margin * 4;
 	c = mui_separator_new(w, cp);
 
-	c = NULL;
-	TAILQ_FOREACH(c, &w->controls, self) {
+	c = mui_controls_first(&w->controls, MUI_CONTROLS_ALL);
+	for (; c; c = mui_controls_next(c, MUI_CONTROLS_ALL)) {
 		if (mui_control_get_uid(c) == 0)
 			continue;
 		mui_control_set_action(c, _mii_2dsk_action_cb, m);

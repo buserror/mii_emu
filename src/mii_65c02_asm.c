@@ -27,7 +27,7 @@ _mii_extract_token(
 		position++;
 	char *kw = strsep(&position, " \t");
 	if (kw)
-		strncpy(dst, kw, dst_len);
+		strncpy(dst, kw, dst_len-1);
 	return position;
 }
 
@@ -44,6 +44,16 @@ _mii_extract_name(
 	*dst = 0;
 	return end;
 }
+
+static const char * apple2_charset =
+"@ABCDEFGHIJKLMNO"
+"PQRSTUVWXYZ[\\]^_"
+" !\"#$%&'()*+,-./"
+"0123456789:;<=>?"
+"................"
+"................"
+"`abcdefghijklmno"
+"pqrstuvwxyz{|}~";
 
 static char *
 _mii_extract_value_or_name(
@@ -69,6 +79,13 @@ _mii_extract_value_or_name(
 		while (isdigit(*end))
 			l->op_value = (l->op_value << 4) +
 							(strchr(hex, tolower(*end++)) - hex);
+	} else if (*end == '\'' || *end == '"') {
+		end++;
+		while (*end && *end != '\'' && *end != '"') {
+			char *c = strchr(apple2_charset, *end++);
+			if (c)
+				l->op_value = (l->op_value << 8) + (c - apple2_charset);
+		}
 	} else {
 		end = _mii_extract_name(end, l->op_name, sizeof(l->op_name));
 		l->label_resolved = 0;
@@ -164,6 +181,38 @@ mii_cpu_asm_load(
 				else
 					l->opcodes[l->opcode_count++] = l->op_value;
 			}
+			goto next_line;
+		}
+		if (!strncmp(l->mnemonic, ".asc", 4) || !strcmp(l->mnemonic, "text")) {
+			/* remaining of the line is a string, that we convert to apple2 charset
+				strings are delimited with "" and can also have numerical values, so
+			   a typical syntax is:
+			   		.asc "Hello World", 0
+			   */
+			char *kw = position;
+			do {
+				while (*kw == ' ' || *kw == '\t') kw++;
+				if (*kw == '"') {
+					kw++;
+					while (*kw && *kw != '"') {
+						char *c = strchr(apple2_charset, *kw++);
+						if (c)
+							l->opcodes[l->opcode_count++] = 0x80 +
+										(c - apple2_charset);
+					}
+				} else {
+					kw = _mii_extract_value_or_name(l, kw);
+					if (_mii_resolve_symbol(p, l, 0) == 0)
+						printf("ERROR -- sorry code symbols don't work, just EQUs\n");
+					else
+						l->opcodes[l->opcode_count++] = l->op_value;
+				}
+				while (*kw == ' ' || *kw == '\t') kw++;
+				if (*kw == ',')
+					kw++;
+				else
+					break;
+			} while (*kw);
 			goto next_line;
 		}
 		position = _mii_extract_token(position, l->operand, sizeof(l->operand));

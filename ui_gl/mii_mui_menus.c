@@ -144,20 +144,20 @@ mii_menubar_action(
 							items[i].mark[0] = 0;
 					}	break;
 					case FCC('a','u','d','0'):
-						if (mii->speaker.muted)
+						if (mii->audio.muted)
 							strcpy(items[i].mark, MUI_GLYPH_TICK);
 						else
 							items[i].mark[0] = 0;
 						break;
 					case FCC('a','u','d','+'):
-						items[i].disabled = mii->speaker.volume >= 10;
+						items[i].disabled = mii->speaker.source.volume >= 10;
 						break;
 					case FCC('a','u','d','-'):
-						items[i].disabled = mii->speaker.volume <= 0.1;
+						items[i].disabled = mii->speaker.source.volume <= 0.1;
 						break;
 					case FCC('s','a','u','d'):
 						// are we in silent mode ?
-						items[i].disabled = mii->speaker.speaker_off;
+						items[i].disabled = mii->audio.drv == NULL;
 						break;
 					case FCC('m','h','z','1'):
 						if (mii->speed <= 1.1 && mii->speed >= 0.9)
@@ -275,14 +275,16 @@ mii_menubar_action(
 					mii_th_fifo_write(mii_thread_get_fifo(&ui->mii), sig);
 				}	break;
 				case FCC('a','u','d','0'):
-					mii->speaker.muted = !mii->speaker.muted;
-					ui->config.audio_muted = mii->speaker.muted;
+					mii->audio.muted = !mii->audio.muted;
+					ui->config.audio_muted = mii->audio.muted;
 					break;
 				case FCC('a','u','d','+'):
-					mii_speaker_volume(&mii->speaker, mii->speaker.volume + 1);
+					mii_audio_volume(&mii->speaker.source,
+							mii->speaker.source.volume + 1);
 					break;
 				case FCC('a','u','d','-'):
-					mii_speaker_volume(&mii->speaker, mii->speaker.volume - 1);
+					mii_audio_volume(&mii->speaker.source,
+							mii->speaker.source.volume - 1);
 					break;
 				case FCC('v','d','C','l'): {
 //					printf("%s Cycle video\n", __func__);

@@ -12,6 +12,7 @@
 #include <ctype.h>
 
 #include "mii_rom_iiee.h"
+#include "mii_rom_iic.h"
 #include "mii.h"
 #include "mii_bank.h"
 #include "mii_video.h"
@@ -221,12 +222,17 @@ mii_page_table_update(
 				page2 ? MII_BANK_AUX : MII_BANK_MAIN, 0x20, 0x3f);
 	}
 	// c1-cf are at ROM state when we arrive here
-	if (!intcxrom) {
-		mii_page_set(mii, MII_BANK_CARD_ROM, MII_BANK_CARD_ROM, 0xc1, 0xcf);
-		if (!slotc3rom)
-			mii_page_set(mii, MII_BANK_ROM, _SAME, 0xc3, 0xc3);
-		if (intc8rom)
-			mii_page_set(mii, MII_BANK_ROM, _SAME, 0xc8, 0xcf);
+	if (mii->emu == MII_EMU_IIC) {
+	//	mii_page_set(mii, MII_BANK_ROM, MII_BANK_ROM, 0xc1, 0xcf);
+	//	mii_page_set(mii, MII_BANK_ROM, MII_BANK_ROM, 0xd0, 0xff);
+	} else {
+		if (!intcxrom) {
+			mii_page_set(mii, MII_BANK_CARD_ROM, MII_BANK_CARD_ROM, 0xc1, 0xcf);
+			if (!slotc3rom)
+				mii_page_set(mii, MII_BANK_ROM, _SAME, 0xc3, 0xc3);
+			if (intc8rom)
+				mii_page_set(mii, MII_BANK_ROM, _SAME, 0xc8, 0xcf);
+		}
 	}
 	bool bsrread 	= SWW_GETSTATE(sw, BSRREAD);
 	bool bsrwrite 	= SWW_GETSTATE(sw, BSRWRITE);
@@ -368,7 +374,7 @@ mii_access_soft_switches(
 			int slot = ((addr >> 4) & 7) - 1;
 #if 0
 			printf("SLOT %d addr %04x write %d %02x drv %s\n",
-				slot, addr, write, *byte,
+				slot + 1, addr, write, *byte,
 				mii->slot[slot].drv ? mii->slot[slot].drv->name : "none");
 #endif
 			if (mii->slot[slot].drv) {
@@ -443,6 +449,23 @@ mii_access_soft_switches(
 		mii_page_table_update(mii);
 		return res;
 	}
+	if (mii->emu == MII_EMU_IIC) {
+		switch (addr) {
+			case 0xc020 ... 0xc02f:
+				res = true;
+				if (mii->bank[MII_BANK_ROM].mem == mii_rom_iic) {
+					printf("BANKING IIC SECOND ROM\n");
+					mii->bank[MII_BANK_ROM].mem =
+						(uint8_t*)&mii_rom_iic[16 * 1024];
+				} else {
+					printf("BANKING IIC FIRST ROM\n");
+					mii->bank[MII_BANK_ROM].mem =
+						(uint8_t*)&mii_rom_iic[0];
+				}
+				return res;
+				break;
+		}
+	}
 	if (write) {
 		switch (addr) {
 			case SW80STOREOFF:
@@ -472,6 +495,11 @@ mii_access_soft_switches(
 			case SWINTCXROMOFF:
 			case SWINTCXROMON:
 				res = true;
+				if (mii->emu == MII_EMU_IIC) {
+					// IIc always has the internal rom on, obs
+					SW_SETSTATE(mii, SWINTCXROM, 1);
+					break;
+				}
 				SW_SETSTATE(mii, SWINTCXROM, addr & 1);
 				mii_bank_poke(sw, SWINTCXROM, (addr & 1) << 7);
 				break;
@@ -490,11 +518,11 @@ mii_access_soft_switches(
 	} else {
 		switch (addr) {
 			case SWBSRBANK2:
-				*byte = SW_GETSTATE(mii, BSRPAGE2) << 7;
+				SW_READ(*byte, mii, BSRPAGE2);
 				res = true;
 				break;
 			case SWBSRREADRAM:
-				*byte = SW_GETSTATE(mii, BSRREAD) << 7;
+				SW_READ(*byte, mii, BSRREAD);
 				res = true;
 				break;
 			case SWPAGE2OFF:
@@ -506,17 +534,25 @@ mii_access_soft_switches(
 			case SW80STORE:
 			case SWINTCXROM:
 			case SWALTPZ:
+				res = true;
+				*byte |= mii_bank_peek(sw, addr);
+				break;
 			case SWSLOTC3ROM:
 				res = true;
-				*byte = mii_bank_peek(sw, addr);
+				if (mii->emu == MII_EMU_IIC) {
+					break;
+				}
+				*byte |= mii_bank_peek(sw, addr);
 				break;
 			case 0xc068:
 				res = true;
 				// IIgs register, read by prodos tho
 				break;
-			case 0xc020: // toggle TAPE output ?!?!
-			//	res = true;
-			//	break;
+			// toggle TAPE output ?!?!
+			// IIc is switch ROM banking
+			case 0xc020 ... 0xc02f:
+				res = true;
+				break;
 			default:
 				res = true;
 			//	if (addr != 0xc00b)
@@ -541,6 +577,11 @@ mii_access_soft_switches(
 	return res;
 }
 
+/*
+ * Keyboard (and joystick buttons) related access. The soft switches
+ * from 0xc000 to 0xc01f all return the ascii value in the 7 lower bits.
+ * The 8th bit is set when the key is pressed
+ */
 static bool
 mii_access_keyboard(
 		mii_t *mii,
@@ -550,21 +591,22 @@ mii_access_keyboard(
 {
 	bool res = false;
 	mii_bank_t * sw = &mii->bank[MII_BANK_SW];
+	if (!write && (addr & 0xff) <= 0x1f) {
+		*byte = mii_bank_peek(sw, SWKBD);
+	}
 	switch (addr) {
 		case SWKBD:
 			if (!write) {
 				res = true;
-				*byte = mii_bank_peek(sw, SWKBD);
+				*byte = mii_bank_peek(sw, SWAKD);
 			}
 			break;
 		case SWAKD: {
-			res = true;
+			res = addr == SWAKD;
 			uint8_t r = mii_bank_peek(sw, SWAKD);
 			if (!write)
 				*byte = r;
-			r &= 0x7f;
-			mii_bank_poke(sw, SWAKD, r);
-			mii_bank_poke(sw, SWKBD, r);
+			mii_bank_poke(sw, SWAKD, r & 0x7f);
 		}	break;
 		case 0xc061 ... 0xc063: // Push Button 0, 1, 2 (Apple Keys)
 			res = true;
@@ -581,9 +623,8 @@ mii_keypress(
 		uint8_t key)
 {
 	mii_bank_t * sw = &mii->bank[MII_BANK_SW];
-	key |= 0x80;
-	mii_bank_poke(sw, SWAKD, key);
-	mii_bank_poke(sw, SWKBD, key);
+	mii_bank_poke(sw, SWAKD, key | 0x80);
+	mii_bank_poke(sw, SWKBD, key & 0x7f);
 }
 
 /* ramworks came populated in chunks, this duplicates these rows of chips */
@@ -617,7 +658,7 @@ mii_init(
 
 	for (int i = 0; i < MII_BANK_COUNT; i++)
 		mii->bank[i] = _mii_banks_init[i];
-	mii->bank[MII_BANK_ROM].mem = (uint8_t*)&iie_enhanced_rom_bin[0];
+	mii->bank[MII_BANK_ROM].mem = (uint8_t*)&mii_rom_iiee[0];
 	for (int i = 0; i < MII_BANK_COUNT; i++)
 		mii_bank_init(&mii->bank[i]);
 	uint8_t *mem = realloc(mii->bank[MII_BANK_MAIN].mem, 0x10000);
@@ -632,6 +673,7 @@ mii_init(
 	mii_dd_system_init(mii, &mii->dd);
 	mii_analog_init(mii, &mii->analog);
 	mii_video_init(mii);
+	mii_audio_init(mii, &mii->audio);
 	mii_speaker_init(mii, &mii->speaker);
 
 	mii_reset(mii, true);
@@ -642,10 +684,6 @@ mii_init(
 #endif
 	for (int i = 0; i < 7; i++)
 		mii->slot[i].id = i;
-//	srandom(time(NULL));
-	for (int i = 0; i < 256; i++)
-		mii->random[i] = random();
-
 	mii_bank_install_access_cb(&mii->bank[MII_BANK_ROM],
 			_mii_select_c3introm, mii, 0xc3, 0xc3);
 }
@@ -655,6 +693,11 @@ mii_prepare(
 		mii_t *mii,
 		uint32_t flags )
 {
+	if (mii->emu == MII_EMU_IIC) {
+		printf("IIC Mode engaged\n");
+		mii->bank[MII_BANK_ROM].mem = (uint8_t*)&mii_rom_iic[0];
+	}
+
 	int banks = (flags >> MII_INIT_RAMWORKS_BIT) & 0xf;
 	banks = 12;
 	if (banks > 12)
@@ -670,6 +713,7 @@ mii_prepare(
 		}
 		drv = drv->next;
 	}
+	mii_audio_start(&mii->audio);
 }
 
 void
@@ -689,6 +733,7 @@ mii_dispose(
 		}
 	}
 	mii_speaker_dispose(&mii->speaker);
+	mii_audio_dispose(&mii->audio);
 	mii_dd_system_dispose(&mii->dd);
 	mii->state = MII_INIT;
 }
@@ -699,6 +744,10 @@ mii_reset(
 		bool cold)
 {
 //	printf("%s cold %d\n", __func__, cold);
+	if (mii->emu == MII_EMU_IIC) {
+		printf("IIC Mode engaged\n");
+		mii->bank[MII_BANK_ROM].mem = (uint8_t*)&mii_rom_iic[0];
+	}
 	mii->state = MII_RUNNING;
 	mii->cpu_state.reset = 1;
 	mii_bank_t * main = &mii->bank[MII_BANK_MAIN];
@@ -922,7 +971,7 @@ mii_run(
 {
 	/* this runs all cycles for one instruction */
 	if (unlikely(mii->state != MII_RUNNING || mii->trace_cpu > 1)) {
-		printf("tracing\n");
+//		printf("tracing\n");
 		mii->cpu.instruction_run = 0;
 	} else
 		mii->cpu.instruction_run = 100000;

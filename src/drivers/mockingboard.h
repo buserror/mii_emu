@@ -82,6 +82,7 @@ struct mb_t;
 //#define MB_OP_IO_DEVSEL			   0x80
 
 #define MB_CARD_IRQ				   0x80000000
+#define MB_CARD_NMI				   0x40000000
 
 //
 /** _clock_ is of type mb_clock_t

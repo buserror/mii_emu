@@ -123,6 +123,14 @@ mii_argv_parse(
 			mii_slot_drv_register(mii, 4, "mouse");
 			mii_slot_drv_register(mii, 6, "disk2");
 			mii_slot_drv_register(mii, 7, "smartport");
+		} else if (!strcmp(arg, "-2c") || !strcmp(arg, "--2c") ||
+						!strcmp(arg, "--iic")) {
+			mii->emu = MII_EMU_IIC;
+			mii_slot_drv_register(mii, 1, "ssc");
+			mii_slot_drv_register(mii, 2, "ssc");
+			mii_slot_drv_register(mii, 4, "mouse");
+			mii_slot_drv_register(mii, 5, "smartport");
+			mii_slot_drv_register(mii, 6, "disk2");
 		} else if (!strcmp(arg, "-L") || !strcmp(arg, "--list-drivers")) {
 			mii_slot_drv_t * drv = mii_slot_drv_list;
 			printf("mii: available drivers:\n");
@@ -132,18 +140,18 @@ mii_argv_parse(
 			}
 			exit(0);
 		} else if (!strcmp(arg, "-m") || !strcmp(arg, "--mute")) {
-			mii->speaker.muted = true;
+			mii->audio.muted = true;
 		} else if (!strcmp(arg, "--audio-off") ||
 					!strcmp(arg, "--no-audio") ||
 					!strcmp(arg, "--silent")) {
-			mii->speaker.speaker_off = true;
+			mii->audio.drv = NULL;
 			*ioFlags |= MII_INIT_SILENT;
 		} else if (!strcmp(arg, "-vol") || !strcmp(arg, "--volume")) {
 			if (i < argc-1) {
 				float vol = atof(argv[++i]);
 				if (vol < 0) vol = 0;
 				else if (vol > 10) vol = 10;
-				mii_speaker_volume(&mii->speaker, vol);
+				mii_audio_volume(&mii->speaker.source, vol);
 			} else {
 				printf("mii: missing volume value\n");
 				return 1;

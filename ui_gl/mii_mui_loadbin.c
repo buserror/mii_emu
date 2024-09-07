@@ -220,8 +220,8 @@ mii_mui_load_binary(
 	m->file.button->uid = MII_LBIN_SELECT;
 	m->file.button->key_equ = MUI_KEY_EQU(MUI_MODIFIER_ALT, 's');
 
-	c = NULL;
-	TAILQ_FOREACH(c, &w->controls, self) {
+	c = mui_controls_first(&w->controls, MUI_CONTROLS_ALL);
+	for (; c; c = mui_controls_next(c, MUI_CONTROLS_ALL)) {
 		if (mui_control_get_uid(c) == 0)
 			continue;
 		mui_control_set_action(c, _mii_loadbin_action_cb, m);

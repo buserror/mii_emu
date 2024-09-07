@@ -577,6 +577,8 @@ _ay3_render( //
 	float		noise;
 	uint		envelope;
 
+printf("ay3_render: duration=%d, channel=%d, out_limit=%d, samples_per_frame=%d, samples_per_second=%d\n", duration, channel, out_limit, samples_per_frame, samples_per_second);
+printf("render_window_secs=%f, sample_dt=%f, render_dt=%d\n", render_window_secs, sample_dt, render_dt);
 	//  TODO: we can just persist tone_period + half_tone_period  instead of
 	//        frequency and trim back and forth calculations in _ay3_tone_setup
 	for (render_t = 0.0f; render_t < render_window_secs && sample_count < out_limit;
@@ -745,8 +747,8 @@ _ay3_update( //
 		return;
 	}
 
-	printf("AY3: reset_b=%c bdir=%c bc1=%c\n", reset_b ? '1' : '0',
-	            bdir ? '1' : '0', bc1 ? '1' : '0');
+//	printf("AY3: reset_b=%c bdir=%c bc1=%c\n", reset_b ? '1' : '0',
+//	            bdir ? '1' : '0', bc1 ? '1' : '0');
 
 	switch (*bus_control & 0x3) {
 		case 0x3:
@@ -985,6 +987,7 @@ mb_io_sync( //
 
 	board->sync_time_budget += dt_clocks;
 
+//printf("mb_io_sync: dt_clocks=%d, sync_time_budget=%d\n", dt_clocks, board->sync_time_budget);
 	while (board->sync_time_budget > clock->ref_step) {
 		_via_update_state(
 			&board->via[0], &board->via_ay3_bus[0], &board->via_ay3_bus_control[0]);
@@ -1003,10 +1006,10 @@ mb_io_sync( //
 	}
 	board->last_clocks = *clock;
 
-	return (_mmio_via_irq_active(&board->via[0]) ||
-			_mmio_via_irq_active(&board->via[1])) ?
-			   MB_CARD_IRQ :
-			   0;
+	uint32_t res = 0;
+	res |= _mmio_via_irq_active(&board->via[1]) ? MB_CARD_IRQ : 0;
+	res |= _mmio_via_irq_active(&board->via[0]) ? MB_CARD_IRQ : 0;
+	return res;
 }
 
 void

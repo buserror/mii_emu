@@ -58,6 +58,50 @@ static const mii_machine_config_t _default_config = {
 	},
 };
 
+static const mii_machine_config_t _default_config_2c
+			__attribute__((unused)) = {
+	.no_slot_clock = 1,
+	.titan_accelerator = 0,
+	.slot = {
+		[0] = {
+			.driver = MII_SLOT_DRIVER_SSC,
+			.conf.ssc = {
+				.kind = 0,
+				.socket_port = 1969,
+				.device = "/dev/ttyS0",
+				.baud = 9600,
+				.bits = 8,
+				.parity = 0,
+				.stop = 0,
+			}
+		},
+		[1] = {
+			.driver = MII_SLOT_DRIVER_SSC,
+			.conf.ssc = {
+				.kind = 0,
+				.socket_port = 1970,
+				.device = "/dev/ttyS1",
+				.baud = 9600,
+				.bits = 8,
+				.parity = 0,
+				.stop = 0,
+			}
+		},
+		[2] = { .driver = 0, },
+		[3] = {
+			.driver = MII_SLOT_DRIVER_MOUSE,
+		},
+		[4] = {
+			.driver = MII_SLOT_DRIVER_SMARTPORT,
+		},
+		[5] = {
+			.driver = MII_SLOT_DRIVER_DISK2,
+		},
+		[6] = {
+		},
+	},
+};
+
 enum {
 	MII_SLOT_WINDOW_ID 		= FCC('s','l','o','t'),
 	MII_SLOT_SAVE 			= FCC('s','a','v','e'),
@@ -81,7 +125,7 @@ static const struct {
 	[MII_SLOT_DRIVER_ROM1MB]	= { "ROM 1MB", 1 },
 //	[MII_SLOT_DRIVER_MOCKINGBOARD] = { "Mockingboard", },
 #ifdef MII_DANII
-	[MII_SLOT_DRIVER_DANII]		= { "DAN ][", 0 },
+//	[MII_SLOT_DRIVER_DANII]		= { "DAN ][", 0 },
 #endif
 	{ NULL, 0 },
 };
@@ -430,8 +474,8 @@ mii_mui_configure_slots(
 						"Config…", MII_SLOT_DRIVER_CONF + i);
 		c2_rect_offset(&slot_line_rect, 0, 38);
 	}
-	c = NULL;
-	TAILQ_FOREACH(c, &w->controls, self) {
+	c = mui_controls_first(&w->controls, MUI_CONTROLS_ALL);
+	for (; c; c = mui_controls_next(c, MUI_CONTROLS_ALL)) {
 		if (mui_control_get_uid(c) == 0)
 			continue;
 		mui_control_set_action(c, _mii_config_slot_action_cb, m);

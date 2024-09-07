@@ -19,6 +19,46 @@
 #include "mii_65c02_ops.h"
 #include "mii_65c02_disasm.h"
 
+void
+mii_hexdump(
+		const char * prompt,
+		unsigned int display_offset,
+		const void *buffer,
+		unsigned int len)
+{
+	const uint8_t *buf = buffer;
+	static const char *hex = "0123456789abcdef";
+	char line[80];
+	unsigned int o = 0;
+	const int line_l = 16;
+	if (prompt)
+		printf("%s (%d/0x%x):\n", prompt, len, len);
+	for (unsigned int i = 0; i < len; ) {
+		memset(line, ' ', 80 - 1);
+		char *dst = line;
+		char *txt = dst + (line_l * 3);
+		unsigned int so = o;
+		for (int c = 0; c < line_l && i < len; c++, i++, o++) {
+			uint8_t b = *buf++;
+			*dst++ = hex[b >> 4];
+			*dst++ = hex[b & 0xf];
+			dst++; // space
+			*txt++ = b < ' ' || b > 126 ? '.' : b;
+		}
+		*txt = 0;
+		printf("%04x: %s\n", display_offset + so, line);
+	}
+}
+
+static const char * apple2_charset =
+"@ABCDEFGHIJKLMNO"
+"PQRSTUVWXYZ[\\]^_"
+" !\"#$%&'()*+,-./"
+"0123456789:;<=>?"
+"................"
+"................"
+"`abcdefghijklmno"
+"pqrstuvwxyz{|}~";
 
 void
 _mii_mish_text(
@@ -39,7 +79,7 @@ _mii_mish_text(
 		printf("%04x: ", a);
 		for (int ci = 0; ci < 40; ci++) {
 			uint8_t c = (mii_read_one(mii, a++) & 0x3f);
-			printf("%c", c >= 0x20 && c < 0x7f ? c : '.');
+			printf("%c", apple2_charset[c]);
 		}
 		printf("\n");
 	}
@@ -411,6 +451,7 @@ _mii_mish_step(
 }
 
 #include <math.h>
+extern int mii_speaker_debug;
 
 static void
 _mii_mish_audio(
@@ -421,28 +462,33 @@ _mii_mish_audio(
 	mii_t * mii = param;
 	if (argc < 2) {
 		printf("audio volume: %.3f multiplier:%.3f muted:%d\n",
-					mii->speaker.volume, mii->speaker.vol_multiplier,
-					mii->speaker.muted);
+					mii->speaker.source.volume,
+					mii->speaker.source.vol_multiplier,
+					mii->audio.muted);
 		return;
 	}
 	if (!strcmp(argv[1], "record")) {
-		if (mii->speaker.debug_fd != -1) {
-			close(mii->speaker.debug_fd);
-			mii->speaker.debug_fd = -1;
+#if 1
+		if (mii_speaker_debug) {
+//			close(mii_speaker_debug_fd);
+//			mii_speaker_debug_fd = -1;
+			mii_speaker_debug = 0;
 			printf("audio: stop recording\n");
 		} else {
-			mii->speaker.debug_fd = open("audio.raw",
-										O_WRONLY | O_CREAT | O_TRUNC, 0644);
+			mii_speaker_debug = 1;
+		//	mii_speaker_debug_fd = open("audio.raw",
+		//								O_WRONLY | O_CREAT | O_TRUNC, 0644);
 			printf("audio: start recording\n");
 		}
+#endif
 	} else if (!strcmp(argv[1], "mute")) {
 		if (argv[2] && !strcmp(argv[2], "off"))
-			mii->speaker.muted = false;
+			mii->audio.muted = false;
 		else if (argv[2] && !strcmp(argv[2], "on"))
-			mii->speaker.muted = true;
+			mii->audio.muted = true;
 		else if (!argv[2] || (argv[2] && !strcmp(argv[2], "toggle")))
-			mii->speaker.muted = !mii->speaker.muted;
-		printf("audio: %s\n", mii->speaker.muted ? "muted" : "unmuted");
+			mii->audio.muted = !mii->audio.muted;
+		printf("audio: %s\n", mii->audio.muted ? "muted" : "unmuted");
 	} else if (!strcmp(argv[1], "volume")) {
 		if (argc < 3) {
 			printf("audio: missing volume\n");
@@ -452,9 +498,9 @@ _mii_mish_audio(
 		float vol = atof(argv[2]);
 		if (vol < 0) vol = 0;
 		else if (vol > 10) vol = 10;
-		mii_speaker_volume(&mii->speaker, vol);
+		mii_audio_volume(&mii->speaker.source, vol);
 		printf("audio: volume %.3f (amp: %.4f)\n",
-					vol, mii->speaker.vol_multiplier);
+					vol, mii->speaker.source.vol_multiplier);
 	} else {
 		printf("audio: unknown command %s\n", argv[1]);
 	}

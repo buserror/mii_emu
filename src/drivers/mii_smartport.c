@@ -24,14 +24,8 @@
 #include "mii_bank.h"
 #include "mii_dd.h"
 #include "mii_slot.h"
+#include "mii_rom_smartport.h"
 
-#define INCBIN_STYLE INCBIN_STYLE_SNAKE
-#define INCBIN_PREFIX mii_
-#include "incbin.h"
-
-INCBIN(smartport_rom, "test/asm/mii_smartport_driver.bin");
-
-extern const unsigned char mii_smartport_rom_data[];
 
 #define MII_SM_DRIVE_COUNT 2
 
@@ -289,7 +283,7 @@ _mii_sm_init(
 	uint16_t addr = 0xc100 + (slot->id * 0x100);
 	mii_bank_write(
 			&mii->bank[MII_BANK_CARD_ROM],
-			addr, mii_smartport_rom_data, 256);
+			addr, mii_smartport_driver_bin, 256);
 
 	uint8_t trap_hd = mii_register_trap(mii, _mii_hd_callback);
 	uint8_t trap_sm = mii_register_trap(mii, _mii_sm_callback);

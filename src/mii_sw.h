@@ -140,3 +140,9 @@ static const char __unused__ *mii_sw_names[] =  {
 	SWW_SETSTATE((_mii)->sw_state, _sw, _state)
 #define SW_GETSTATE(_mii, _sw) \
 	SWW_GETSTATE((_mii)->sw_state, _sw)
+
+// set bit 8 of a byte to the state of a softswitch
+#define SWW_READ(_byte, _bits, _sw) \
+	(_byte) = ((_byte) & 0x7f) | (SWW_GETSTATE(_bits, _sw) << 7)
+#define SW_READ(_byte, _mii, _sw) \
+	SWW_READ(_byte, (_mii)->sw_state, _sw)

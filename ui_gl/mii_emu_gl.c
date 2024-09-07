@@ -28,6 +28,7 @@
 #include "mii_ssc.h"
 #include "mii_mui_gl.h"
 #include "miigl_counter.h"
+#include "mii_sokol_audio.h"
 #define MII_ICON64_DEFINE
 #include "mii_icon64.h"
 
@@ -533,21 +534,6 @@ mii_x11_terminate(
 	XCloseDisplay(ui->dpy);
 }
 
-// TODO factor this into a single table, this is dupped from mii_mui_settings.c!
-static const struct {
-	const char * name;
-} mii_slot_driver[MII_SLOT_DRIVER_COUNT] = {
-	[MII_SLOT_DRIVER_NONE] 		= { "none", },
-	[MII_SLOT_DRIVER_SMARTPORT]	= { "smartport", },
-	[MII_SLOT_DRIVER_DISK2] 	= { "disk2", },
-	[MII_SLOT_DRIVER_MOUSE] 	= { "mouse", },
-	[MII_SLOT_DRIVER_SSC] 		= { "ssc", },
-	[MII_SLOT_DRIVER_ROM1MB]	= { "eecard", },
-	[MII_SLOT_DRIVER_MOCKINGBOARD] = { "mockingboard", },
-#ifdef MII_DANII
-	[MII_SLOT_DRIVER_DANII] 	= { "danii", },
-#endif
-};
 
 void
 mii_ui_reconfigure_slot(
@@ -618,7 +604,7 @@ _mii_ui_load_config(
 		*ioFlags |= MII_INIT_NSC;
 	if (config->titan_accelerator)
 		*ioFlags |= MII_INIT_TITAN;
-	mii->speaker.muted = config->audio_muted;
+	mii->audio.muted = config->audio_muted;
 	mii->video.color_mode = config->video_mode;
 	mii_video_set_mode(mii, config->video_mode);
 	for (int i = 0; i < 7; i++) {
@@ -631,9 +617,9 @@ _mii_ui_load_config(
 		}
 		int slot =  i + 1;
 		if (mii_slot_drv_register(mii, slot,
-					mii_slot_driver[config->slot[i].driver].name) < 0) {
+					mii_slot_driver[config->slot[i].driver].driver) < 0) {
 			printf("%s failed to register driver %s\n", __func__,
-					mii_slot_driver[config->slot[i].driver].name);
+					mii_slot_driver[config->slot[i].driver].driver);
 		}
 		mii_ui_reconfigure_slot(mii, config, slot);
 	}
@@ -659,9 +645,12 @@ mii_x11_reload_config(
 	mii_mui_menu_slot_menu_update(&ui->video);
 	printf("%s (re)loading config\n", __func__);
 	// if we're silent from the command line, we are *always* silent.
-	mii->speaker.speaker_off = !!(g_startup_flags & MII_INIT_SILENT);
 	mii_init(mii);
 	_mii_ui_load_config(mii, config, &flags);
+	if (g_startup_flags & MII_INIT_SILENT)
+		mii->audio.drv = NULL;
+	else
+		mii_sokol_audio_init(mii);
 	mii_prepare(mii, flags);
 	mii_reset(mii, true);
 	mii_mui_gl_prepare_textures(&ui->video);
@@ -713,6 +702,10 @@ main(
 			printf("mii: Invalid argument %s, skipped\n", argv[idx]);
 		} else if (r == -1)
 			exit(1);
+		if (!(flags & MII_INIT_SILENT))
+			mii_sokol_audio_init(mii);
+		else
+			printf("Audio disabled\n");
 		mii_prepare(mii, flags);
 		g_startup_flags = flags;
 	}

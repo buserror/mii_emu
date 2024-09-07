@@ -3,6 +3,25 @@
 </p>
 
 # MII Version Changelog
+## 1.95
+This is an intermediate release, mostly to fix a few bugs and add a few features that were requested.
+ * Now have support for *writing* both DSK (PO and DO) as well as NIB files. As it
+   turns out, this was a most requested feature -- I thought everyone would be
+    happy with WOZ files, but no, people want to write DSK files. So now you can.
+ * Quite a few tweaks and a couple bug fixes were provided by Frédérick @skippyfr for the core 65c02 emulation, thanks!
+ * Quite a few code changes on the way I dealt with ROM files; removed the use
+   of *incbin.h* as it was creating problems with the linker, and failed to work
+   with webassembly.
+ * Added a *non-functional* proto support for Apple //c -- it half boots at the
+   moment. Still need work, mostly changing my Disk ][ driver to properly emulate
+   an IWM, but that'll come.
+ * Changed the SmartPort driver to continue booting if there are no Disks. This
+   seems to solve a problem people had with booting from a floppy when there was
+    no hard drive -- MII would stop at the basic prompt; not it continues to boot
+    from the next slot down the line (with a message).
+ * Audio processing was redone. There is now a notion of an audio 'sink' with an (now 32 bit float) FIFO. The speaker code (and soon, perhaps, the mockingboard) writes to it's own sink, and there an audio mixer that reads from all the sinks and mixes them together. This allows for a more flexible audio system, and also allows for a 'master volume' control.
+ * Also now use 'sokol_audio' for the audio output, which gives me the possibility of a multi-platform audio output, if ever needed. I also added support for "miniaudio"; but it does a bit too much for my need at the minute, and slows down the compilation considerably, so it's not the default.
+
 ## 1.9
 #### Video
  * Video driver now only draw when the apple II video *really* changes. It keeps track of touched lines across the screen, and only updates when needed. This saves a considerable amount of CPU time.

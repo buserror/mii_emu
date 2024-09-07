@@ -14,8 +14,7 @@
 #include "mui.h"
 #include "mii_icon64.h"
 
-extern const unsigned char mui_geneva_font_data[];
-extern const unsigned int mui_geneva_font_size;
+#include "fonts/mui_geneva_font.h"
 
 enum {
 	MII_ABOUT_WINDOW_ID 		= FCC('a','b','o','t'),
@@ -192,7 +191,7 @@ mii_mui_about(
 	mui_font_t *geneva = mui_font_find(ui, "geneva");
 	if (!geneva) {
 		geneva = mui_font_from_mem(ui, "geneva", 24,
-							mui_geneva_font_data, mui_geneva_font_size);
+							mui_geneva_font, mui_geneva_font_len);
 	}
 	mui_glyph_line_array_t lines_about = {};
 	mui_font_measure(font, tbox, about, 0, &lines_about,

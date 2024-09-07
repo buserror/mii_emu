@@ -54,6 +54,13 @@ typedef union mii_cpu_state_t  {
 	uint32_t 		raw;
 } mii_cpu_state_t ;
 
+enum {
+	MII_CPU_IRQ_NONE = 0,
+	MII_CPU_IRQ_IRQ,
+	MII_CPU_IRQ_NMI,
+	MII_CPU_IRQ_BRK,
+};
+
 #ifndef MII_65C02_DIRECT_ACCESS
 #define MII_65C02_DIRECT_ACCESS		1
 #endif
@@ -134,8 +141,8 @@ mii_cpu_run(
 
 #ifdef MII_PACK_P
 #define MII_SET_P(_cpu, _byte) { \
-			(_cpu)->P.P = _byte | 0x30; \
-		}
+			(_cpu)->P.P = (_byte & 0xEF) | 0x20; \
+		}                                   // FD: to pass HARTE's test : 0x20 instead of 0x30, unset Break Bit
 #define MII_GET_P(_cpu, _res) \
 		(_res) = (_cpu)->P.P
 #define MII_SET_P_BIT(_cpu, _bit, _val) { \

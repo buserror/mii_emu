@@ -187,18 +187,24 @@ mii_settings_load(
 	return r;
 }
 
-static const struct {
-	const char * name;
-} mii_slot_driver[MII_SLOT_DRIVER_COUNT] = {
-	[MII_SLOT_DRIVER_NONE] 		= { "none", },
-	[MII_SLOT_DRIVER_SMARTPORT]	= { "smartport", },
-	[MII_SLOT_DRIVER_DISK2] 	= { "disk2", },
-	[MII_SLOT_DRIVER_MOUSE] 	= { "mouse", },
-	[MII_SLOT_DRIVER_SSC] 		= { "ssc", },
-	[MII_SLOT_DRIVER_ROM1MB]	= { "eecard", },
-	[MII_SLOT_DRIVER_MOCKINGBOARD] = { "mockingboard", },
+const mii_slot_driver_t mii_slot_driver[MII_SLOT_DRIVER_COUNT] = {
+	[MII_SLOT_DRIVER_NONE] 		= {
+		.driver = "none", .label = "", .description = ""},
+	[MII_SLOT_DRIVER_SMARTPORT]	= {
+		.driver = "smartport", .label = "", .description = ""},
+	[MII_SLOT_DRIVER_DISK2] 	= {
+		.driver = "disk2", .label = "", .description = ""},
+	[MII_SLOT_DRIVER_MOUSE] 	= {
+		.driver = "mouse", .label = "", .description = ""},
+	[MII_SLOT_DRIVER_SSC] 		= {
+		.driver = "ssc", .label = "", .description = ""},
+	[MII_SLOT_DRIVER_ROM1MB]	= {
+		.driver = "eecard", .label = "", .description = ""},
+	[MII_SLOT_DRIVER_MOCKINGBOARD] = {
+		.driver = "mockingboard", .label = "", .description = ""},
 #ifdef MII_DANII
-	[MII_SLOT_DRIVER_DANII]		= { "danii" },
+	[MII_SLOT_DRIVER_DANII]		= {
+		.driver = "danii", .label = "", .description = ""},
 #endif
 };
 
@@ -302,7 +308,7 @@ mii_emu_save(
 				break;
 		}
 		mii_config_set(cf, section, "driver",
-				mii_slot_driver[config->slot[i].driver].name);
+				mii_slot_driver[config->slot[i].driver].driver);
 	}
 	mii_settings_save(cf);
 	return 0;
@@ -379,7 +385,7 @@ mii_emu_load(
 		if (!cl)
 			continue;
 		for (int j = 0; j < MII_SLOT_DRIVER_COUNT; j++) {
-			if (!strcmp(mii_slot_driver[j].name, cl->value)) {
+			if (!strcmp(mii_slot_driver[j].driver, cl->value)) {
 				config->slot[i].driver = j;
 				break;
 			}

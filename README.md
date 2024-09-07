@@ -49,7 +49,7 @@ I wanted something:
  * RAMWorks III card, with 1MB of RAM
  * "Titan Accelerator //e" simulation, to turn on/off fast mode.
  * Terence's J Boldt [1MB ROM card](https://github.com/tjboldt/ProDOS-ROM-Drive), also because I own a couple!
- * Floppy Drive with WOZ 1/2 in read/write, NIB and DSK in read only.
+ * Floppy Drive with **WOZ v1/v2**, **NIB** and **DSK** (all with read&write).
  * No dependencies (X11) OpenGL rendering
  * Built-in debugger (using telnet access)
  * Super cool looking UI!
@@ -66,6 +66,7 @@ I wanted something:
       * libglu-dev
       * libx11-dev
       * libpixman-1-dev
+      * pkg-config
    * Many of them will probably be installed already.
    * For more details on development, see [Compiling](docs/Compiling.md)
    * Then just type `make` and it should compile.
@@ -74,7 +75,7 @@ I wanted something:
 
 ## Command line options
 If you run it with no options, and there are no config file, it will present
-you with a dialog to select the ROMs and the drives.
+you with a dialog to select the Cards and the disk images.
 
 <center>
    <img src="docs/screen/screen_config.png" alt="Config dialog">
@@ -91,6 +92,7 @@ You can also use the command line to specify them, and other options.
          -v, --verbose	Verbose output
          -m, --mute	Mute the speaker
          -vol, --volume <volume>	Set speaker volume (0.0 to 10.0)
+         --audio-off, --no-audio, --silent	Disable audio output
          -speed, --speed <speed>	Set the CPU speed in MHz
          -s, --slot <slot>:<driver>	Specify a slot and driver
                Slot id is 1..7
@@ -111,13 +113,14 @@ You can also use the command line to specify them, and other options.
      And the available drivers:
 
          $ ./build-x86_64-linux-gnu/bin/mii_emu -L
-         mii: available drivers:
-             titan - Titan Accelerator IIe
-         smartport - SmartPort card
-               nsc - No Slot Clock
-             mouse - Mouse card
-            eecard - EEPROM 1MB card
-             disk2 - Apple Disk ][
+            mii: available drivers:
+                titan - Titan Accelerator IIe
+                  ssc - Super Serial card
+            smartport - SmartPort card
+                  nsc - No Slot Clock
+                mouse - Mouse card
+               eecard - EEPROM 1MB card
+                disk2 - Apple Disk ][
 
 ## Key Bindings
 There are just a few keys that are mapped for anything useful. List is not exausive, but here are the main ones:
@@ -158,7 +161,7 @@ There are just a few keys that are mapped for anything useful. List is not exaus
 
 ## What it cannot do
  * A2Desktop PT3 player doesn't see keypresses.
- * Thats' about it really, all the other things I tried work
+ * That's about it really, all the other things I tried work
  * Joystick support is a bit limited, no 'mapping' I used a (USB) 8bitdo NES30 Pro, and it works, but it's not perfect. But, I can play choplifter with it, so it's good enough for now... *NOTE* Soon will have it's own config dialog to do mapping.
 
 ## What it could do with
@@ -181,5 +184,6 @@ There are just a few keys that are mapped for anything useful. List is not exaus
  * Other bits were inspired by:
     * [bobbin](https://github.com/micahcowan/bobbin) which is newish as well, and is great for text mode, but I didn't like the fact its' all globals etc. I still borrowed the Floppy emulation from there, until I get around to do one.
     * [isapple2](https://github.com/ivanizag/izapple2/) for other bits and pieces.
+    * [clemens_IIgs](https://github.com/samkusin/clemens_iigs) for the mockingboard code -- not working just yet.
  * And of course, countless books, articles and posts read over the last 40 years!
 

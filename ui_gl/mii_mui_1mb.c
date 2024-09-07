@@ -311,8 +311,8 @@ mii_mui_load_1mbrom(
 	c->uid_mask = uid_mask;
 	c->value = config->use_default != 0;
 
-	c = NULL;
-	TAILQ_FOREACH(c, &w->controls, self) {
+	c = mui_controls_first(&w->controls, MUI_CONTROLS_ALL);
+	for (; c; c = mui_controls_next(c, MUI_CONTROLS_ALL)) {
 		if (mui_control_get_uid(c) == 0)
 			continue;
 		mui_control_set_action(c, _mii_1mb_action_cb, m);

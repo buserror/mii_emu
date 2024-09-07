@@ -99,6 +99,14 @@ enum mii_mui_driver_e {
 	MII_SLOT_DRIVER_COUNT
 };
 
+typedef struct mii_slot_driver_t {
+	const char * driver;
+	const char * label;
+	const char * description;
+} mii_slot_driver_t;
+
+extern const mii_slot_driver_t mii_slot_driver[MII_SLOT_DRIVER_COUNT];
+
 // This is obviously not made to be terribly compact.
 typedef struct mii_machine_config_t {
 	uint32_t				reboot_on_load : 1,

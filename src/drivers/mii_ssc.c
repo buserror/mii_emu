@@ -43,11 +43,7 @@ make && A2_TTY=/dev/tntX ./surl-server
 #include "fifo_declare.h"
 #include "bsd_queue.h"
 
-#define INCBIN_STYLE INCBIN_STYLE_SNAKE
-#define INCBIN_PREFIX mii_
-#include "incbin.h"
-INCBIN(ssc_rom, "roms/mii_rom_scc_3410065a.bin");
-
+#include "mii_rom_ssc.h"
 
 #include <termios.h>
 #include <pty.h>
@@ -363,7 +359,7 @@ _mii_ssc_select(
 			_mii_ssc_thread_start(c);
 		}
 	}
-	mii_bank_write(c->rom, 0xc800, mii_ssc_rom_data, 2048);
+	mii_bank_write(c->rom, 0xc800, mii_rom_ssc, 2048);
 	c->slot->aux_rom_selected = true;
 	return false;
 }
@@ -536,7 +532,7 @@ _mii_ssc_init(
 
 	uint16_t addr = 0xc100 + (slot->id * 0x100);
 	c->rom = &mii->bank[MII_BANK_CARD_ROM];
-	mii_bank_write(c->rom, addr, mii_ssc_rom_data + 7*256, 256);
+	mii_bank_write(c->rom, addr, mii_rom_ssc + 7*256, 256);
 	/*
 	 * install a callback that will be called for every access to the
 	 * ROM area, we need this to re-install the secondary part of the ROM

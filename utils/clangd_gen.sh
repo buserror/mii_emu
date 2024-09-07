@@ -31,7 +31,7 @@ END {
 {
 	acc = acc $0
 	acc = gensub(/([^\\])"/, "\\1\\\\\"", "g", acc);
-	acc = gensub(/  +/, " ", "g", acc);
+	acc = gensub(/[ \t]+/, " ", "g", acc);
 	cnt = split(acc, e, / *\|\| *| *&& */);
 	acc = "";
 	for (cmd in e) {

@@ -92,3 +92,15 @@ typedef struct mii_woz1_trks_t {
 		uint16_t 		reserved;
 	}				track[35];
 } __attribute__((packed)) mii_woz1_trks_t;
+
+struct mii_floppy_t;
+
+int
+mii_floppy_woz_write_track(
+	struct mii_floppy_t *f,
+	mii_dd_file_t *file,
+	int track_id );
+int
+mii_floppy_woz_load(
+	struct mii_floppy_t *f,
+	mii_dd_file_t *file );

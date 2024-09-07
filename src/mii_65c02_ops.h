@@ -39,20 +39,20 @@ enum {
 };
 
 enum {
-  IMPLIED,  // BRK
-  IMM,      // LDA #$01
-  ZP_REL,   // LDA $C0 or BCC $FF
-  ZP_X,     // LDA $C0,X
-  ZP_Y,     // LDX $C0,Y
-  ABS,      // LDA $1234
-  ABS_X,    // LDA $1234,X
-  ABS_Y,    // LDA $1234,Y
-  IND_X,    // LDA ($FF,X)
-  IND_AX,   // JMP ($1234,X)
-  IND_Y,    // LDA ($FF),Y
-  IND,      // JMP ($1234)
-  IND_Z,	// LDA ($C0)
-  BRANCH,	// BEQ/BNE etc
+	IMPLIED,  // BRK
+	IMM,      // LDA #$01
+	ZP_REL,   // LDA $C0 or BCC $FF
+	ZP_X,     // LDA $C0,X
+	ZP_Y,     // LDX $C0,Y
+	ABS,      // LDA $1234
+	ABS_X,    // LDA $1234,X
+	ABS_Y,    // LDA $1234,Y
+	IND_X,    // LDA ($FF,X)
+	IND_AX,   // JMP ($1234,X)
+	IND_Y,    // LDA ($FF),Y
+	IND,      // JMP ($1234)
+	IND_Z,	// LDA ($C0)
+	BRANCH,	// BEQ/BNE etc
 };
 
 #define PCODE_(_name, _mode, _op, _pc, _r, _w, _br, _sb, _sv, _cpc) \

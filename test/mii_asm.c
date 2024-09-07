@@ -14,9 +14,9 @@
 #include <string.h>
 #include <ctype.h>
 
-#include "mii_65c02.h"
-#include "mii_65c02_asm.h"
-#include "mii_65c02_disasm.h"
+#include "mii_65c02.c"
+#include "mii_65c02_asm.c"
+#include "mii_65c02_disasm.c"
 #include "mii_65c02_ops.h"
 
 int

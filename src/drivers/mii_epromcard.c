@@ -21,12 +21,7 @@
 
 #include "mii.h"
 #include "mii_bank.h"
-
-#define INCBIN_STYLE INCBIN_STYLE_SNAKE
-#define INCBIN_PREFIX mii_
-#include "incbin.h"
-
-INCBIN(1mb_rom, "disks/GamesWithFirmware.po");
+#include "mii_rom_epromcard.h"
 
 typedef struct mii_card_ee_t {
 	mii_dd_t 	drive[1];
@@ -57,7 +52,7 @@ _mii_ee_init(
 	mii_dd_register_drives(&mii->dd, c->drive, 1);
 
 #if 1
-	c->file = (uint8_t*)mii_1mb_rom_data;
+	c->file = (uint8_t*)GamesWithFirmware_po;
 #else
 	const char *fname = "disks/GamesWithFirmware.po";
 
@@ -124,7 +119,7 @@ _mii_ee_command(
 					return -1;
 			}
 			mii_dd_drive_load(&c->drive[0], file);
-			c->file = file ? file->map : (uint8_t*)mii_1mb_rom_data;
+			c->file = file ? file->map : (uint8_t*)GamesWithFirmware_po;
 			res = 0;
 		}	break;
 	}

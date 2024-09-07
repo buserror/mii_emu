@@ -16,6 +16,9 @@ ioerr 		=	$27		; I/O error code
 nodev 		=	$28		; no device connected
 wperr 		=	$2B		; write protect error
 knownRts	=	$FF58
+; https://6502disassembly.com/a2-rom/AutoF8ROM.html
+sloop  		=	$faba	; continue scanning next slot
+
 		.org 	$c000
 		.verbose
 entryOffset	=	$c0		; entry point offset
@@ -64,22 +67,55 @@ start:
 		bne		error
 		ldx		unit	; ProDOS block 0 code wants ProDOS unit number in X
 		jmp		$801	; Continue reading the disk
-error	jmp		$E000	; Out to BASIC on error
+; display a message that we are continuing without a Smartport disk
+error:
+; $00 $01 will contain our slot rom address if we were called by the bootrom
+; otherwise it will have something else (in case of PR#x command)
+		lda 	$07FF	; current slot base address
+		cmp 	#$c1 	; make sure we aren't in slot 1
+		beq 	basic	; if we were, basic prompt
+		cmp     $01		; Bootrom also store it there, make sure it is.
+		bne     basic	; if we were, bail out
+		lda 	$00
+		beq		disp	; seem we were called by the ROM
+; We were in slot 1!
+basic:
+		jmp		$E000	; Out to BASIC on error
 
-		.org	$c0c0
+disp 	lda 	#<msg
+		sta 	buflo
+		lda 	$07FF
+		sta 	bufhi
+		ldy  	#0
+_dsp	lda  	(buflo),y
+		beq  	dspdone
+		sta 	$0755,y	; last-1 line of text
+		iny
+		bra  	_dsp
+dspdone:
+		lda 	$07FF
+		and 	#$0F
+		dec
+		ora 	#$b0	; Make it an ascii number
+		sta 	$0755,y	; last line of text
+; This bit of ROM is what will decrement the slot number, scan for another
+; disc controller, and JUMP to that ROM in turn.
+		jmp 	sloop
+
+; offset byte (to center the text) followed by a message
+msg 	.asc 	"No SmartPort Disc, Booting S", $0
+
+		.org	$c0c0	; do not change this, this is entryOffset
 ; jump back to mii code
 entryHD	nop				; Hard drive driver address
 		bra		magicHD
 		bra		magicSM
-
 		.org	$c0d0
-magicHD	.db 	$db, $fb, $0
+magicHD	.db 	$eb, $fb, $0
 		bra		done
-
 		.org	$c0e0
-magicSM	.db 	$db, $fb, $0
+magicSM	.db 	$eb, $fb, $0
 		bra		done
-
 		.org	$c0f0
 DONE	bcs		ERR
 		lda		#$00

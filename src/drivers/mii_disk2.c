@@ -16,15 +16,8 @@
 
 #include "mii_rom_disk2.h"
 #include "mii_woz.h"
-#include "mii_floppy.h"
+#include "mii_disk2.h"
 
-enum {
-	// bits used to address the LSS ROM using lss_mode
-	Q7_WRITE_BIT	= 3,
-	Q6_LOAD_BIT		= 2,
-	QA_BIT			= 1,
-	RP_BIT			= 0,
-};
 
 enum {
 	SIG_DR,			// data register
@@ -50,39 +43,13 @@ const char *sig_names[] = {
 	"LSS_QA", "LSS_RP", "LSS_WB", "LSS_RANDOM", "WRITE_CYCLE",
 };
 
-typedef struct mii_card_disk2_t {
-	mii_t *			mii;
-	mii_dd_t 		drive[2];
-	mii_floppy_t	floppy[2];
-	uint8_t 		selected;
-
-	uint8_t 		timer_off;
-	uint8_t 		timer_lss;
-
-	uint8_t 		write_register;
-	uint8_t 		head : 4;		// bits are shifted in there
-	uint16_t 		clock;			// LSS clock cycles, read a bit when 0
-	uint8_t 		lss_state : 4,	// Sequence state
-					lss_mode : 4;	// WRITE/LOAD/SHIFT/QA/RP etc
-	uint8_t 		lss_prev_state;	// for write bit
-	uint8_t 		lss_skip;
-	uint8_t 		data_register;
-
-	uint64_t 		debug_last_write, debug_last_duration;
-	mii_vcd_t 		*vcd;
-	mii_signal_t 	*sig;
-} mii_card_disk2_t;
 
 static void
 _mii_disk2_lss_tick(
 	mii_card_disk2_t *c );
-static void
-_mii_disk2_vcd_debug(
-	mii_card_disk2_t *c,
-	int on);
 
 // debug, used for mish, only supports one card tho (yet)
-static mii_card_disk2_t *_mish_d2 = NULL;
+mii_card_disk2_t *_mish_d2 = NULL;
 
 /*
  * This timer is used to turn off the motor after a second
@@ -228,23 +195,8 @@ _mii_disk2_access(
 	mii_floppy_t * f = &c->floppy[c->selected];
 	uint8_t ret = 0;
 
-	if (write) {
-//		if (!(byte &0x80))
-//			printf("WRITE PC:%04x %4.4x: %2.2x\n", mii->cpu.PC, addr, byte);
-		c->write_register = byte;
-		mii_raise_signal(c->sig + SIG_WR, byte);
-		if (c->vcd) {
-			uint8_t delta = c->vcd->cycle - c->debug_last_write;
-
-			mii_raise_signal_float(
-					c->sig + SIG_WRITE_CYCLE, c->debug_last_duration != delta, 0);
-			c->debug_last_duration = delta;
-			c->debug_last_write = c->vcd->cycle;
-		}
-	}
 	int psw = addr & 0x0F;
 	int p = psw >> 1, on = psw & 1;
-	int read = 0;
 	switch (psw) {
 		case 0x00 ... 0x07: {
 			static const int8_t delta[4][4] = {
@@ -288,7 +240,7 @@ _mii_disk2_access(
 				unsigned int dstb = byte_index / MII_FLOPPY_HM_HIT_SIZE;
 				f->heat->read.map[track_id][dstb] = 255;
 				f->heat->read.seed++;
-				read++;
+				mii_raise_signal(c->sig + SIG_READ_DR, c->data_register);
 			}
 			break;
 		case 0x0E:
@@ -296,16 +248,53 @@ _mii_disk2_access(
 			c->lss_mode = (c->lss_mode & ~(1 << Q7_WRITE_BIT)) | (!!on << Q7_WRITE_BIT);
 			break;
 	}
-	/*
-	 * Here we run one LSS cycle ahead of 'schedule', just because it allows
-	 * the write protect bit to be loaded if needed, it *has* to run before
-	 * we return this value, so we marked a skip and run it here.
-	 */
-//	_mii_disk2_lss_tick(c);
-//	c->lss_skip++;
-	if (read)
-		mii_raise_signal(c->sig + SIG_READ_DR, c->data_register);
-	ret = on ? byte : c->data_register;
+	switch (c->lss_mode & ((1 << Q6_LOAD_BIT) | (1 << Q7_WRITE_BIT))) {
+		// off | off | 	Read data register
+		case 0:
+			ret = c->data_register;
+			break;
+		// on  | off | 	Read status register
+		case (1 << Q6_LOAD_BIT):
+			if (write) {
+			//	printf("%s: IMW Write something register? %2x\n", __func__,byte);
+			}
+			ret = c->iwm_mode;
+			break;
+		// on  | on  | 	Write mode register (if drive is off)
+		//				data register       (if drive is on)
+		case (1 << Q6_LOAD_BIT) | (1 << Q7_WRITE_BIT):
+			if (f->motor) {
+				if (write) {
+				//	if (!(byte &0x80))
+				//		printf("WRITE PC:%04x %4.4x: %2.2x\n",
+				//				mii->cpu.PC, addr, byte);
+					c->write_register = byte;
+					if (c->vcd) {
+						mii_raise_signal(c->sig + SIG_WR, byte);
+						uint8_t delta = c->vcd->cycle - c->debug_last_write;
+
+						mii_raise_signal_float(
+								c->sig + SIG_WRITE_CYCLE, c->debug_last_duration != delta, 0);
+						c->debug_last_duration = delta;
+						c->debug_last_write = c->vcd->cycle;
+					}
+				}
+				ret = c->data_register;
+			} else {
+				if (write) {
+					c->iwm_mode = byte;
+				}
+				ret  = c->iwm_mode;
+			}
+			break;
+		// off | on  | Read handshake register
+		case (1 << Q7_WRITE_BIT):
+		//	printf("%s read handshake register\n", __func__);
+			// IWM ready and No Underrun
+			ret = (1 << 7) | (1 << 6);
+			break;
+	}
+//	ret = on ? byte : c->data_register;
 
 	return ret;
 }
@@ -383,7 +372,7 @@ static mii_slot_drv_t _driver = {
 };
 MI_DRIVER_REGISTER(_driver);
 
-static void
+void
 _mii_disk2_vcd_debug(
 	mii_card_disk2_t *c,
 	int on)
@@ -520,7 +509,6 @@ static const uint8_t SEQUENCER_ROM_16[256] __attribute__((unused)) = {
 	// 0     1     1     3     4	 5     6     7     8     9     A     B     C     D     E     F
 };
 
-FILE *debug = NULL;
 
 static void
 _mii_disk2_lss_tick(
@@ -549,12 +537,20 @@ _mii_disk2_lss_tick(
 		c->head = (c->head << 1) | bit;
 		// see WOZ spec for how we do this here
 		if ((c->head & 0xf) == 0) {
-			bit = f->track_data[MII_FLOPPY_NOISE_TRACK][byte_index];
-			rp = (bit >> bit_index) & 1;
-//				printf("RANDOM TRACK %2d %2d %2d : %d\n",
-//						track_id, byte_index, bit_index, bit);
+			/* pick a random bit position for the random data */
+			if (!f->random) {
+				f->random = 1;
+				f->random_position = random() % f->tracks[track_id].bit_count;
+			}
+			bit = f->track_data[MII_FLOPPY_NOISE_TRACK][f->random_position / 8];
+			rp = (bit >> (f->random_position % 8)) & 1;
+			f->random_position = (f->random_position + 1) % \
+						f->tracks[track_id].bit_count;
+		//		printf("RANDOM TRACK %2d %2d %2d : %d\n",
+		//				track_id, byte_index, bit_index, rp);
 			mii_raise_signal_float(c->sig + SIG_LSS_RANDOM, rp, 0);
 		} else {
+			f->random = 0;
 			rp = (c->head >> 1) & 1;
 			mii_raise_signal_float(c->sig + SIG_LSS_RANDOM, rp, 1);
 		}
@@ -596,7 +592,7 @@ _mii_disk2_lss_tick(
 				c->data_register = c->write_register;
 				mii_raise_signal(c->sig + SIG_DR, c->data_register);
 				f->seed_dirty++;
-				if (f->heat) {
+				if (f->heat && track_id < MII_FLOPPY_TRACK_COUNT) {
 					uint32_t 	byte_index 	= f->bit_position >> 3;
 					unsigned int dstb = byte_index/MII_FLOPPY_HM_HIT_SIZE;
 					f->heat->write.map[track_id][dstb] = 255;
@@ -644,169 +640,3 @@ _mii_disk2_lss_tick(
 		f->bit_position = (f->bit_position + 1) % f->tracks[track_id].bit_count;
 	}
 }
-
-#include <fcntl.h>
-#include <unistd.h>
-
-static void
-_mii_mish_d2(
-		void * param,
-		int argc,
-		const char * argv[])
-{
-//	mii_t * mii = param;
-	if (!_mish_d2) {
-		printf("No Disk ][ card installed\n");
-		return;
-	}
-	static int sel = 0;
-	if (!argv[1] || !strcmp(argv[1], "list")) {
-		mii_card_disk2_t *c = _mish_d2;
-		for (int i = 0; i < 2; i++) {
-			mii_floppy_t *f = &c->floppy[i];
-			printf("Drive %d %s\n", f->id, f->write_protected ? "WP" : "RW");
-			printf("\tMotor: %3s qtrack:%3d Bit %6d/%6d\n",
-					f->motor ? "ON" : "OFF", f->qtrack,
-					f->bit_position, f->tracks[0].bit_count);
-		}
-		return;
-	}
-	if (!strcmp(argv[1], "sel")) {
-		if (argv[2]) {
-			sel = atoi(argv[2]);
-		}
-		printf("Selected drive: %d\n", sel);
-		return;
-	}
-	if (!strcmp(argv[1], "wp")) {
-		if (argv[2]) {
-			int wp = atoi(argv[2]);
-			mii_card_disk2_t *c = _mish_d2;
-			mii_floppy_t *f = &c->floppy[sel];
-			f->write_protected = wp;
-		}
-		printf("Drive %d Write protected: %d\n", sel,
-				_mish_d2->floppy[sel].write_protected);
-		return;
-	}
-	// dump a track, specify track number and number of bytes
-	if (!strcmp(argv[1], "track")) {
-		mii_card_disk2_t *c = _mish_d2;
-		mii_floppy_t *f = &c->floppy[sel];
-		if (argv[2]) {
-			int track = atoi(argv[2]);
-			if (track < 0 || track >= MII_FLOPPY_TRACK_COUNT) {
-				printf("Invalid track %d\n", track);
-				return;
-			}
-			int count = 256;
-			if (argv[3]) {
-				if (!strcmp(argv[3], "save")) {
-					// save one binary file in tmp with just that track
-					uint8_t *data = f->track_data[track];
-					char *filename;
-					asprintf(&filename, "/tmp/track_%02d.bin", track);
-					int fd = open(filename, O_CREAT | O_WRONLY, 0666);
-					write(fd, data, MII_FLOPPY_DEFAULT_TRACK_SIZE);
-					close(fd);
-					printf("Saved track %d to %s\n", track, filename);
-					free(filename);
-					return;
-				}
-				count = atoi(argv[3]);
-			}
-			uint8_t *data = f->track_data[track];
-
-			for (int i = 0; i < count; i += 8) {
-				uint8_t *line = data + i;
-			#if 1
-				for (int bi = 0; bi < 8; bi++) {
-					uint8_t b = line[bi];
-					for (int bbi = 0; bbi < 8; bbi++) {
-						printf("%c", (b & 0x80) ? '1' : '0');
-						b <<= 1;
-					}
-				}
-				printf("\n");
-			#endif
-				for (int bi = 0; bi < 8; bi++)
-					printf("%8x", line[bi]);
-				printf("\n");
-			}
-		} else {
-			printf("track <track 0-34> [count]\n");
-		}
-		return;
-	}
-	if (!strcmp(argv[1], "dirty")) {
-		mii_card_disk2_t *c = _mish_d2;
-		mii_floppy_t *f = &c->floppy[sel];
-		f->seed_dirty = f->seed_saved = rand();
-		return;
-	}
-	if (!strcmp(argv[1], "resync")) {
-		mii_card_disk2_t *c = _mish_d2;
-		mii_floppy_t *f = &c->floppy[sel];
-		printf("Resyncing tracks\n");
-		for (int i = 0; i < MII_FLOPPY_TRACK_COUNT; i++)
-			mii_floppy_resync_track(f, i, 0);
-		return;
-	}
-	if (!strcmp(argv[1], "map")) {
-		mii_card_disk2_t *c = _mish_d2;
-		mii_floppy_t *f = &c->floppy[sel];
-
-		printf("Disk map:\n");
-		for (int i = 0; i < MII_FLOPPY_TRACK_COUNT; i++) {
-			mii_floppy_track_map_t map = {};
-			int r = mii_floppy_map_track(f, i, &map, 0);
-			printf("Track %2d: %7s\n",
-					i, r == 0 ? "OK" : "Invalid");
-			if (r != 0) {
-				printf("Track %d has %5d bits\n", i, f->tracks[i].bit_count);
-				for (int si = 0; si < 16; si++)
-					printf("[%2d hs:%4d h:%5d ds:%3d d:%5d]%s",
-							si, map.sector[si].hsync,
-							map.sector[si].header,
-							map.sector[si].dsync,
-							map.sector[si].data,
-							si & 1 ? "\n" : " ");
-			}
-		}
-		return;
-	}
-	if (!strcmp(argv[1], "trace")) {
-		if (debug == NULL)
-			debug = fopen("/tmp/disk2.log", "w");
-		else {
-			fclose(debug);
-			debug = NULL;
-		}
-		printf("Debug trace %s\n", debug ? "ON" : "OFF");
-		return;
-	}
-	if (!strcmp(argv[1], "vcd")) {
-		mii_card_disk2_t *c = _mish_d2;
-		_mii_disk2_vcd_debug(c, !c->vcd);
-		return;
-	}
-}
-
-#include "mish.h"
-
-MISH_CMD_NAMES(d2, "d2");
-MISH_CMD_HELP(d2,
-		"d2: disk ][ internals",
-		" <default>: dump status",
-		" list: list drives",
-		" sel [0-1]: select drive",
-		" wp [0-1]: write protect",
-		" track <track 0-34> [count]: dump track",
-		" track <track 0-34> save: save in /tmp/trackXX.bin",
-		" dirty: mark track as dirty",
-		" resync: resync all tracks",
-		" map: show track map",
-		" trace: toggle debug trace",
-		" vcd: toggle VCD debug"
-		);
-MII_MISH(d2, _mii_mish_d2);

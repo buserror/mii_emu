@@ -5,13 +5,17 @@
 
 #include "mii.h"
 #include "mockingboard.h"
+#include "mii_audio.h"
 
 typedef struct mii_mb_t {
-	mii_t *		mii;
-	uint8_t	 	init; 		// init sequence bits
-	bool 		init_done;
-	uint8_t 	timer;
-	struct mb_t *mb;
+	mii_t *				mii;
+	uint8_t	 			init; 		// init sequence bits
+	bool 				init_done;
+	uint8_t 			timer;
+	struct mb_t *		mb;
+	mii_audio_source_t	source;
+	uint64_t 			flush_cycle_count;
+	uint64_t			last_flush_cycle;
 } mii_mb_t;
 
 
@@ -22,17 +26,36 @@ _mii_mb_timer(
 {
 	mii_mb_t * mb = param;
 	mb_clock_t clock = {
-		.ref_step = 1,
-		.ts = mii->cpu.total_cycle,
+		.ref_step = MB_CLOCKS_PHI0_CYCLE,
+		.ts = mii->cpu.total_cycle * MB_CLOCKS_14MHZ_CYCLE,
 	};
-	// delta is ALWAYS negative or zero here
-	int32_t delta = mii_timer_get(mii, mb->timer);
-	uint64_t ret = -delta + 1;
-	if (mb_io_sync(mb->mb, &clock)) {
-	//	printf("MB Sync IRQ\n");
+	uint64_t res = 1 + -mii_timer_get(mii, mb->timer);
+
+	uint32_t irq = mb_io_sync(mb->mb, &clock);
+	if (irq & MB_CARD_IRQ)
 		mii->cpu_state.irq = 1;
+
+	if ((mii->cpu.total_cycle - mb->last_flush_cycle) >= mb->flush_cycle_count) {
+		mb->last_flush_cycle = mii->cpu.total_cycle;
+
+		static float audio[1224] = {};
+		memset(audio, 0, sizeof(audio));
+		int r = mb_ay3_render(mb->mb, audio, 1024, 2, MII_AUDIO_FREQ);
+		float min = 1e6, max = -1e6;
+		mii_audio_frame_t *f = &mb->source.fifo;
+		for (int i = 0; i < r * 2; i += 2) {
+			mii_audio_sample_t s = (audio[i] + audio[i + 1]);
+//			mii_audio_sample_t s = (audio[i]);
+			if (s < min)
+				min = s;
+			if (s > max)
+				max = s;
+			mii_audio_frame_write(f, s);
+		}
+		printf("MB Audio cycle %ld r=%d min %.4f max %.4f\n",
+				mb->flush_cycle_count, r, min, max);
 	}
-	return ret;
+	return res;
 }
 
 static void
@@ -43,7 +66,10 @@ mii_mb_start(
 	printf("MB Start\n");
 	mb->init = 0;
 	mb->init_done = true;
-	mb->timer = mii_timer_register(mb->mii, _mii_mb_timer, mb, 1, __func__);
+	mb->timer = mii_timer_register(mb->mii, _mii_mb_timer, mb, 1000, __func__);
+
+	mb->flush_cycle_count = 512 * mb->mii->audio.clk_per_sample;
+	mii_audio_add_source(&mb->mii->audio, &mb->source);
 }
 
 /*

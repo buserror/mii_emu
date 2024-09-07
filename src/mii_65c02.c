@@ -90,11 +90,15 @@ next_instruction:
 	}
 	if (unlikely(s.irq && cpu->P.I == 0)) {
 		if (!cpu->IRQ)
-			cpu->IRQ = 1;
+			cpu->IRQ = MII_CPU_IRQ_IRQ;
+	}
+	if (unlikely(s.nmi && cpu->P.I == 0)) {
+		if (!cpu->IRQ)
+			cpu->IRQ = MII_CPU_IRQ_NMI;
 	}
 	if (unlikely(cpu->IRQ)) {
 		s.irq = 0;
-		cpu->P.B = cpu->IRQ == 2;
+		cpu->P.B = cpu->IRQ == MII_CPU_IRQ_BRK;
 		cpu->_D = cpu->PC;
 		_STORE(0x0100 | cpu->S--, cpu->_D >> 8);
 		_STORE(0x0100 | cpu->S--, cpu->_D & 0xff);
@@ -102,11 +106,17 @@ next_instruction:
 		MII_GET_P(cpu, p);
 		_STORE(0x0100 | cpu->S--, p);
 		cpu->P.I = 1;
-		if (cpu->IRQ == 2)
+		if (cpu->IRQ == MII_CPU_IRQ_BRK)
 			cpu->P.D = 0;
+		if (cpu->IRQ == MII_CPU_IRQ_NMI) {
+		//	printf("NMI!\n");
+			_FETCH(0xfffa); cpu->_P = s.data;
+			_FETCH(0xfffb);	cpu->_P |= s.data << 8;
+		} else {
+			_FETCH(0xfffe); cpu->_P = s.data;
+			_FETCH(0xffff);	cpu->_P |= s.data << 8;
+		}
 		cpu->IRQ = 0;
-		_FETCH(0xfffe); cpu->_P = s.data;
-		_FETCH(0xffff);	cpu->_P |= s.data << 8;
 		cpu->PC = cpu->_P;
 	}
 	s.sync = 1;
@@ -192,7 +202,9 @@ next_instruction:
 		case IND_Z: {	// ($xx)
 			_FETCH(cpu->PC++); 		cpu->_D = s.data;
 			_FETCH(cpu->_D); 		cpu->_P = s.data;
-			_FETCH(cpu->_D + 1); 	cpu->_P |= s.data << 8;
+//			_FETCH((cpu->_D + 1)); 	cpu->_P |= s.data << 8;
+			// FD if $xx=0xFF then 0xFF+1 = 0x00 and not 0x100 bug fixed
+			_FETCH((cpu->_D + 1) & 0xFF); 	cpu->_P |= s.data << 8;
 		}	break;
 		case IND_AX: { // ($xxxx,X)
 			_FETCH(cpu->PC++);		cpu->_D = s.data;
@@ -218,7 +230,8 @@ next_instruction:
 				uint8_t lo = (cpu->A & 0x0f) + (D & 0x0f) + !!cpu->P.C;
 				if (lo > 9) lo += 6;
 				uint8_t hi = (cpu->A >> 4) + (D >> 4) + (lo > 0x0f);
-				cpu->P.Z = ((uint8_t)(cpu->A + D + cpu->P.C)) == 0;
+				// FD removed
+//				cpu->P.Z = ((cpu->A + D + cpu->P.C) & 0xff) == 0;
 				// that is 6502 behaviour
 //				cpu->P.N = !!(hi & 0xf8);
 				cpu->P.V = !!((!((cpu->A ^ D) & 0x80) &&
@@ -230,6 +243,8 @@ next_instruction:
 				cpu->A = (hi << 4) | (lo & 0x0f);
 				// THAT is 65c02 behaviour
 				cpu->P.N = !!(cpu->A & 0x80);
+				// FD THAT is 65C02 behavior
+                cpu->P.Z = cpu->A == 0;
 			} else {
 				uint16_t sum = cpu->A + cpu->_D + !!cpu->P.C;
 				cpu->P.V = cpu->P.C = 0;
@@ -247,6 +262,7 @@ next_instruction:
 		}	break;
 		case 0x0A:
 		{ // ASL
+			_FETCH(cpu->PC);	// cycle++
 			cpu->P.C = !!(cpu->A & 0x80);
 			cpu->A <<= 1;
 			_NZ(cpu->A);
@@ -308,7 +324,7 @@ next_instruction:
 			// https://www.nesdev.org/the%20'B'%20flag%20&%20BRK%20instruction.txt#:~:text=A%20note%20on%20the%20BRK,opcode%2C%20and%20not%20just%201.
 			_FETCH(cpu->PC++);
 			s.irq = 1;
-			cpu->IRQ = 2;		// BRK sort of IRQ interrupt
+			cpu->IRQ = MII_CPU_IRQ_BRK;		// BRK sort of IRQ interrupt
 		}	break;
 		case 0x18: case 0xD8: case 0x58: case 0xB8:
 		{ // CLC, CLD, CLI, CLV
@@ -361,7 +377,7 @@ next_instruction:
 			_NZ(cpu->A);
 		}	break;
 		case 0x1A:
-		{ // INC
+		{ // INC (accumulator)
 			_FETCH(cpu->PC);
 			_NZ(++cpu->A);
 		}	break;
@@ -476,7 +492,8 @@ next_instruction:
 			_NZ(cpu->Y);
 		}	break;
 		case 0x2A:
-		{ // ROL
+		{ // ROL immediate
+			_FETCH(cpu->PC);	// cycle++
 			uint8_t c = cpu->P.C;
 			cpu->P.C = !!(cpu->A & 0x80);
 			cpu->A <<= 1;
@@ -493,6 +510,7 @@ next_instruction:
 		}	break;
 		case 0x6A:
 		{ // ROR
+			_FETCH(cpu->PC);	// cycle++
 			uint8_t c = cpu->P.C;
 			cpu->P.C = !!(cpu->A & 0x01);
 			cpu->A >>= 1;
@@ -511,8 +529,10 @@ next_instruction:
 		{ // RTI
 			_FETCH(cpu->PC);	// dummy write
 			cpu->S++; _FETCH(0x0100 | cpu->S);
+			// FD : Modified to set Break bit to 0 in order to pass Harte's tests .
 			for (int i = 0; i < 8; i++)
-				MII_SET_P_BIT(cpu, i, i == B_B || (s.data & (1 << i)));
+//				MII_SET_P_BIT(cpu, i, i == B_B || (s.data & (1 << i)));
+				MII_SET_P_BIT(cpu, i, !(i == B_B) && (s.data & (1 << i)));
 			cpu->P._R = 1;
 			cpu->S++; _FETCH(0x0100 | cpu->S);
 			cpu->_P = s.data;
@@ -533,6 +553,7 @@ next_instruction:
 		{ // SBC
 			// Handle subbing in BCD with bit D
 			if (unlikely(cpu->P.D)) {
+#if 1
 				uint8_t D = 0x99 - cpu->_D;
 				// verbatim ADC code here
 				uint8_t lo = (cpu->A & 0x0f) + (D & 0x0f) + !!cpu->P.C;
@@ -550,6 +571,33 @@ next_instruction:
 				cpu->A = (hi << 4) | (lo & 0x0f);
 				// THAT is 65c02 behaviour
 				cpu->P.N = !!(cpu->A & 0x80);
+#else
+				// Decimal mode
+				// Perform decimal subtraction
+				// fully based on http://www.6502.org/tutorials/decimal_mode.html
+				unsigned int result;			    // the final 16bit result of the substration
+
+				int16_t A = cpu->A;
+				uint8_t B = cpu->_D;
+				uint8_t C = cpu->P.C;               // Carry (borrow) bit : must be 1 if no borrow
+
+				result = A - B - (1 - C);       // do the calculation in binary mode
+				cpu->P.C = !(result & 0xFF00);
+				cpu->P.V = !!((A ^ B) & (A ^ result) & 0x80);  // complex but it works !!!
+
+				uint8_t AH = (A >> 4) & 0x0F;     // get the accumulator high digit
+				int8_t AL;
+				uint8_t BH = (B >> 4) & 0x0F;     // get the high digit of the substracted value
+				uint8_t BL = B & 0x0F;            // get the low digit of the substracted value
+
+				AL = (A & 0x0F) - (B & 0x0F) + C -1;    // 3a et 4a, calculation is performed on the low digits,  +C-1 is a trick
+				//      A = A - B + C -1;                   // 4b calculation is performed with the full 8bit original values. Already done with result
+				A = result;
+				if (A < 0) A = A - 0x60;                // 4c if negative then substraction is performed to stay in the 00-99 range
+				if (AL < 0) A = A - 0x06;               // 4d if low digit is <0 than apply the same operation on it
+				cpu->A = A & 0xFF;                      // 3e et 4e  and voila !, we have the right value for the result
+				_NZ(cpu->A);                            // set N and Z bits withe decimal result
+#endif
 			} else {
 				cpu->_D = (~cpu->_D) & 0xff;
 				uint16_t sum = cpu->A + cpu->_D + !!cpu->P.C;
@@ -637,8 +685,23 @@ next_instruction:
 		case 0xF4:
 			_FETCH(cpu->PC++);	// consume that byte
 			break;
-		case 0xdb: case 0xfb:
-		// trap NOPs
+		case 0xdb:
+		// trap NOPs / STP (WDC)
+			_FETCH(cpu->PC++); // FD: Added to pass HARTE's test
+			break;
+		case 0xCB :
+		// FD: Added to pass HARTE's test
+		// WAI for WDC65C02 not in R65C02
+		// FD: Added to properly pass HARTE's test
+		case 0x0B: case 0x1B: case 0x2B: case 0x3B: case 0x4B: case 0x5B:
+		case 0x6B: case 0x7B: case 0x8B: case 0x9B: case 0xAB: case 0xBB:
+		// these two are SPECIAL, 0xebfb is used as the 'trap' that calls
+		// back into the emulator. This is used by the smartport driver
+		case 0xEB: case 0xFB:
+		case 0x03: case 0X13: case 0X23: case 0X33: case 0x43: case 0x53:
+		case 0x63: case 0x73: case 0x83: case 0x93: case 0xA3: case 0xB3:
+		case 0xC3: case 0xD3: case 0xE3: case 0xF3:
+			//  NOPs
 			break;
 		default:
 			printf("%04x %02x UNKNOWN INSTRUCTION\n", cpu->PC, cpu->IR);
