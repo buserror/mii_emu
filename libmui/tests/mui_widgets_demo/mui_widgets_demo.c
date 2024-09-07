@@ -32,7 +32,7 @@ _test_show_about(
 	}
 	w = mui_alert(g->ui, C2_PT(0,0),
 					"About MUI",
-					"Version " MUI_VERSION "\n"
+					"Version " "(dev)" "\n"
 					"Build " __DATE__ " " __TIME__,
 					MUI_ALERT_INFO);
 	mui_window_set_id(w, FCC('a','b','o','t'));
@@ -88,7 +88,10 @@ _test_textedit_demo(
 	c = mui_textedit_control_new(w, cf, MUI_CONTROL_TEXTBOX_FRAME);
 	mui_textedit_set_text(c,
 		"Fulling Mill Online Return Center.pdf");
-
+	mui_textedit_set_selection(c, 0, 255);
+	uint glyph_start, glyph_end;
+	mui_textedit_get_selection(c, &glyph_start, &glyph_end);
+	printf("Selection %d:%d\n", glyph_start, glyph_end);
 }
 
 static void
@@ -206,7 +209,8 @@ _test_demo_all_controls(
 		c2_rect_offset(&wpos,
 			(ui->screen_size.x / 2) - (c2_rect_width(&wpos) / 2),
 			(ui->screen_size.y * 0.45) - (c2_rect_height(&wpos) / 2));
-	w = mui_window_create(ui, wpos, NULL, MUI_WINDOW_LAYER_NORMAL,
+	w = mui_window_create(ui, wpos, NULL,
+					MUI_WINDOW_LAYER_NORMAL + MUI_WINDOW_FLAGS_CLOSEBOX,
 					"Control Demo", 0);
 	mui_window_set_id(w, FCC('d','e','m','o'));
 
@@ -554,9 +558,9 @@ _init(
 	mui_menubar_add_simple(mbar, "Windows",
 								FCC('w','i','n','d'),
 								m_windows_menu);
-//	_test_textedit_demo(ui);
+	_test_textedit_demo(ui);
 //	_test_static_text_and_boxes(ui);
-	_test_demo_all_controls(ui);
+//	_test_demo_all_controls(ui);
 	return g;
 }
 

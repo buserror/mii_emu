@@ -30,6 +30,15 @@ IMPLEMENT_C_ARRAY(string_array);
 
 #define MUI_STDF_MAX_SUFFIX 16
 
+struct mui_stdfile_t;
+
+typedef struct mui_stdnewfolder_t {
+	mui_window_t 		win;
+	mui_control_t *		ok, *cancel;
+	mui_control_t *		save_name;
+	struct mui_stdfile_t * std;
+} mui_stdnewfolder_t;
+
 typedef struct mui_stdfile_t {
 	mui_window_t 		win;
 	mui_control_t *		ok, *cancel, *home, *root;
@@ -46,6 +55,7 @@ typedef struct mui_stdfile_t {
 	struct {
 		mui_control_t 		*save_name;
 		mui_control_t 		*create_folder;
+		mui_stdnewfolder_t	*new_folder_window;
 	}					save;
 #ifdef MUI_HAS_REGEXP
 	regex_t 			re;
@@ -64,6 +74,11 @@ enum {
 	MUI_STD_FILE_PART_NEW,
 	MUI_STD_FILE_PART_SAVE_NAME,
 	MUI_STD_FILE_PART_COUNT,
+	// for the new folder dialog
+	MUI_STD_NEWF_PART_OK = 20,
+	MUI_STD_NEWF_PART_CANCEL,
+	MUI_STD_NEWF_PART_SAVE_NAME,
+	MUI_STD_NEWF_PART_COUNT,
 };
 
 static int
@@ -336,6 +351,118 @@ _mui_stdfile_load_pref(
 }
 
 
+
+static int
+_mui_std_newf_control_action(
+		mui_control_t * c,
+		void * 			cb_param,
+		uint32_t 		what,
+		void * 			param)
+{
+	mui_stdnewfolder_t * newf = cb_param;
+	mui_stdfile_t * std = newf->std;
+	switch (c->uid) {
+		case MUI_STD_NEWF_PART_OK: {
+			char name[64];
+			mui_textedit_get_text(newf->save_name, name, sizeof(name));
+			printf("New folder: %s\n", name);
+			char * full_path = NULL;
+			asprintf(&full_path, "%s/%s", std->current_path, name);
+			// check new path is not already there
+			if (_mii_stdfile_check_dir(full_path) == 0) {
+				char * msg = NULL;
+				asprintf(&msg, "%s\n%s", full_path,
+							"Already exists");
+				mui_alert(std->win.ui, C2_PT(0,0),
+							"Could not create folder",
+							msg,
+							MUI_ALERT_FLAG_OK);
+				free(full_path);
+				break;
+			}
+			if (mkdir(full_path, 0777) == 0) {
+				_mui_stdfile_populate(std, full_path);
+				mui_window_dispose(c->win);
+			} else {
+				char * msg = NULL;
+				asprintf(&msg, "%s\n%s", full_path,
+							strerror(errno));
+				mui_alert(std->win.ui, C2_PT(0,0),
+							"Could not create folder",
+							msg,
+							MUI_ALERT_FLAG_OK);
+			}
+			free(full_path);
+		}	break;
+		case MUI_STD_NEWF_PART_CANCEL:
+			mui_window_action(c->win,
+					MUI_STDF_ACTION_CANCEL, NULL);
+			mui_window_dispose(c->win);
+			break;
+	}
+	return 0;
+}
+
+static mui_window_t *
+_mui_std_newf_window(
+		mui_stdfile_t * std)
+{
+	c2_pt_t where = C2_PT(0, 0);
+	mui_t * ui = std->win.ui;
+	float base_size = mui_font_find(ui, "main")->size;
+	float margin = base_size * 0.7;
+
+	c2_rect_t wpos = C2_RECT_WH(where.x, where.y, 400, 175);
+	if (where.x == 0 && where.y == 0)
+		c2_rect_offset(&wpos,
+			(ui->screen_size.x / 2) - (c2_rect_width(&wpos) / 2),
+			(ui->screen_size.y * 0.4) - (c2_rect_height(&wpos) / 2));
+
+	mui_window_t *w = mui_window_create(std->win.ui,
+					wpos,
+					NULL, MUI_WINDOW_LAYER_MODAL + 1,
+					"New Folder", sizeof(mui_stdnewfolder_t));
+	mui_stdnewfolder_t * newf = (mui_stdnewfolder_t *)w;
+//	mui_window_set_action(w, _mui_stdfile_window_action, NULL);
+	mui_control_t * c = NULL;
+
+	c2_rect_t cf = C2_RECT_WH(0, 0, 120, 40);
+	c2_rect_left_of(&cf, c2_rect_width(&w->content), margin);
+	c2_rect_top_of(&cf, c2_rect_height(&w->content), margin);
+	newf->ok = c = mui_button_new(w,
+					cf, MUI_BUTTON_STYLE_DEFAULT,
+					"Create", MUI_STD_NEWF_PART_OK);
+	c2_rect_left_of(&cf, cf.l, margin);
+	newf->cancel = c = mui_button_new(w,
+					cf, MUI_BUTTON_STYLE_NORMAL,
+					"Cancel", MUI_STD_NEWF_PART_CANCEL);
+	c2_rect_top_of(&cf, cf.t, margin);
+
+	newf->ok->key_equ = MUI_KEY_EQU(0, 13); // return
+	newf->cancel->key_equ = MUI_KEY_EQU(0, 27); // ESC
+
+	// full width
+	cf.l = margin;
+	cf.r = c2_rect_width(&w->content) - margin;
+	cf.b = cf.t + 35;
+	newf->save_name = c = mui_textedit_control_new(w,
+					cf, MUI_CONTROL_TEXTBOX_FRAME);
+	c->uid = MUI_STD_NEWF_PART_SAVE_NAME;
+	mui_textedit_set_text(c, "Untitled Folder");
+	mui_textedit_set_selection(c, 0, 255);
+	c = mui_controls_first(&w->controls, MUI_CONTROLS_ALL);
+	for (; c; c = mui_controls_next(c, MUI_CONTROLS_ALL)) {
+		if (mui_control_get_uid(c))
+			mui_control_set_action(c, _mui_std_newf_control_action, newf);
+	}
+	std->save.new_folder_window = newf;
+	newf->std = std;
+//	c2_rect_top_of(&cf, cf.t, 10);
+//	mui_window_show(w);
+	return w;
+}
+
+
 static int
 _mui_stdfile_window_action(
 		mui_window_t * 	win,
@@ -470,10 +597,17 @@ _mui_stdfile_control_action(
 				_mui_stdfile_populate(std, items[idx].title);
 			}
 			break;
+		case MUI_STD_FILE_PART_NEW: {
+			_mui_std_newf_window(std);
+		}	break;
 	}
 	return 0;
 }
 
+// extension to the normal 'user' flags
+enum {
+	MUI_STDF_FLAG_SAVEBOX 	= (1 << 8),
+};
 
 mui_window_t *
 mui_stdfile_make_window(
@@ -535,7 +669,7 @@ mui_stdfile_make_window(
 		}
 		free(dup);
 	}
-	bool save_box = false;
+	bool save_box = flags & MUI_STDF_FLAG_SAVEBOX;
 
 	mui_control_t * c = NULL;
 	c2_rect_t cf;
@@ -566,12 +700,14 @@ mui_stdfile_make_window(
 					cf, MUI_BUTTON_STYLE_NORMAL,
 					"Home", MUI_STD_FILE_PART_HOME);
 	c->key_equ = MUI_KEY_EQU(MUI_MODIFIER_ALT, 'h');
+	mui_button_set_icon(c, MUI_ICON_HOME, 0);
 
 	c2_rect_top_of(&cf, cf.t, button_spacer);
 	std->root = c = mui_button_new(w,
 					cf, MUI_BUTTON_STYLE_NORMAL,
 					"Root", MUI_STD_FILE_PART_ROOT);
 	c->key_equ = MUI_KEY_EQU(MUI_MODIFIER_ALT, '/');
+	mui_button_set_icon(c, MUI_ICON_ROOT, 0);
 
 	if (save_box) {
 		c2_rect_top_of(&cf, cf.t, button_spacer);
@@ -580,6 +716,7 @@ mui_stdfile_make_window(
 						"New…", MUI_STD_FILE_PART_ROOT);
 		c->key_equ = MUI_KEY_EQU(MUI_MODIFIER_ALT, 'n');
 		c->uid = MUI_STD_FILE_PART_NEW;
+		mui_button_set_icon(c, MUI_ICON_FOLDER, 0);
 	}
 	cf = C2_RECT_WH(margin, 0, c2_rect_width(&wpos)-185, 35);
 	c2_rect_top_of(&cf, c2_rect_height(&w->content), margin);
@@ -607,8 +744,8 @@ mui_stdfile_make_window(
 					MUI_TEXT_ALIGN_RIGHT);
 //	mui_control_set_state(c, MUI_CONTROL_STATE_DISABLED);
 //	printf("Popup: %p\n", c);
-	c = NULL;
-	TAILQ_FOREACH(c, &w->controls, self) {
+	c = mui_controls_first(&w->controls, MUI_CONTROLS_ALL);
+	for (; c; c = mui_controls_next(c, MUI_CONTROLS_ALL)) {
 		if (mui_control_get_uid(c))
 			mui_control_set_action(c, _mui_stdfile_control_action, std);
 	}
@@ -629,16 +766,34 @@ mui_stdfile_make_window(
 mui_window_t *
 mui_stdfile_get(
 		struct mui_t * 	ui,
-		c2_pt_t 		where,
-		const char * 	prompt,
-		const char * 	pattern,
-		const char * 	start_path,
+		c2_pt_t 		where,			// pass 0,0 to center
+		const char * 	prompt,			// Window title
+		const char * 	pattern,		// Enforce any of these suffixes
+		const char * 	start_path,		// start in this path (optional)
 		uint16_t 		flags )
 {
 	mui_window_t *w = mui_stdfile_make_window(ui, where,
-						prompt, pattern, start_path, NULL, flags);
+						prompt, pattern, start_path, NULL,
+						flags & ~MUI_STDF_FLAG_SAVEBOX);
 	return w;
 }
+
+mui_window_t *
+mui_stdfile_put(
+		struct mui_t * 	ui,
+		c2_pt_t 		where,			// pass 0,0 to center
+		const char * 	prompt,			// Window title
+		const char * 	pattern,		// Enforce any of these suffixes
+		const char * 	start_path,		// start in this path (optional)
+		const char * 	save_filename,	// start with this filename
+		uint16_t 		flags )
+{
+	mui_window_t *w = mui_stdfile_make_window(ui, where,
+						"Save As", pattern, start_path, save_filename,
+						flags | MUI_STDF_FLAG_SAVEBOX);
+	return w;
+}
+
 
 char *
 mui_stdfile_get_path(

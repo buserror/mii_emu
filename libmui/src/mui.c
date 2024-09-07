@@ -21,7 +21,8 @@ mui_init(
 	// colors)
 	//memset(ui, 0, sizeof(*ui));
 	ui->color.clear 	= MUI_COLOR(0xccccccff);
-	ui->color.highlight = MUI_COLOR(0xd6fcc0ff);
+//	ui->color.highlight = MUI_COLOR(0xc6fbc0ff);
+	ui->color.highlight = MUI_COLOR(0xb6fbb0ff);
 	ui->timer.map = 0;
 	ui->carret_timer = 0xff;
 	TAILQ_INIT(&ui->windows);

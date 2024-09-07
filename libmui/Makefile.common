@@ -27,7 +27,7 @@ MUI_VERSION		:= ${shell \
 						echo $$(git describe --tags --abbrev=0 2>/dev/null || \
 							echo "(dev)") \
 						$$(git log -1 --date=short --pretty="%h %cd")}
-CPPFLAGS		+= -DMUI_VERSION="\"$(MUI_VERSION)\""
+#CPPFLAGS		+= -DMUI_VERSION="\"$(MUI_VERSION)\""
 
 OPTIMIZE		?= -O0 -g
 CFLAGS			+= --std=gnu99 -Wall -Wextra

@@ -16,6 +16,7 @@ enum mui_window_part_e {
 	MUI_WINDOW_PART_NONE = 0,
 	MUI_WINDOW_PART_CONTENT,
 	MUI_WINDOW_PART_TITLE,
+	MUI_WINDOW_PART_CLOSEBOX,
 	MUI_WINDOW_PART_FRAME,
 	MUI_WINDOW_PART_COUNT,
 };
@@ -23,13 +24,41 @@ enum mui_window_part_e {
 static void
 mui_window_update_rects(
 		mui_window_t *win,
-		mui_font_t * main )
+		mui_font_t * main,
+		c2_rect_t parts[MUI_WINDOW_PART_COUNT] )
 {
 	int title_height = main->size;
-	c2_rect_t content = win->frame;
-	c2_rect_inset(&content, 4, 4);
-	content.t += title_height - 1;
-	win->content = content;
+	memset(parts, 0, sizeof(parts[0]) * MUI_WINDOW_PART_COUNT);
+	parts[MUI_WINDOW_PART_CONTENT] = win->frame;
+	c2_rect_inset(&parts[MUI_WINDOW_PART_CONTENT], 4, 4);
+	parts[MUI_WINDOW_PART_CONTENT].t += title_height - 1;
+
+	stb_ttc_measure m = {};
+	if (win->title) {
+		mui_font_text_measure(main, win->title, &m);
+		int title_width = m.x1 - m.x0;
+		parts[MUI_WINDOW_PART_TITLE] = win->frame;
+		parts[MUI_WINDOW_PART_TITLE].t += 1;
+		parts[MUI_WINDOW_PART_TITLE].b =
+					parts[MUI_WINDOW_PART_TITLE].t + title_height;
+		parts[MUI_WINDOW_PART_TITLE].l +=
+					-m.x0 + (c2_rect_width(&win->frame) / 2) - (title_width / 2);
+		parts[MUI_WINDOW_PART_TITLE].r =
+					parts[MUI_WINDOW_PART_TITLE].l + title_width;
+	}
+	if (win->flags.closebox) {
+		mui_font_text_measure(main, MUI_GLYPH_CLOSEBOX, &m);
+		parts[MUI_WINDOW_PART_CLOSEBOX] = win->frame;
+		parts[MUI_WINDOW_PART_CLOSEBOX].t += 1;
+		// TODO fix that fudge factor
+		parts[MUI_WINDOW_PART_CLOSEBOX].b =
+					parts[MUI_WINDOW_PART_CLOSEBOX].t + title_height - 4;
+		parts[MUI_WINDOW_PART_CLOSEBOX].r =
+					parts[MUI_WINDOW_PART_CLOSEBOX].l + (m.x1 - m.x0);
+		c2_rect_offset(&parts[MUI_WINDOW_PART_CLOSEBOX],
+				title_height / 2.5, 0);
+	}
+	win->content = parts[MUI_WINDOW_PART_CONTENT];
 }
 
 void
@@ -41,7 +70,8 @@ mui_titled_window_draw(
 	mui_font_t * main = mui_font_find(ui, "main");
 	if (!main)
 		return;
-	mui_window_update_rects(win, main);
+	c2_rect_t parts[MUI_WINDOW_PART_COUNT];
+	mui_window_update_rects(win, main, parts);
 	int title_height = main->size;
 
 	struct cg_ctx_t * cg 	= mui_drawable_get_cg(dr);
@@ -54,9 +84,11 @@ mui_titled_window_draw(
 
 	cg_set_line_width(cg, 1);
 	cg_rectangle(cg, win->frame.l + 0.5f, win->frame.t + 0.5f,
-					c2_rect_width(&win->frame) - 1, c2_rect_height(&win->frame) - 1);
+					c2_rect_width(&win->frame) - 1,
+					c2_rect_height(&win->frame) - 1);
 	cg_rectangle(cg, win->content.l + 0.5f, win->content.t + 0.5f,
-					c2_rect_width(&win->content) - 1, c2_rect_height(&win->content) - 1);
+					c2_rect_width(&win->content) - 1,
+					c2_rect_height(&win->content) - 1);
 	cg_set_source_color(cg, &CG_COLOR(frameFill));
 	cg_fill_preserve(cg);
 	cg_set_source_color(cg, &CG_COLOR(frameColor));
@@ -74,18 +106,31 @@ mui_titled_window_draw(
 		cg_set_source_color(cg, &CG_COLOR(decoColor));
 		cg_stroke(cg);
 	}
-	if (win->title) {
-		stb_ttc_measure m = {};
-		mui_font_text_measure(main, win->title, &m);
+	if (win->flags.closebox && isFront) {
+		c2_rect_t close = parts[MUI_WINDOW_PART_CLOSEBOX];
+		c2_rect_t out = close;
+		c2_rect_inset(&out, -2, -0);
+		cg_rectangle(cg, out.l, out.t,
+				c2_rect_width(&out), c2_rect_height(&out));
+		cg_set_source_color(cg, &CG_COLOR(frameFill));
+		cg_fill(cg);
 
-		int title_width = m.x1 - m.x0;
-		c2_rect_t title = win->frame;
-		c2_rect_offset(&title, 0, 1);
-		title.b = title.t + title_height;
-		title.l += (c2_rect_width(&win->frame) / 2) - (title_width / 2);
-		title.r = title.l + title_width;
+		if (win->flags.in_part == MUI_WINDOW_PART_CLOSEBOX) {
+			mui_font_text_draw(main, dr,
+					C2_PT(close.l, close.t-2),
+					MUI_GLYPH_CLICKBOX, strlen(MUI_GLYPH_CLICKBOX),
+					isFront ? titleColor : dimTitleColor);
+		} else {
+			mui_font_text_draw(main, dr,
+					C2_PT(close.l, close.t-2),
+					MUI_GLYPH_CLOSEBOX, strlen(MUI_GLYPH_CLOSEBOX),
+					isFront ? titleColor : decoColor);
+		}
+	}
+	if (win->title) {
+		c2_rect_t title = parts[MUI_WINDOW_PART_TITLE];
 		if (isFront) {
-			c2_rect_t titleBack = title;
+			c2_rect_t titleBack = parts[MUI_WINDOW_PART_TITLE];
 			c2_rect_inset(&titleBack, -6, 0);
 			cg_round_rectangle(cg, titleBack.l, titleBack.t,
 					c2_rect_width(&titleBack), c2_rect_height(&titleBack), 12, 12);
@@ -93,7 +138,7 @@ mui_titled_window_draw(
 			cg_fill(cg);
 		}
 		mui_font_text_draw(main, dr,
-				C2_PT(-m.x0 + 1 + title.l, title.t + 0),
+				C2_PT(title.l, title.t),
 				win->title, strlen(win->title),
 				isFront ? titleColor : dimTitleColor);
 	}
@@ -143,7 +188,7 @@ mui_window_create(
 		struct mui_t *ui,
 		c2_rect_t frame,
 		mui_wdef_p wdef,
-		uint8_t layer,
+		uint32_t layer_flags,
 		const char *title,
 		uint32_t instance_size)
 {
@@ -154,15 +199,20 @@ mui_window_create(
 	w->frame = frame;
 	w->title = title ? strdup(title) : NULL;
 	w->wdef = wdef ? wdef : mui_wdef_titlewindow;
-	w->flags.layer = layer;
+	w->flags.layer = layer_flags;
+	if (layer_flags & MUI_WINDOW_FLAGS_CLOSEBOX)
+		w->flags.closebox = true;
 	mui_refqueue_init(&w->refs);
-	TAILQ_INIT(&w->controls);
+	mui_controls_init(&w->controls);
+	mui_control_group_init(&w->main_group, &w->controls);
 	STAILQ_INIT(&w->actions);
 	pixman_region32_init(&w->inval);
 	TAILQ_INSERT_HEAD(&ui->windows, w, self);
 	mui_window_select(w); // place it in it's own layer
 	mui_font_t * main = mui_font_find(ui, "main");
-	mui_window_update_rects(w, main);
+	// this is just to update content rects...
+	c2_rect_t parts[MUI_WINDOW_PART_COUNT];
+	mui_window_update_rects(w, main, parts);
 	mui_window_inval(w, NULL); // just to mark the UI dirty
 
 	return w;
@@ -176,7 +226,7 @@ _mui_window_free(
 		return;
 	pixman_region32_fini(&win->inval);
 	mui_control_t * c;
-	while ((c = TAILQ_FIRST(&win->controls))) {
+	while ((c = mui_controls_first(&win->controls, MUI_CONTROLS_ALL))) {
 		mui_control_dispose(c);
 	}
 	if (win->title)
@@ -247,8 +297,10 @@ mui_window_draw(
 	struct cg_ctx_t * cg 	= mui_drawable_get_cg(dr);
 	cg_save(cg);
 //	cg_translate(cg, content.l, content.t);
-	mui_control_t * c, *safe;
-	TAILQ_FOREACH_SAFE(c, &win->controls, self, safe) {
+	mui_control_t * c = mui_controls_first(&win->controls, MUI_CONTROLS_VISIBLE),
+			*safe = NULL;
+	for (; c; c = safe) {
+		safe = mui_controls_next(c, MUI_CONTROLS_VISIBLE);
 		mui_control_draw(win, c, dr);
 	}
 	cg_restore(cg);
@@ -273,22 +325,23 @@ mui_window_handle_keyboard(
 //		printf("%s  %s handled it\n", __func__, win->title);
 		return true;
 	}
-//	printf("%s %s checkint controls\n", __func__, win->title);
+//	printf("%s %s checking controls\n", __func__, win->title);
 	/*
 	 * Start with the control in focus, if there's any
 	 */
 	mui_control_t * first = win->control_focus.control ?
 								win->control_focus.control :
-								TAILQ_FIRST(&win->controls);
+								mui_controls_first(&win->controls,
+											MUI_CONTROLS_VISIBLE);
 	mui_control_t * c = first;
 	while (c) {
 		if (mui_control_event(c, event)) {
 		//	printf("%s control %s handled it\n", __func__, c->title);
 			return true;
 		}
-		c = TAILQ_NEXT(c, self);
+		c = mui_controls_next(c, MUI_CONTROLS_VISIBLE);
 		if (!c)
-			c = TAILQ_FIRST(&win->controls);
+			c = mui_controls_first(&win->controls, MUI_CONTROLS_VISIBLE);
 		if (c == first)
 			break;
 	}
@@ -331,12 +384,23 @@ mui_window_handle_mouse(
 				win->click_loc = event->mouse.where;
 				c2_pt_offset(&win->click_loc, -win->frame.l, -win->frame.t);
 				win->flags.hit_part = MUI_WINDOW_PART_FRAME;
-				if (event->mouse.where.y < win->content.t)
+				if (event->mouse.where.y < win->content.t) {
 					win->flags.hit_part = MUI_WINDOW_PART_TITLE;
-				else if (c2_rect_contains_pt(&win->content, &event->mouse.where))
-					win->flags.hit_part = MUI_WINDOW_PART_CONTENT;
+					// get the parts list now, apparently we need it
+					mui_font_t * main = mui_font_find(win->ui, "main");
+					c2_rect_t parts[MUI_WINDOW_PART_COUNT];
+					mui_window_update_rects(win, main, parts);
+					if (c2_rect_contains_pt(&parts[MUI_WINDOW_PART_CLOSEBOX],
+							&event->mouse.where)) {
+						win->flags.hit_part = win->flags.in_part =
+									MUI_WINDOW_PART_CLOSEBOX;
+						// redraw the titlebar
+						mui_window_inval(win, NULL);
+					}
+				}
 			} else
-				win->flags.hit_part = MUI_WINDOW_PART_CONTENT;
+				win->flags.hit_part = win->flags.in_part =
+							MUI_WINDOW_PART_CONTENT;
 			if (c) {
 				if (c->cdef && c->cdef(c, MUI_CDEF_EVENT, event)) {
 	//			c->state = MUI_CONTROL_STATE_CLICKED;
@@ -347,27 +411,43 @@ mui_window_handle_mouse(
 			return true;
 		}	break;
 		case MUI_EVENT_DRAG:
-			if (win->flags.hit_part == MUI_WINDOW_PART_TITLE) {
+			if (win->flags.hit_part) {
 				c2_rect_t frame = win->frame;
 				c2_rect_offset(&frame,
 						-win->frame.l + event->mouse.where.x - win->click_loc.x,
 						-win->frame.t + event->mouse.where.y - win->click_loc.y);
-				// todo, get that visibel rectangle from somewhere else
-				c2_rect_t screen = { .br = win->ui->screen_size };
-				screen.t += 35;
-				c2_rect_t title_bar = frame;
-				title_bar.b = title_bar.t + 35; // TODO fix that
-				if (c2_rect_intersect_rect(&title_bar, &screen)) {
-					c2_rect_t o;
-					c2_rect_clip_rect(&title_bar, &screen, &o);
-					if (c2_rect_width(&o) > 10 && c2_rect_height(&o) > 10) {
-						mui_window_inval(win, NULL);	// old frame
-						win->frame = frame;
-						mui_window_inval(win, NULL);	// new frame
+				if (win->flags.hit_part == MUI_WINDOW_PART_FRAME ||
+						win->flags.hit_part == MUI_WINDOW_PART_TITLE) {
+					// todo, get that visible rectangle from somewhere else
+					c2_rect_t screen = { .br = win->ui->screen_size };
+					screen.t += 35;
+					c2_rect_t title_bar = frame;
+					title_bar.b = title_bar.t + 35; // TODO fix that
+					if (c2_rect_intersect_rect(&title_bar, &screen)) {
+						c2_rect_t o;
+						c2_rect_clip_rect(&title_bar, &screen, &o);
+						if (c2_rect_width(&o) > 10 && c2_rect_height(&o) > 10) {
+							mui_window_inval(win, NULL);	// old frame
+							win->frame = frame;
+							mui_window_inval(win, NULL);	// new frame
+						}
 					}
+					return true;
+				} else if (win->flags.hit_part == MUI_WINDOW_PART_CLOSEBOX) {
+					mui_font_t * main = mui_font_find(win->ui, "main");
+					c2_rect_t parts[MUI_WINDOW_PART_COUNT];
+					mui_window_update_rects(win, main, parts);
+					uint8_t inside = c2_rect_contains_pt(
+										&parts[MUI_WINDOW_PART_CLOSEBOX],
+										&event->mouse.where) ?
+							MUI_WINDOW_PART_CLOSEBOX : MUI_WINDOW_PART_NONE;
+					if (inside != win->flags.in_part) {
+						win->flags.in_part = inside;
+						mui_window_inval(win, NULL);
+					}
+					return true;
 				}
 			//	mui_window_inval(win, NULL);
-				return true;
 			}
 			if (win->control_clicked.control) {
 				mui_control_t * c = win->control_clicked.control;
@@ -386,8 +466,16 @@ mui_window_handle_mouse(
 				mui_control_t * c = win->control_clicked.control;
 				mui_control_deref(&win->control_clicked);
 				if (c->cdef && c->cdef(c, MUI_CDEF_EVENT, event))
-					return true;
+					part = MUI_WINDOW_PART_CONTENT;//return true;
 			}
+			if (win->flags.in_part == MUI_WINDOW_PART_CLOSEBOX) {
+				mui_window_inval(win, NULL);
+				bool close = true;
+				mui_window_action(win, MUI_WINDOW_ACTION_CLOSEBOX, &close);
+				if (close)
+					mui_window_dispose(win);
+			}
+			win->flags.in_part = MUI_WINDOW_PART_NONE;
 			return part != MUI_WINDOW_PART_NONE;
 		}	break;
 		case MUI_EVENT_MOUSEENTER:

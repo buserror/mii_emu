@@ -14,12 +14,25 @@
 
 enum {
 	MUI_CONTROL_BUTTON				= FCC('b','u','t','n'),
-
 };
+
+enum mui_but_part_e {
+	MUI_BUT_PART_FRAME = 0,
+	MUI_BUT_PART_TEXT,
+	MUI_BUT_PART_ICON,		// optional, if 'icon' has a glyph
+	MUI_BUT_PART_COUNT,
+};
+
+typedef struct mui_button_control_t {
+	mui_control_t 				control;
+	mui_text_e 					icon_align;
+	char 						icon[8];	// UTF8 icon
+} mui_button_control_t;
 
 extern const mui_control_color_t mui_control_color[MUI_CONTROL_STATE_COUNT];
 
 #define BUTTON_INSET 4
+
 void
 mui_button_draw(
 		mui_window_t * 	win,
@@ -45,6 +58,14 @@ mui_button_draw(
 	mui_font_text_measure(main, c->title, &m);
 
 	int title_width = m.x1;// - m.x0;
+	mui_button_control_t * but = (mui_button_control_t *)c;
+	mui_font_t * icons = NULL;
+	if (but->icon[0]) {
+		icons = mui_font_find(win->ui, "icon_small");
+		stb_ttc_measure m2 = {};
+		mui_font_text_measure(icons, but->icon, &m2);
+		title_width += m2.x1 - m2.x0 + 8;
+	}
 	c2_rect_t title = C2_RECT_WH(0, 0, title_width, m.ascent - m.descent);
 	c2_rect_offset(&title,
 			f.l + ((c2_rect_width(&f) / 2) - (c2_rect_width(&title)) / 2),
@@ -56,6 +77,8 @@ mui_button_draw(
 	cg_set_line_width(cg, 2);
 	cg_round_rectangle(cg, inner.l, inner.t,
 					c2_rect_width(&inner), c2_rect_height(&inner), 6, 6);
+//	cg_rectangle(cg, title.l, title.t,
+//					c2_rect_width(&title), c2_rect_height(&title));
 	cg_set_source_color(cg, &CG_COLOR(mui_control_color[c->state].fill));
 	cg_fill_preserve(cg);
 //	cg_rectangle(cg, title.l, title.t,
@@ -63,6 +86,16 @@ mui_button_draw(
 	cg_set_source_color(cg, &CG_COLOR(mui_control_color[c->state].frame));
 	cg_stroke(cg);
 	// offset for leading space
+	if (but->icon[0]) {
+		stb_ttc_measure m2 = {};
+		mui_font_text_measure(icons, but->icon, &m2);
+		c2_rect_t icon = C2_RECT_WH(0, 0, m2.x1 - m2.x0, m2.ascent - m2.descent);
+		c2_rect_offset(&icon, title.l, title.t - 1);
+//		c2_rect_offset(&icon, -c2_rect_width(&icon) - 8, 0);
+		mui_font_text_draw(icons, dr, icon.tl, but->icon, 0,
+					mui_control_color[c->state].text);
+		title.l = icon.r + 8;
+	}
 	mui_font_text_draw(main, dr,
 			C2_PT(title.l - m.x0, title.t), c->title, strlen(c->title),
 			mui_control_color[c->state].text);
@@ -168,8 +201,10 @@ mui_button_mouse(
 				 * their values off, before setting this one to on */
 				case MUI_BUTTON_STYLE_RADIO: {
 					if (c->uid_mask) {
-						mui_control_t * c2 = NULL;
-						TAILQ_FOREACH(c2, &c->win->controls, self) {
+						mui_control_t * c2 = mui_controls_first(
+													&c->win->controls,
+													MUI_CONTROLS_ALL);
+						while (c2) {
 							if (c2->type == MUI_CONTROL_BUTTON &&
 									c2->style == MUI_BUTTON_STYLE_RADIO &&
 									(c2->uid & c->uid_mask) == (c->uid & c->uid_mask) &&
@@ -177,6 +212,7 @@ mui_button_mouse(
 							//	printf("OFF %4.4s\n", (char*)&c2->uid);
 								mui_control_set_value(c2, false);
 							}
+							c2 = mui_controls_next(c2, MUI_CONTROLS_ALL);
 						}
 					}
 				//	printf("ON %4.4s\n", (char*)&c->uid);
@@ -272,7 +308,18 @@ mui_button_new(
 	}
 	mui_control_t * c = mui_control_new(
 				win,  MUI_CONTROL_BUTTON, mui_cdef_button,
-				frame, title, uid, 0);
+				frame, title, uid, sizeof(mui_button_control_t));
 	c->style = style;
 	return c;
+}
+
+void
+mui_button_set_icon(
+		mui_control_t * c,
+		const char * icon,
+		mui_text_e align )
+{
+	mui_button_control_t * but = (mui_button_control_t *)c;
+	snprintf(but->icon, sizeof(but->icon), "%s", icon);
+	but->icon_align = align;
 }

@@ -70,10 +70,11 @@ mui_control_new(
 	c->frame = frame;
 	c->title = title ? strdup(title) : NULL;
 	c->win = win;
+	c->group = mui_controls_current_group(&win->controls);
 	c->uid = uid;
 	mui_refqueue_init(&c->refs);
 	STAILQ_INIT(&c->actions);
-	TAILQ_INSERT_TAIL(&win->controls, c, self);
+	TAILQ_INSERT_TAIL(&c->group->controls, c, self);
 	if (c->cdef)
 		c->cdef(c, MUI_CDEF_INIT, NULL);
 	// should we auto-focus the control? not sure..
@@ -100,11 +101,12 @@ mui_control_dispose(
 {
 	if (!c)
 		return;
-	if (c->win) {
-		TAILQ_REMOVE(&c->win->controls, c, self);
+	if (c->win && c->group) {
+		TAILQ_REMOVE(&c->group->controls, c, self);
 		if (c->cdef)
 			c->cdef(c, MUI_CDEF_DISPOSE, NULL);
 		c->win = NULL;
+		c->group = NULL;
 		mui_control_dispose_actions(c);
 	}
 	if (mui_refqueue_dispose(&c->refs) != 0) {
@@ -139,12 +141,13 @@ mui_control_locate(
 {
 	if (!win)
 		return NULL;
-	mui_control_t * c;
-	TAILQ_FOREACH(c, &win->controls, self) {
+	mui_control_t * c = mui_controls_first(&win->controls, MUI_CONTROLS_VISIBLE);
+	while (c) {
 		c2_rect_t f = c->frame;
 		c2_rect_offset(&f, win->content.l, win->content.t);
 		if (c2_rect_contains_pt(&f, &pt))
 			return c;
+		c = mui_controls_next(c, MUI_CONTROLS_VISIBLE);
 	}
 	return NULL;
 }
@@ -403,10 +406,11 @@ mui_control_get_by_id(
 {
 	if (!win)
 		return NULL;
-	mui_control_t *c;
-	TAILQ_FOREACH(c, &win->controls, self) {
+	mui_control_t *c = mui_controls_first(&win->controls, MUI_CONTROLS_ALL);
+	while (c) {
 		if (c->uid == uid)
 			return c;
+		c = mui_controls_next(c, MUI_CONTROLS_ALL);
 	}
 	return NULL;
 }
@@ -451,20 +455,22 @@ mui_control_switch_focus(
 	if (!win)
 		return NULL;
 	mui_control_t *c = win->control_focus.control;
+	mui_controls_flags_e flags = MUI_CONTROLS_VISIBLE;
 	if (!c)
-		c = TAILQ_FIRST(&win->controls);
+		c = mui_controls_first(&win->controls, flags);
 	if (!c)
 		return c;
 	mui_control_t * start = c;
 	do {
-		c = dir > 0 ? TAILQ_NEXT(c, self) : TAILQ_PREV(c, controls, self);
+		c = dir > 0 ?
+				mui_controls_next(c, flags) : mui_controls_prev(c, flags);
 		if (!c)
-			c = dir > 0 ? TAILQ_FIRST(&win->controls) :
-							TAILQ_LAST(&win->controls, controls);
+			c = dir > 0 ? mui_controls_first(&win->controls, flags) :
+							mui_controls_last(&win->controls, flags);
 		if (c->cdef && c->cdef(c, MUI_CDEF_CAN_FOCUS, NULL))
 			break;
 	} while (c != start);
 	mui_control_set_focus(c);
-	printf("focus %4.4s %s\n", (char*)&c->type, c->title);
+//	printf("%s %4.4s %s\n", __func__, (char*)&c->type, c->title);
 	return c;
 }

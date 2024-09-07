@@ -44,6 +44,7 @@
 
 #include "mui.h"
 #include "cg.h"
+#include "mui_cdef_te_priv.h"
 
 enum {
 	MUI_CONTROL_TEXTEDIT 		= FCC('T','e','a','c'),
@@ -57,72 +58,9 @@ enum {
 //	MUI_TE_SELECTING_LINES,		// TODO?
 };
 
-/*
- * This describes a text edit action, either we insert some text at some position,
- * or we delete some text at some position.
- * These actions are queued in a TAILQ, so we can undo/redo them.
- * The text is UTF8, and the position is a BYTE index in the text (not a glyph).
- *
- * We preallocate a fixed number of actions, and when we reach the limit, we
- * start reusing the oldest ones. This limits the number of undo/redo actions
- * to something sensible.
- */
-typedef struct mui_te_action_t {
-	TAILQ_ENTRY(mui_te_action_t) self;
-	uint  		insert : 1;			// if not insert, its a delete
-	uint32_t  	position, length;
-	mui_utf8_t 	text;
-} mui_te_action_t;
-
-// action queue
-typedef TAILQ_HEAD(mui_te_action_queue_t, mui_te_action_t) mui_te_action_queue_t;
-
-/*
- * This describes the selection in the text-edit, it can either be a carret,
- * or a selection of text. The selection is kept as a start and end glyph index,
- * and the drawing code calculates the rectangles for the selection.
- */
-typedef struct mui_sel_t {
-	uint carret: 1;		// carret is visible (if sel.start == end)
-	uint start, end;	// glyph index in text
-	// rectangles for the first partial line, the body,
-	// and the last partial line. All of them can be empty
-	union {
-		struct {
-			c2_rect_t first, body, last;
-		};
-		c2_rect_t e[3];
-	};
-} mui_sel_t;
-
-typedef struct mui_textedit_control_t {
-	mui_control_t 		control;
-	uint				trace : 1;	// debug trace
-	uint32_t			flags;		// display flags
-	mui_sel_t			sel;
-	mui_font_t *		font;
-	mui_utf8_t 			text;
-	mui_glyph_line_array_t  measure;
-	c2_pt_t				margin;
-	c2_rect_t 			text_content;
-	struct {
-		uint 				start, end;
-	}					click;
-	uint 				selecting_mode;
-} mui_textedit_control_t;
-
 extern const mui_control_color_t mui_control_color[MUI_CONTROL_STATE_COUNT];
 
 
-static void
-_mui_textedit_select_signed(
-		mui_textedit_control_t *	te,
-		int 						glyph_start,
-		int 						glyph_end);
-static void
-_mui_textedit_refresh_sel(
-		mui_textedit_control_t *	te,
-		mui_sel_t * 				sel);
 static bool
 mui_cdef_textedit(
 		struct mui_control_t * 	c,
@@ -134,7 +72,7 @@ mui_cdef_textedit(
  * which means they are already offset by margin.x, margin.y
  * and the text_content.tl.x, text_content.tl.y
  */
-static void
+void
 _mui_textedit_inval(
 		mui_textedit_control_t *	te,
 		c2_rect_t 					r)
@@ -166,7 +104,7 @@ _mui_textedit_carret_timer(
 }
 
 /* this 'forces' the carret to be visible, used when typing */
-static void
+void
 _mui_textedit_show_carret(
 		mui_textedit_control_t *	te)
 {
@@ -183,7 +121,7 @@ _mui_textedit_show_carret(
 }
 
 /* Return the line number, and glyph position in line a glyph index */
-static int
+int
 _mui_glyph_to_line_index(
 		mui_glyph_line_array_t * 	measure,
 		uint  						glyph_pos,
@@ -259,7 +197,7 @@ _mui_point_to_line_index(
 }
 
 /* Return the glyph position in the text for line number and index in line */
-static uint
+uint
 _mui_line_index_to_glyph(
 		mui_glyph_line_array_t * 	measure,
 		uint 						line,
@@ -295,7 +233,7 @@ _mui_line_index_to_glyph_word(
 }
 
 /* Convert a glyph index to a byte index (used to manipulate text array) */
-static uint
+uint
 _mui_glyph_to_byte_offset(
 		mui_glyph_line_array_t * 	measure,
 		uint 						glyph_pos)
@@ -316,222 +254,7 @@ _mui_glyph_to_byte_offset(
 	return 0;
 }
 
-/*
- * Calculate the 3 rectangles that represent the graphical selection.
- * The 'start' is the first line of the selection, or the position of the
- * carret if the selection is empty.
- * The other two are 'optional' (they can be empty), and represent the last
- * line of the selection, and the body of the selection that is the rectangle
- * between the first and last line.
- */
-static int
-_mui_make_sel_rects(
-		mui_glyph_line_array_t * 	measure,
-		mui_font_t *				font,
-		mui_sel_t *					sel,
-		c2_rect_t 					frame)
-{
-	if (!measure->count)
-		return -1;
-	sel->last = sel->first = sel->body = (c2_rect_t) {};
-	uint start_line, start_index;
-	uint end_line, end_index;
-	_mui_glyph_to_line_index(measure, sel->start, &start_line, &start_index);
-	_mui_glyph_to_line_index(measure, sel->end, &end_line, &end_index);
-	mui_glyph_array_t * line = &measure->e[start_line];
-
-	if (start_line == end_line) {
-		// single line selection
-		sel->first = (c2_rect_t) {
-			.l = frame.l + line->e[start_index].x,
-			.t = frame.t + line->t,
-			.r = frame.l + line->e[end_index].x,
-			.b = frame.t + line->b,
-		};
-		return 0;
-	}
-	// first line
-	sel->first = (c2_rect_t) {
-		.l = frame.l + line->e[start_index].x, .t = frame.t + line->t,
-		.r = frame.r, .b = frame.t + line->b,
-	};
-	// last line
-	line = &measure->e[end_line];
-	sel->last = (c2_rect_t) {
-		.l = frame.l, .t = frame.t + line->t,
-		.r = frame.l + line->e[end_index].x, .b = frame.t + line->b,
-	};
-	// body
-	sel->body = (c2_rect_t) {
-		.l = frame.l, .t = sel->first.b,
-		.r = frame.r, .b = sel->last.t,
-	};
-	return 0;
-}
-
-/* Refresh the whole selection (or around the carret selection) */
-static void
-_mui_textedit_refresh_sel(
-		mui_textedit_control_t *	te,
-		mui_sel_t * 				sel)
-{
-	if (!sel)
-		sel = &te->sel;
-	for (int i = 0; i < 3; i++) {
-		c2_rect_t r = te->sel.e[i];
-		if (i == 0 && te->sel.start == te->sel.end) {
-			c2_rect_inset(&r, -1, -1);
-//			printf("refresh_sel: carret %s\n", c2_rect_as_str(&r));
-		}
-		if (!c2_rect_isempty(&r))
-			_mui_textedit_inval(te, r);
-	}
-}
-
-/* this makes sure the text is always visible in the frame */
-static void
-_mui_textedit_clamp_text_frame(
-		mui_textedit_control_t *	te)
-{
-	c2_rect_t f = te->control.frame;
-	c2_rect_offset(&f, -f.l, -f.t);
-	if (te->flags & MUI_CONTROL_TEXTBOX_FRAME)
-		c2_rect_inset(&f, te->margin.x, te->margin.y);
-	c2_rect_t old = te->text_content;
-	te->text_content.r = te->text_content.l + te->measure.margin_right;
-	te->text_content.b = te->text_content.t + te->measure.height;
-	D(printf("  %s %s / %3dx%3d\n", __func__,
-			c2_rect_as_str(&te->text_content),
-			c2_rect_width(&f), c2_rect_height(&f));)
-	if (te->text_content.b < c2_rect_height(&f))
-		c2_rect_offset(&te->text_content, 0,
-				c2_rect_height(&f) - te->text_content.b);
-	if (te->text_content.t > f.t)
-		c2_rect_offset(&te->text_content, 0, f.t - te->text_content.t);
-	if (te->text_content.r < c2_rect_width(&f))
-		c2_rect_offset(&te->text_content,
-				c2_rect_width(&f) - te->text_content.r, 0);
-	if (te->text_content.l > f.l)
-		c2_rect_offset(&te->text_content, f.l - te->text_content.l, 0);
-	if (c2_rect_equal(&te->text_content, &old))
-		return;
-	D(printf("   clamped TE from %s to %s\n", c2_rect_as_str(&old),
-			c2_rect_as_str(&te->text_content));)
-	mui_control_inval(&te->control);
-}
-
-/* This scrolls the view following the carret, used when typing.
- * This doesn't check for out of bounds, but the clamping should
- * have made sure the text is always visible. */
-static void
-_mui_textedit_ensure_carret_visible(
-		mui_textedit_control_t *	te)
-{
-	c2_rect_t f = te->control.frame;
-//	c2_rect_offset(&f, -f.l, -f.t);
-	if (te->flags & MUI_CONTROL_TEXTBOX_FRAME)
-		c2_rect_inset(&f, te->margin.x, te->margin.y);
-	if (te->sel.start != te->sel.end)
-		return;
-	c2_rect_t old = te->text_content;
-	c2_rect_t r = te->sel.first;
-	D(printf("%s carret %s frame %s\n", __func__,
-			c2_rect_as_str(&r), c2_rect_as_str(&f));)
-	c2_rect_offset(&r, -te->text_content.l, -te->text_content.t);
-	if (r.r < f.l) {
-		D(printf("   moved TE LEFT %d\n", -(f.l - r.r));)
-		c2_rect_offset(&te->text_content, -(f.l - r.l), 0);
-	}
-	if (r.l > f.r) {
-		D(printf("   moved TE RIGHT %d\n", -(r.l - f.r));)
-		c2_rect_offset(&te->text_content, -(r.l - f.r), 0);
-	}
-	if (r.t < f.t)
-		c2_rect_offset(&te->text_content, 0, r.t - f.t);
-	if (r.b > f.b)
-		c2_rect_offset(&te->text_content, 0, r.b - f.b);
-	if (c2_rect_equal(&te->text_content, &old))
-		return;
-	D(printf("   moved TE from %s to %s\n", c2_rect_as_str(&old),
-			c2_rect_as_str(&te->text_content));)
-	_mui_textedit_clamp_text_frame(te);
-}
-
-/*
- * This is to be called when the text changes, or the frame (width) changes
- */
-static void
-_mui_textedit_refresh_measure(
-		mui_textedit_control_t *	te)
-{
-	c2_rect_t f = te->control.frame;
-	c2_rect_offset(&f, -f.l, -f.t);
-	if (te->flags & MUI_CONTROL_TEXTBOX_FRAME)
-		c2_rect_inset(&f, te->margin.x, te->margin.y);
-	if (!(te->flags & MUI_CONTROL_TEXTEDIT_VERTICAL))
-		f.r = 0x7fff; // make it very large, we don't want wrapping.
-
-	mui_glyph_line_array_t new_measure = {};
-
-	mui_font_measure(te->font, f,
-					(const char*)te->text.e, te->text.count-1,
-					&new_measure, te->flags);
-
-	f = te->control.frame;
-	if (te->flags & MUI_CONTROL_TEXTBOX_FRAME)
-		c2_rect_inset(&f, te->margin.x, te->margin.y);
-	// Refresh the lines that have changed. Perhaps all of them did,
-	// doesn't matter, but it's nice to avoid redrawing the whole text
-	// when someone is typing.
-	for (uint i = 0; i < new_measure.count && i < te->measure.count; i++) {
-		if (i >= te->measure.count) {
-			c2_rect_t r = f;
-			r.t += new_measure.e[i].t;
-			r.b = r.t + new_measure.e[i].b;
-			r.r = new_measure.e[i].x + new_measure.e[i].w;
-			_mui_textedit_inval(te, r);
-		} else if (i >= new_measure.count) {
-			c2_rect_t r = f;
-			r.t += te->measure.e[i].t;
-			r.b = r.t + te->measure.e[i].b;
-			r.r = te->measure.e[i].x + te->measure.e[i].w;
-			_mui_textedit_inval(te, r);
-		} else {
-			int dirty = 0;
-			// unsure if this could happen, but let's be safe --
-			// technically we should refresh BOTH rectangles (old, new)
-			if (new_measure.e[i].t != te->measure.e[i].t ||
-					new_measure.e[i].b != te->measure.e[i].b) {
-				dirty = 1;
-			} else if (new_measure.e[i].x != te->measure.e[i].x ||
-					new_measure.e[i].count != te->measure.e[i].count ||
-					new_measure.e[i].w != te->measure.e[i].w)
-				dirty = 1;
-			else {
-				for (uint x = 0; x < new_measure.e[i].count; x++) {
-					if (new_measure.e[i].e[x].glyph != te->measure.e[i].e[x].glyph ||
-							new_measure.e[i].e[x].x != te->measure.e[i].e[x].x ||
-							new_measure.e[i].e[x].w != te->measure.e[i].e[x].w) {
-						dirty = 1;
-						break;
-					}
-				}
-			}
-			if (dirty) {
-				c2_rect_t r = f;
-				r.t += new_measure.e[i].t;
-				r.b = r.t + new_measure.e[i].b;
-				r.r = new_measure.e[i].x + new_measure.e[i].w;
-				_mui_textedit_inval(te, r);
-			}
-		}
-	}
-	mui_font_measure_clear(&te->measure);
-	te->measure = new_measure;
-	_mui_textedit_clamp_text_frame(te);
-}
-
-static void
+void
 _mui_textedit_sel_delete(
 		mui_textedit_control_t *	te,
 		bool 						re_measure,
@@ -550,27 +273,8 @@ _mui_textedit_sel_delete(
 				te->sel.start, te->sel.start);
 }
 
-void
-mui_textedit_set_text(
-		mui_control_t * 			c,
-		const char * 				text)
-{
-	mui_textedit_control_t *te = (mui_textedit_control_t *)c;
-	mui_utf8_clear(&te->text);
-	int tl = strlen(text);
-	mui_utf8_realloc(&te->text, tl + 1);
-	memcpy(te->text.e, text, tl + 1);
-	/*
-	 * Note, the text.count *counts the terminating zero*
-	 */
-	te->text.count = tl + 1;
-	if (!te->font)
-		te->font = mui_font_find(c->win->ui, "main");
-	_mui_textedit_refresh_measure(te);
-}
-
 /* this one allows passing -1 etc, which is handy of cursor movement */
-static void
+void
 _mui_textedit_select_signed(
 		mui_textedit_control_t *	te,
 		int 						glyph_start,
@@ -581,7 +285,7 @@ _mui_textedit_select_signed(
 	if (glyph_end < 0)
 		glyph_end = 0;
 	if (glyph_end > (int)te->text.count)
-		glyph_end = te->text.count;
+		glyph_end = te->text.count+1;
 	if (glyph_start > (int)te->text.count)
 		glyph_start = te->text.count;
 	if (glyph_start > glyph_end) {
@@ -590,7 +294,7 @@ _mui_textedit_select_signed(
 		glyph_end = t;
 	}
 
-//	printf("%s %d:%d\n", __func__, glyph_start, glyph_end);
+	printf("%s %d:%d\n", __func__, glyph_start, glyph_end);
 	c2_rect_t f = te->control.frame;
 	if (te->flags & MUI_CONTROL_TEXTBOX_FRAME)
 		c2_rect_inset(&f, te->margin.x, te->margin.y);
@@ -605,19 +309,12 @@ _mui_textedit_select_signed(
 }
 
 /*
- * Mark old selection as invalid, and set the new one,
- * and make sure it's visible
- */
-void
-mui_textedit_set_selection(
-		mui_control_t * 			c,
-		uint 						glyph_start,
-		uint 						glyph_end)
-{
-	mui_textedit_control_t *te = (mui_textedit_control_t *)c;
-	_mui_textedit_select_signed(te, glyph_start, glyph_end);
-}
-
+	██████  ██████   █████  ██     ██ ██ ███    ██  ██████
+	██   ██ ██   ██ ██   ██ ██     ██ ██ ████   ██ ██
+	██   ██ ██████  ███████ ██  █  ██ ██ ██ ██  ██ ██   ███
+	██   ██ ██   ██ ██   ██ ██ ███ ██ ██ ██  ██ ██ ██    ██
+	██████  ██   ██ ██   ██  ███ ███  ██ ██   ████  ██████
+*/
 static void
 mui_textedit_draw(
 		mui_window_t * 	win,
@@ -743,8 +440,15 @@ done:
 	mui_drawable_clip_pop(dr);
 }
 
+/*
+	███    ███  ██████  ██    ██ ███████ ███████
+	████  ████ ██    ██ ██    ██ ██      ██
+	██ ████ ██ ██    ██ ██    ██ ███████ █████
+	██  ██  ██ ██    ██ ██    ██      ██ ██
+	██      ██  ██████   ██████  ███████ ███████
+*/
 static bool
-mui_textedit_mouse(
+_mui_textedit_mouse(
 		struct mui_control_t * 	c,
 		mui_event_t * 			ev)
 {
@@ -872,172 +576,6 @@ mui_textedit_mouse(
 }
 
 static bool
-mui_textedit_key(
-		struct mui_control_t * 	c,
-		mui_event_t * 			ev)
-{
-	mui_textedit_control_t *te = (mui_textedit_control_t *)c;
-
-	_mui_textedit_show_carret(te);
-	mui_glyph_line_array_t * me = &te->measure;
-	if (ev->modifiers & MUI_MODIFIER_CTRL) {
-		switch (ev->key.key) {
-			case 'T': {
-				te->trace = !te->trace;
-				printf("TRACE %s\n", te->trace ? "ON" : "OFF");
-			}	break;
-			case 'D': {// dump text status and measures lines
-				printf("Text:\n'%s'\n", te->text.e);
-				printf("Text count: %d\n", te->text.count);
-				printf("Text measure: %d\n", me->count);
-				for (uint i = 0; i < me->count; i++) {
-					mui_glyph_array_t * line = &me->e[i];
-					printf("  line %d: %d\n", i, line->count);
-					for (uint j = 0; j < line->count; j++) {
-						mui_glyph_t * g = &line->e[j];
-						printf("    %3d: %04x:%c x:%3f w:%3d\n",
-								j, te->text.e[g->pos],
-								te->text.e[g->pos] < ' ' ?
-										'.' : te->text.e[g->pos],
-								g->x, g->w);
-					}
-				}
-				te->flags |= MUI_TEXT_DEBUG;
-			}	break;
-			case 'a': {
-				_mui_textedit_select_signed(te, 0, te->text.count-1);
-			}	break;
-			case 'c': {
-				if (te->sel.start != te->sel.end) {
-					uint32_t start = _mui_glyph_to_byte_offset(me, te->sel.start);
-					uint32_t end = _mui_glyph_to_byte_offset(me, te->sel.end);
-					mui_clipboard_set(c->win->ui,
-								te->text.e + start, end - start);
-				}
-			}	break;
-			case 'x': {
-				if (te->sel.start != te->sel.end) {
-					uint32_t start = _mui_glyph_to_byte_offset(me, te->sel.start);
-					uint32_t end = _mui_glyph_to_byte_offset(me, te->sel.end);
-					mui_clipboard_set(c->win->ui,
-								te->text.e + start, end - start);
-					_mui_textedit_sel_delete(te, true, true);
-				}
-			}	break;
-			case 'v': {
-				uint32_t len;
-				const uint8_t * clip = mui_clipboard_get(c->win->ui, &len);
-				if (clip) {
-					if (te->sel.start != te->sel.end)
-						_mui_textedit_sel_delete(te, true, true);
-					mui_utf8_insert(&te->text,
-							_mui_glyph_to_byte_offset(me, te->sel.start),
-							clip, len);
-					_mui_textedit_refresh_measure(te);
-					_mui_textedit_select_signed(te,
-							te->sel.start + len, te->sel.start + len);
-				}
-			}	break;
-		}
-		return true;
-	}
-	switch (ev->key.key) {
-		case MUI_KEY_UP: {
-			uint line, index;
-			_mui_glyph_to_line_index(me, te->sel.start, &line, &index);
-			if (line > 0) {
-				uint pos = _mui_line_index_to_glyph(me, line-1, index);
-				if (ev->modifiers & MUI_MODIFIER_SHIFT) {
-					_mui_textedit_select_signed(te, te->sel.start, pos);
-				} else {
-					_mui_textedit_select_signed(te, pos, pos);
-				}
-			}
-		}	break;
-		case MUI_KEY_DOWN: {
-			uint line, index;
-			_mui_glyph_to_line_index(me, te->sel.start, &line, &index);
-			if (line < me->count-1) {
-				uint pos = _mui_line_index_to_glyph(me, line+1, index);
-				if (ev->modifiers & MUI_MODIFIER_SHIFT) {
-					_mui_textedit_select_signed(te, te->sel.start, pos);
-				} else {
-					_mui_textedit_select_signed(te, pos, pos);
-				}
-			}
-		}	break;
-		case MUI_KEY_LEFT: {
-			if (ev->modifiers & MUI_MODIFIER_SHIFT) {
-				_mui_textedit_select_signed(te, te->sel.start - 1, te->sel.end);
-			} else {
-				if (te->sel.start == te->sel.end)
-					_mui_textedit_select_signed(te, te->sel.start - 1, te->sel.start - 1);
-				else
-					_mui_textedit_select_signed(te, te->sel.start, te->sel.start);
-			}
-		}	break;
-		case MUI_KEY_RIGHT: {
-			if (ev->modifiers & MUI_MODIFIER_SHIFT) {
-				_mui_textedit_select_signed(te, te->sel.start, te->sel.end + 1);
-			} else {
-				if (te->sel.start == te->sel.end)
-					_mui_textedit_select_signed(te, te->sel.start + 1, te->sel.start + 1);
-				else
-					_mui_textedit_select_signed(te, te->sel.end, te->sel.end);
-			}
-		}	break;
-		case MUI_KEY_BACKSPACE: {
-			if (te->sel.start == te->sel.end) {
-				if (te->sel.start > 0) {
-					mui_utf8_delete(&te->text,
-								_mui_glyph_to_byte_offset(me, te->sel.start - 1),
-								1);
-					_mui_textedit_refresh_measure(te);
-					_mui_textedit_select_signed(te, te->sel.start - 1, te->sel.start - 1);
-				}
-			} else {
-				_mui_textedit_sel_delete(te, true, true);
-			}
-		}	break;
-		case MUI_KEY_DELETE: {
-			if (te->sel.start == te->sel.end) {
-				if (te->sel.start < te->text.count-1) {
-					mui_utf8_delete(&te->text,
-							_mui_glyph_to_byte_offset(me, te->sel.start), 1);
-					_mui_textedit_refresh_measure(te);
-					_mui_textedit_select_signed(te, te->sel.start, te->sel.start);
-				}
-			} else {
-				_mui_textedit_sel_delete(te, true, true);
-			}
-		}	break;
-		case '\t': {
-			mui_control_switch_focus(c->win,
-					ev->modifiers & MUI_MODIFIER_SHIFT ? -1 : 0);
-		}	break;
-		default:
-			printf("%s key 0x%x\n", __func__, ev->key.key);
-			if (ev->key.key == 13 && !(te->flags & MUI_CONTROL_TEXTEDIT_VERTICAL))
-				return false;
-			if (ev->key.key == 13 ||
-						(ev->key.key >= 32 && ev->key.key < 127)) {
-				if (te->sel.start != te->sel.end) {
-					_mui_textedit_sel_delete(te, false, false);
-					_mui_textedit_select_signed(te, te->sel.start, te->sel.start);
-				}
-				uint8_t k = ev->key.key;
-				mui_utf8_insert(&te->text,
-							_mui_glyph_to_byte_offset(me, te->sel.start), &k, 1);
-				_mui_textedit_refresh_measure(te);
-				_mui_textedit_select_signed(te,
-							te->sel.start + 1, te->sel.start + 1);
-			}
-			break;
-	}
-	return true;
-}
-
-static bool
 mui_cdef_textedit(
 		struct mui_control_t * 	c,
 		uint8_t 				what,
@@ -1082,10 +620,10 @@ mui_cdef_textedit(
 				case MUI_EVENT_BUTTONUP:
 				case MUI_EVENT_DRAG:
 				case MUI_EVENT_BUTTONDOWN: {
-					return mui_textedit_mouse(c, ev);
+					return _mui_textedit_mouse(c, ev);
 				}	break;
 				case MUI_EVENT_KEYDOWN: {
-					return mui_textedit_key(c, ev);
+					return _mui_textedit_key(c, ev);
 				}	break;
 				default:
 					break;
@@ -1115,4 +653,68 @@ mui_textedit_control_new(
 	te->flags = flags;
 	te->margin = (c2_pt_t){ .x = 4, .y = 2 };
 	return &te->control;
+}
+
+
+/*
+ * Mark old selection as invalid, and set the new one,
+ * and make sure it's visible
+ */
+void
+mui_textedit_set_selection(
+		mui_control_t * 			c,
+		uint 						glyph_start,
+		uint 						glyph_end)
+{
+	mui_textedit_control_t *te = (mui_textedit_control_t *)c;
+	printf("%s %d:%d\n", __func__, glyph_start, glyph_end);
+	_mui_textedit_select_signed(te, glyph_start, glyph_end);
+}
+
+/*
+ * Get current selection
+ */
+void
+mui_textedit_get_selection(
+		mui_control_t * 			c,
+		uint * 						glyph_start,
+		uint * 						glyph_end)
+{
+	mui_textedit_control_t *te = (mui_textedit_control_t *)c;
+	*glyph_start = te->sel.start;
+	*glyph_end = te->sel.end;
+}
+
+void
+mui_textedit_set_text(
+		mui_control_t * 			c,
+		const char * 				text)
+{
+	mui_textedit_control_t *te = (mui_textedit_control_t *)c;
+	mui_utf8_clear(&te->text);
+	int tl = strlen(text);
+	mui_utf8_realloc(&te->text, tl + 1);
+	memcpy(te->text.e, text, tl + 1);
+	/*
+	 * Note, the text.count *counts the terminating zero*
+	 */
+	te->text.count = tl + 1;
+	if (!te->font)
+		te->font = mui_font_find(c->win->ui, "main");
+	_mui_textedit_refresh_measure(te);
+}
+
+uint
+mui_textedit_get_text(
+		mui_control_t * 			c,
+		char * 						text,
+		uint 						max)
+{
+	mui_textedit_control_t *te = (mui_textedit_control_t *)c;
+	uint tl = te->text.count - 1;
+	if (tl > max)
+		tl = max;
+	memcpy(text, te->text.e, tl);
+	text[tl] = 0;
+	return tl;
 }

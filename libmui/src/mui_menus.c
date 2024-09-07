@@ -324,7 +324,7 @@ mui_menubar_handle_mouse(
 		default:
 			break;
 	}
-	return false;
+	return inside;
 }
 
 /*
@@ -364,8 +364,8 @@ mui_menubar_handle_keydown(
 	// non-zero, if would, highlight that menu (temporarily)
 	// and call the action function witht that menu item. score!
 	mui_window_t * win = &mbar->win;
-	for (mui_control_t * c = TAILQ_FIRST(&win->controls);
-					c; c = TAILQ_NEXT(c, self)) {
+	mui_control_t * c = mui_controls_first(&win->controls, MUI_CONTROLS_ALL);
+	for (; c; c = mui_controls_next(c, MUI_CONTROLS_ALL)) {
 		if (c->type != MUI_CONTROL_MENUTITLE)
 			continue;
 		mui_menu_control_t * title = (mui_menu_control_t*)c;
@@ -603,7 +603,7 @@ mui_menubar_add_simple(
 	int title_width = m.x1 - m.x0 + (main->size / 2);
 	c2_rect_t title_rect = { .t = 2 };
 
-	mui_control_t * last = TAILQ_LAST(&win->controls, controls);
+	mui_control_t * last = mui_controls_last(&win->controls, MUI_CONTROLS_ALL);
 	if (last) {
 		c2_rect_offset(&title_rect, last->frame.r, 0);
 	} else
@@ -647,7 +647,7 @@ mui_menubar_add_menu(
 	int title_width = c2_rect_width(&parts[MUI_MENUTITLE_PART_ALL]);
 	c2_rect_t title_rect = { .t = 2 };
 
-	mui_control_t * last = TAILQ_LAST(&win->controls, controls);
+	mui_control_t * last = mui_controls_last(&win->controls, MUI_CONTROLS_ALL);
 	if (last) {
 		c2_rect_offset(&title_rect, last->frame.r, 0);
 	} else
@@ -696,8 +696,8 @@ mui_menubar_highlight(
 		bool ignored )
 {
 //	mui_menubar_t * mbar = (mui_menubar_t*)win;
-	mui_control_t * c = NULL;
-	TAILQ_FOREACH(c, &win->controls, self) {
+	mui_control_t * c = mui_controls_first(&win->controls, MUI_CONTROLS_ALL);
+	for (; c; c = mui_controls_next(c, MUI_CONTROLS_ALL)) {
 		if (c->type == MUI_CONTROL_MENUTITLE ||
 						mui_control_get_state(c)) {
 			mui_control_set_state(c, 0);

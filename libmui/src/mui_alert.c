@@ -79,13 +79,13 @@ mui_alert(
 				MUI_TEXT_ALIGN_CENTER | MUI_TEXT_ALIGN_MIDDLE |
 				MUI_TEXT_ALIGN_COMPACT);
 
-	c = NULL;
-	TAILQ_FOREACH(c, &w->controls, self) {
-		if (mui_control_get_uid(c) == 0)
-			continue;
-		mui_control_set_action(c, _mui_alert_button_cb, alert);
+	c = mui_controls_first(&w->controls, MUI_CONTROLS_ALL);
+	while (c) {
+		if (mui_control_get_uid(c) != 0) {
+			mui_control_set_action(c, _mui_alert_button_cb, alert);
+		}
+		c = mui_controls_next(c, MUI_CONTROLS_ALL);
 	}
-
 	return w;
 }
 

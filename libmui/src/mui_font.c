@@ -14,19 +14,9 @@
 #define STB_TTC_IMPLEMENTATION
 #include "stb_ttc.h"
 
-
-//#ifndef __wasm__
-#define INCBIN_STYLE INCBIN_STYLE_SNAKE
-#define INCBIN_PREFIX mui_
-#include "incbin.h"
-
-INCBIN(main_font, "fonts/Charcoal_mui.ttf");
-INCBIN(icon_font, "fonts/typicon.ttf");
-INCBIN(dingbat_font, "fonts/Dingbat.ttf");
-INCBIN(geneva_font, "fonts/Geneva.ttf");
-//#endif
-
 #include "mui.h"
+#include "fonts/mui_main_font.h"
+#include "fonts/mui_icon_font.h"
 
 // "Narrow style" reduces the advance by this factor
 // Not the 'space' characters are reduced even more (twice that)
@@ -81,14 +71,12 @@ mui_font_init(
 		mui_t *ui)
 {
 //	printf("%s: Loading fonts\n", __func__);
-#ifndef __wasm__
 	mui_font_from_mem(ui, "main", 28,
-			mui_main_font_data, mui_main_font_size);
+			mui_main_font, mui_main_font_len);
 	mui_font_from_mem(ui, "icon_large", 96,
-			mui_icon_font_data, mui_icon_font_size);
+			mui_icon_font, mui_icon_font_len);
 	mui_font_from_mem(ui, "icon_small", 30,
-			mui_icon_font_data, mui_icon_font_size);
-#endif
+			mui_icon_font, mui_icon_font_len);
 }
 
 void

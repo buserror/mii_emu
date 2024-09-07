@@ -166,6 +166,7 @@ mui_listbox_key(
 	c2_rect_offset(&f, -f.l, -f.t);
 	uint32_t page_size = (c2_rect_height(&f) / lb->elem_height)-1;
 
+	bool res = false;
 	int delta = 0;
 	if (ev->modifiers & (MUI_MODIFIER_SUPER | MUI_MODIFIER_CTRL))
 		return false;
@@ -176,10 +177,11 @@ mui_listbox_key(
 		case MUI_KEY_DOWN: 	delta = 1;	break;
 		case MUI_KEY_PAGEUP:	delta = -page_size; break;
 		case MUI_KEY_PAGEDOWN:	delta = page_size; break;
-		case '\t':
+		case MUI_KEY_TAB:
 			mui_control_switch_focus(c->win,
 					ev->modifiers & MUI_MODIFIER_SHIFT ? -1 : 0);
-			break;
+			return true;
+		//	break;
 #if 0
 		case 13: // enter
 			mui_control_action(c, MUI_CONTROL_ACTION_SELECT,
@@ -189,8 +191,12 @@ mui_listbox_key(
 		default:
 			break;
 	}
+	if (!delta && isalpha(ev->key.key)) {
+		delta = mui_listbox_typehead(lb, ev);
+		res = true;
+	}
 	if (!delta)
-		return false;
+		return res;
 	int nsel = c->value + delta;
 	if (nsel < 0)
 		nsel = 0;
@@ -219,7 +225,7 @@ mui_listbox_key(
 						&lb->elems.e[nsel]);
 		return true;
 	}
-	return false;
+	return res;
 }
 
 static bool
