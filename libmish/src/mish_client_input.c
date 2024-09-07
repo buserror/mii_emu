@@ -195,7 +195,10 @@ kb_end:
 						fprintf(stdout, "%s", c->cmd->line + c->cmd->done+1);
 					fprintf(stdout, "'\n");
 				}
-				mish_cmd_call(c->cmd->line, c);
+				// if we have a non-safe command, we need to signal the
+				// cmd execution thread, so mark the client as having a command
+				if (mish_cmd_call(c->cmd->line, c) == 1)
+					c->flags |= MISH_CLIENT_HAS_CMD;
 				c->cmd = NULL;	// new one
 				{	// reuse the last empty one
 					mish_line_p last = TAILQ_LAST(&in->backlog, mish_line_queue_t);

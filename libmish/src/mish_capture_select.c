@@ -9,8 +9,32 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <signal.h>
+#include <unistd.h>
 #include "mish_priv.h"
 #include "mish.h"
+
+/*
+ * We now use a thread to run the commands; this solve the problem of
+ * command generating a lot of output, deadlocking the select() thread,
+ * as the command write() would fill up the pipe buffer and block.
+ */
+void *
+_mish_cmd_runner_thread(
+		void *param)
+{
+	mish_p m = param;
+
+	printf("%s\n", __func__);
+	while (!(m->flags & MISH_QUIT)) {
+		sem_wait(&m->runner_block);
+		_mish_cmd_flush(0);
+	};
+	printf("Exiting %s\n", __func__);
+	m->cmd_runner = 0;
+	sem_destroy(&m->runner_block);
+	return NULL;
+}
 
 /*
  * This is a select() based capture thread, it's not /ideal/ in terms of
@@ -68,6 +92,12 @@ _mish_capture_select(
 			_mish_input_read(m, &r, &c->input);
 			if (c->input.fd == -1 || (c->flags & MISH_CLIENT_DELETE))
 				mish_client_delete(m, c);
+			if (c->flags & MISH_CLIENT_HAS_CMD) {
+			//	printf("Waking up cmd_runner\n");
+				c->flags &= ~MISH_CLIENT_HAS_CMD;
+				// wake up the command runner
+				sem_post(&m->runner_block);
+			}
 		}
 
 		unsigned int max_lines = m->backlog.max_lines;
@@ -112,8 +142,9 @@ _mish_capture_select(
 	mish_client_p c;
 	while ((c = TAILQ_FIRST(&m->clients)) != NULL)
 		mish_client_delete(m, c);
-	m->flags &= ~MISH_QUIT;
+//	m->flags &= ~MISH_QUIT;
 	m->capture = 0;	// mark the thread done
+//	printf("Exiting %s\n", __func__);
 	exit(0);	// this calls mish_terminate, on main thread
 //	return NULL;
 }

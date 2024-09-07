@@ -354,7 +354,7 @@ _mish_cmd_history(
 MISH_CMD_NAMES(history, "history");
 MISH_CMD_HELP(history,
 		"Display the history of commands.");
-MISH_CMD_REGISTER(history, _mish_cmd_history);
+MISH_CMD_REGISTER_KIND(history, _mish_cmd_history, 0, MISH_CLIENT_CMD_KIND);
 
 
 static void
@@ -380,5 +380,5 @@ _mish_cmd_disconnect(
 MISH_CMD_NAMES(disconnect, "dis", "disconnect", "logout");
 MISH_CMD_HELP(disconnect,
 		"Disconnect this telnet session. If appropriate");
-MISH_CMD_REGISTER(disconnect, _mish_cmd_disconnect);
+MISH_CMD_REGISTER_KIND(disconnect, _mish_cmd_disconnect, 0, MISH_CLIENT_CMD_KIND);
 

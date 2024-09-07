@@ -12,6 +12,7 @@
 #include <sys/select.h>
 #include <stdint.h>
 #include <pthread.h>
+#include <semaphore.h>
 #include <termios.h>
 #include "bsd_queue.h"
 #include "mish_priv_vt.h"
@@ -27,6 +28,9 @@ enum {
 	MISH_IN_STORE, 		// store current character in input buffer
 	MISH_IN_SPLIT, 		// store current line, add it to backlog
 };
+
+#define MISH_CMD_KIND 			('m' << 24 | 'i' << 16 | 's' << 8 | 'h')
+#define MISH_CLIENT_CMD_KIND  	('c' << 24 | 'l' << 16 | 'i' << 8 | 'e')
 
 /*
  * This receives stuff from a file descriptor, 'processes' it, and split it
@@ -49,13 +53,14 @@ typedef struct mish_input_t {
 
 /* various internal states for the client */
 enum {
-	MISH_CLIENT_INIT_SENT = (1 << 0),
+	MISH_CLIENT_INIT_SENT 		= (1 << 0),
 	MISH_CLIENT_HAS_WINDOW_SIZE = (1 << 1),
-	MISH_CLIENT_HAS_CURSOR_POS = (1 << 2),
-	MISH_CLIENT_UPDATE_PROMPT = (1 << 3),
-	MISH_CLIENT_UPDATE_WINDOW = (1 << 4),
-	MISH_CLIENT_SCROLLING = (1 << 5),
-	MISH_CLIENT_DELETE = (1 << 6),
+	MISH_CLIENT_HAS_CURSOR_POS 	= (1 << 2),
+	MISH_CLIENT_UPDATE_PROMPT 	= (1 << 3),
+	MISH_CLIENT_UPDATE_WINDOW 	= (1 << 4),
+	MISH_CLIENT_SCROLLING 		= (1 << 5),
+	MISH_CLIENT_HAS_CMD			= (1 << 6),
+	MISH_CLIENT_DELETE 			= (1 << 7),
 };
 
 typedef struct mish_client_t {
@@ -150,6 +155,8 @@ typedef struct mish_t {
 	mish_client_p	console;		// client that is also the original terminal.
 
 	pthread_t 		capture;		// libmish main thread
+	pthread_t 		cmd_runner;		// command runner thread
+	sem_t 			runner_block;	// semaphore to block the runner thread
 	pthread_t		main;			// todo: allow pause/stop/resume?
 
 	struct {
@@ -258,12 +265,19 @@ _mish_input_read(
 		mish_p m,
 		fd_set * fds,
 		mish_input_p in);
+// flush the command FIFO (queue = 0 for non-safe commands)
+int
+_mish_cmd_flush(
+		unsigned int queue);
 
 /*
- * Capture thread function
+ * Thread functions
  */
 void *
 _mish_capture_select(
+		void *param);
+void *
+_mish_cmd_runner_thread(
 		void *param);
 
 /*

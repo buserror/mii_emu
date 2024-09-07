@@ -147,9 +147,12 @@ mish_prepare(
 			goto error;
 		}
 	}
+	mish_set_command_parameter(MISH_CMD_KIND, m);
 	atexit(_mish_atexit);
 //	m->main = pthread_self();
 	// TODO: Make an epoll polling thread for linux
+	sem_init(&m->runner_block, 0, 0);
+	pthread_create(&m->cmd_runner, NULL, _mish_cmd_runner_thread, m);
 	pthread_create(&m->capture, NULL, _mish_capture_select, m);
 
 	_mish = m;
@@ -196,19 +199,21 @@ mish_terminate(
 		perror("mish_terminate tcsetattr");
 #endif
 	close(m->originals[0]); close(m->originals[1]);
-	if (m->capture) {
-		m->flags |= MISH_QUIT;
+	pthread_t t1 = m->cmd_runner, t2 = m->capture;
+	m->flags |= MISH_QUIT;
+	if (t1)
+		sem_post(&m->runner_block);
+	if (t2) {
 		// this will wake the select() call from sleep
 		if (write(1, "\n", 1))
 			;
-
 		time_t start = time(NULL);
 		time_t now;
 		while (((now = time(NULL)) - start < 2) && m->capture)
 			usleep(1000);
 	}
 	printf("\033[4l\033[;r\033[999;1H"); fflush(stdout);
-	printf("%s done\n", __func__);
+	//printf("%s done\n", __func__);
 	free(m);
 	_mish = NULL;
 }
@@ -223,7 +228,7 @@ _mish_cmd_quit(
 			"mish: Quitting."
 			MISH_COLOR_RESET "\n");
 
-	mish_p m = ((mish_client_p)param)->mish;
+	mish_p m = param;
 	m->flags |= MISH_QUIT;
 }
 
@@ -231,7 +236,7 @@ MISH_CMD_NAMES(quit, "q", "quit");
 MISH_CMD_HELP(quit,
 		"exit running program",
 		"Close all clients and exit(0)");
-MISH_CMD_REGISTER(quit, _mish_cmd_quit);
+MISH_CMD_REGISTER_KIND(quit, _mish_cmd_quit, 0, MISH_CMD_KIND);
 
 #define VT_COL(_c) "\033[" #_c "G"
 
@@ -245,7 +250,7 @@ _mish_cmd_mish(
 			"mish: mish command."
 			MISH_COLOR_RESET "\n");
 
-	mish_p m = ((mish_client_p)param)->mish;
+	mish_p m = param;
 	printf("Backlog: %6d lines (%5dKB)"  VT_COL(40) "Telnet Port: %5d\n",
 			m->backlog.size,
 			(int)m->backlog.alloc / 1024,
@@ -302,5 +307,5 @@ MISH_CMD_HELP(mish,
 		"   also set the maximum lines in the backlog\n"
 		"   (0 = unlimited)\n"
 		"Show status and a few bits of internals.");
-MISH_CMD_REGISTER(mish, _mish_cmd_mish);
+MISH_CMD_REGISTER_KIND(mish, _mish_cmd_mish, 0, MISH_CMD_KIND);
 

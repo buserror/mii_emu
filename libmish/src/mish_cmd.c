@@ -46,7 +46,7 @@ DECLARE_FIFO(mish_cmd_call_t, mish_call_queue, 4);
 DEFINE_FIFO(mish_cmd_call_t, mish_call_queue);
 
 static TAILQ_HEAD(,mish_cmd_t) _cmd_list = TAILQ_HEAD_INITIALIZER(_cmd_list);
-static mish_call_queue_t _cmd_fifo = {0};
+static mish_call_queue_t 	_cmd_fifo[2] = {0};
 
 void __attribute__((weak))
 mish_register_cmd_kind(
@@ -146,7 +146,7 @@ mish_argv_make(
 	_mish_argv_t * r = calloc(1, sizeof(*r));
 	r->line = strdup(line);
 	char *dup = r->line;
-	char quote;
+	char quote = 0;
 	enum { s_newarg = 0, s_startarg, s_copyquote, s_skip, s_copy };
 	int state = s_newarg;
 	do {
@@ -232,39 +232,52 @@ mish_cmd_call(
 	int ac = 0;
 	char ** av = mish_argv_make(cmd_line, &ac);
 
-	if (cmd->flags.safe) {
-		if (!mish_call_queue_isfull(&_cmd_fifo)) {
-			mish_cmd_call_t fe = {
-					.cmd = cmd,
-					.argv = av,
-					.argc = ac,
-			};
-			mish_call_queue_write(&_cmd_fifo, fe);
-		} else {
-			fprintf(stderr,
-				"mish: cmd FIFO full, make sure to call mish_cmd_poll()!\n");
-		}
-	} else {
-		cmd->cmd_cb(cmd->param_cb ? cmd->param_cb : c, ac, (const char**)av);
+	mish_call_queue_t 	*fifo = &_cmd_fifo[cmd->flags.safe];
+
+	// these are special commands, their parameter is the client
+	if (cmd->kind == MISH_CLIENT_CMD_KIND) {
+		cmd->cmd_cb(c, ac, (const char**)av);
 		mish_argv_free(av);
+		return 0;
 	}
-	return 0;
+	// all other commands are queued
+	if (!mish_call_queue_isfull(fifo)) {
+		mish_cmd_call_t fe = {
+				.cmd = cmd,
+				.argv = av,
+				.argc = ac,
+		};
+		mish_call_queue_write(fifo, fe);
+	} else {
+		fprintf(stderr,
+			"mish: cmd FIFO%d full, make sure to call mish_cmd_poll()!\n",
+			cmd->flags.safe);
+	}
+	return cmd->flags.safe == 0;	// we got a command to run?
+}
+
+int
+_mish_cmd_flush(
+		unsigned int queue)
+{
+	int res = 0;
+	mish_call_queue_t 	*fifo = &_cmd_fifo[!!queue];
+	while (!mish_call_queue_isempty(fifo)) {
+		mish_cmd_call_t c = mish_call_queue_read(fifo);
+		c.cmd->cmd_cb(
+				c.cmd->param_cb,
+				c.argc, (const char**)c.argv);
+		mish_argv_free(c.argv);
+		res++;
+	}
+	return res;
+
 }
 
 int
 mish_cmd_poll()
 {
-	int res = 0;
-
-	while (!mish_call_queue_isempty(&_cmd_fifo)) {
-		mish_cmd_call_t c = mish_call_queue_read(&_cmd_fifo);
-
-		c.cmd->cmd_cb(
-				c.cmd->param_cb, c.argc, (const char**)c.argv);
-		mish_argv_free(c.argv);
-		res++;
-	}
-	return res;
+	return _mish_cmd_flush(1);
 }
 
 static const char *_help[] = {
