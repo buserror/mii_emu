@@ -123,17 +123,18 @@ test/asm/%.bin	: test/asm/%.asm | $(BIN)/mii_asm
 .PHONY : roms
 define rom_to_h
 $(1) :
-	if [ ! -f $$@ ]; then \
+	@if [ ! -f $$@ ]; then \
 		echo "ROM file $$@ not found, relying on the exiting .h"; \
 		touch $$@; \
 	fi
 src/roms/$(2).h : $(1)
-	if [ ! -s "$$<" ]; then \
+	@if [ ! -s "$$<" ]; then \
 		touch $$@; \
 	else { echo "#pragma once"; \
 			xxd -n $$(shell basename $$<|sed 's/_[0-9].*//') -i $$< |\
 				sed 's/unsigned/static const unsigned/' ; \
 		}>$$@ ; \
+		echo "ROM $$@ Generated"; \
 	fi
 
 $(OBJ)/mii.o : src/roms/$(2).h
@@ -159,6 +160,7 @@ $(eval $(call rom_to_h,test/asm/mii_smartport_driver.bin,mii_rom_smartport))
 clean			:
 	rm -rf $(O); make -C libmui clean; make -C libmish clean
 
+.PHONY			: watch tests
 # This is for development purpose. This will recompile the project
 # everytime a file is modified.
 watch			:
@@ -228,6 +230,8 @@ lsp:
 -include $(O)/obj/*.d
 
 DESTDIR		:= /usr/local
+
+.PHONY		: install avail
 
 install:
 	mkdir -p $(DESTDIR)/bin
