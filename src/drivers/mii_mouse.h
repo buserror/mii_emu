@@ -14,7 +14,7 @@
 	// mins/max are set by the card, x,y,button are set by the UI
 typedef struct mii_mouse_t {
 	bool			enabled; // read only, set by driver
-	uint16_t 		min_x, max_x,
+	int16_t 		min_x, max_x,
 					min_y, max_y; // set by driver when enabled
 	uint16_t 		x, y;
 	bool 			button;

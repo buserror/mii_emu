@@ -48,7 +48,10 @@ enum {
 
 /*
  * A 'trap' is a sequence of 2 special NOPs that are used to trigger
- * a callback. The callback is called with the mii_t * and the trap ID
+ * a callback. The callback is called with the mii_t * and the trap ID,
+ *
+ * This is used extensively by the smartport driver to jump back to the
+ * emulator code when a disk access is needed.
  */
 typedef void (*mii_trap_handler_cb)(
 				mii_t * mii,
@@ -103,12 +106,31 @@ typedef uint64_t (*mii_timer_p)(
  * principal emulator state, for a faceless emulation
  */
 typedef struct mii_t {
+	// this is the 'emulation' type, IIEE or IIC [currently only IIe works]
 	uint 			emu; // MII_EMU_*
 	mii_cpu_t 		cpu;
 	mii_cpu_state_t	cpu_state;
-	/* this is the video frame/VBL rate vs 60hz, default to MII_SPEED_NTSC */
+	/* this is the CPU speed, default to MII_SPEED_NTSC */
 	float			speed;
 	unsigned int	state;
+	/*
+	 * These are used as MUX for IRQ requests from drivers. Each driver
+	 * can request an IRQ number, and 'raise' and 'clear' it, and the
+	 * CPU IRQ line will be set if any of them are raised, and cleared
+	 * when none are raised.
+	 *
+	 * This fixes the problem of multiple drivers trying to raise the
+	 * only IRQ line on the CPU. Typically if you have the mouse card and
+	 * the serial card, or the mockingboard.
+	 */
+	struct {
+		uint16_t 		map;
+		uint16_t 		raised;
+		struct {
+			const char * name;
+			uint8_t 	count;
+		}			irq[16];
+	}				irq;
 	/*
 	 * These are 'cycle timers' -- they count down from a set value,
 	 * and stop at 0 (or possibly -1 or -2, depending on the instructions)
@@ -141,10 +163,23 @@ typedef struct mii_t {
 		};
 	} 				mem[256];
 	int 			mem_dirty;	// recalculate mem[] on next access
+	/*
+	 * RAMWORKS card emulation, this is a 16MB address space, with 128
+	 * possible 64KB banks. The 'avail' bitfield marks the banks that
+	 * are 'possible' (depending on what size of RAMWORKS card is installed).
+	 * The 'bank' array is a pointer to the actual memory block.
+	 *
+	 * These memory blocks replace the main AUX bank when a register is set.
+	 */
 	struct {
 		unsigned __int128	avail;
 		uint8_t * 			bank[128];
 	}				ramworks;
+	/*
+	 * These are the 'real' state of the soft switches, as opposed to the
+	 * value stores in the C000 page. This is made so they can be easily
+	 * manipulated, copied, and restored... use the macros in mii_sw.h
+	 */
 	uint32_t 		sw_state;	// B_SW* bitfield
 	mii_trace_t		trace;
 	int				trace_cpu;
@@ -163,11 +198,17 @@ typedef struct mii_t {
 		}			bp[16];
 	}				debug;
 	mii_bank_t		bank[MII_BANK_COUNT];
-	// the page c000 can have individual callbacks to override/supplement
-	// existing default behaviour. This is currently used for the titan
-	// accelerator 'card'
+	/*
+	 * The page c000 can have individual callbacks to override/supplement
+	 * existing default behaviour. This is currently used for the titan
+	 * accelerator 'card'
+	 */
 	mii_bank_access_t * soft_switches_override;
 	mii_slot_t		slot[7];
+
+	/*
+	 * These are all the state of the various subsystems.
+	 */
 	mii_video_t		video;
 	mii_speaker_t	speaker;
 	mii_mouse_t		mouse;
@@ -329,6 +370,23 @@ mii_timer_set(
 		mii_t *mii,
 		uint8_t timer_id,
 		int64_t when);
+
+uint8_t
+mii_irq_register(
+		mii_t *mii,
+		const char *name );
+void
+mii_irq_unregister(
+		mii_t *mii,
+		uint8_t irq_id );
+void
+mii_irq_raise(
+		mii_t *mii,
+		uint8_t irq_id );
+void
+mii_irq_clear(
+		mii_t *mii,
+		uint8_t irq_id );
 
 void
 mii_dump_trace_state(

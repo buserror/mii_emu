@@ -3,6 +3,24 @@
 </p>
 
 # MII Version Changelog
+## 1.96
+Bug fix release
+ * Mouse driver was revised completely. Now works in all program that I could try,
+   including Blazing Paddles; all the desktop apps, Dazzle Draw, MousePaint, etc.
+ * Also fixed the Super Serial Card driver, change the way data is processed,
+   and changed a lot of the way the IRQs are handled.
+ * In the process of this, I realized that I needed an IRQ MUX, as a program
+   that uses the SSC and the Mouse at the same time would not work. Typically,
+   I only know of one (french language VersionTel minitel emulator) that uses
+   both at the same time, but it's a good test.
+ * Also fixed a bug that prevented the 'debugger' to work properly. Doh.
+
+<div align="center">
+  <img src="docs/screen/v196versiontel.png" alt="VersionTel">
+</div>
+<center><i>VersionTel is a rare program that uses 2 IRQs (SSC and Mouse)!</i>
+</center>
+
 ## 1.95
 This is an intermediate release, mostly to fix a few bugs and add a few features that were requested.
  * Now have support for *writing* both DSK (PO and DO) as well as NIB files. As it
@@ -17,7 +35,7 @@ This is an intermediate release, mostly to fix a few bugs and add a few features
    an IWM, but that'll come.
  * Changed the SmartPort driver to continue booting if there are no Disks. This
    seems to solve a problem people had with booting from a floppy when there was
-    no hard drive -- MII would stop at the basic prompt; not it continues to boot
+    no hard drive -- MII would stop at the basic prompt; now it continues to boot
     from the next slot down the line (with a message).
  * Audio processing was redone. There is now a notion of an audio 'sink' with an (now 32 bit float) FIFO. The speaker code (and soon, perhaps, the mockingboard) writes to it's own sink, and there an audio mixer that reads from all the sinks and mixes them together. This allows for a more flexible audio system, and also allows for a 'master volume' control.
  * Also now use 'sokol_audio' for the audio output, which gives me the possibility of a multi-platform audio output, if ever needed. I also added support for "miniaudio"; but it does a bit too much for my need at the minute, and slows down the compilation considerably, so it's not the default.
@@ -36,7 +54,7 @@ This is an intermediate release, mostly to fix a few bugs and add a few features
 | ![NTSC](docs/screen/v19ntsc.png)     | ![Mega2](docs/screen/v19mega2.png)   |
 |--------------------------------------|--------------------------------------|
  * Added AVX/SSE/generic vectorial versions of some code paths, for speed.
- * Added some more 'artifacts' color frindges to the HIRES rendering as well.
+ * Added some more 'artifacts' color fringes to the HIRES rendering as well.
 
 <p align="center">
    <img src="docs/screen/v19artifacts.png" alt="Artifacts">
@@ -71,7 +89,7 @@ This is an intermediate release, mostly to fix a few bugs and add a few features
    split the 'XORG/GLX' code from the 'Pure GL' code from the 'MII UI' code, so it should be a lot easier to port to other platforms.
  * Redid the *DHRES rendering*, it's now a lot more accurate, has the correct
    artifacts. It's not as optimized as the previous version, but it looks better.
- * Now remap the *joystick* coodinates to a 'square' -- my current 8bitdo joystick
+ * Now remap the *joystick* coordinates to a 'square' -- my current 8bitdo joystick
     has a circular deadzone, and it was a bit annoying to use. I might make that
     a setting, but for now, it's hardwired.
  * *Emulator now passes a2audit*. There is only one kludge to do it, regarding the

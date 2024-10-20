@@ -12,10 +12,13 @@
 #include <mui/mui_control.h>
 #include <mui/mui_menu.h>
 
-/* Popup menu control.
+/*
+ * Popup menu control.
+ *
  * flags are MUI_TEXT_ALIGN_* -- however this corresponds to the margins
  * of the popup control itself when placed into it's 'frame' -- the
- * popup will be placed left,right,center of the frame rectangle depending.
+ * popup will be placed left,right,center of the frame rectangle depending
+ * on these flags.
  */
 mui_control_t *
 mui_popupmenu_new(

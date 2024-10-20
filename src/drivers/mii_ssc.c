@@ -34,8 +34,8 @@ make && A2_TTY=/dev/tntX ./surl-server
 #include <errno.h>
 #include <pthread.h>
 #include <unistd.h>
-#include <signal.h>
-#include <string.h>
+#include <sys/socket.h>
+
 #include "mii.h"
 #include "mii_bank.h"
 #include "mii_sw.h"
@@ -160,6 +160,7 @@ typedef struct mii_card_ssc_t {
 	struct mii_slot_t *	slot;
 	struct mii_bank_t * rom;
 	mii_t *				mii;
+	uint8_t 			irq_num;	// MII IRQ line
 	uint8_t 			slot_offset;
 	mii_ssc_setconf_t	conf;
 	int 				state; 		// current state, MII_SSC_STATE_*
@@ -184,6 +185,7 @@ STAILQ_HEAD(, mii_card_ssc_t)
 		_mii_card_ssc_started = STAILQ_HEAD_INITIALIZER(_mii_card_ssc_started);
 pthread_t 		_mii_ssc_thread_id = 0;
 mii_ssc_cmd_fifo_t 	_mii_ssc_cmd = {};
+int _mii_ssc_signal[2] = {0, 0};
 
 static int
 _mii_scc_set_conf(
@@ -196,11 +198,6 @@ _mii_ssc_thread(
 		void *param)
 {
 	printf("%s: start\n", __func__);
-	// ignore the signal, we use it to wake up the thread
-	sigaction(SIGUSR1, &(struct sigaction){
-		.sa_handler = SIG_IGN,
-		.sa_flags = SA_RESTART,
-	}, NULL);
 	do {
 		/*
 		 * Get commands from the MII running thread. Add/remove cards
@@ -226,15 +223,20 @@ _mii_ssc_thread(
 					return NULL;
 			}
 		}
-		/* here we use select. This is not optimal on linux, but it is portable
-		   to other OSes -- perhaps I'll add an epoll() version later */
+		/*
+		 * Here we use select. This is not optimal on linux, but it is portable
+		 * to other OSes -- perhaps I'll add an epoll() version later
+		 */
 		fd_set rfds, wfds;
 		FD_ZERO(&rfds);
 		FD_ZERO(&wfds);
 		int maxfd = 0;
+		FD_SET(_mii_ssc_signal[0], &rfds);
+		if (_mii_ssc_signal[0] > maxfd)
+			maxfd = _mii_ssc_signal[0];
 		mii_card_ssc_t *c = NULL, *safe;
 		STAILQ_FOREACH_SAFE(c, &_mii_card_ssc_started, self, safe) {
-			// guy might be being reconfigured, or perhaps had an error
+			// this guy might be being reconfigured, or perhaps had an error
 			if (c->tty_fd < 0)
 				continue;
 			if (!mii_ssc_fifo_isempty(&c->tx)) {
@@ -259,11 +261,17 @@ _mii_ssc_thread(
 		}
 		if (res == 0)	// timeout
 			continue;
+		if (FD_ISSET(_mii_ssc_signal[0], &rfds)) {
+			uint8_t b;
+			if (read(_mii_ssc_signal[0], &b, sizeof(b)))
+				/* ignored */ {};
+		}
 		STAILQ_FOREACH(c, &_mii_card_ssc_started, self) {
-			/* Here we know the read fifo isn't full, otherwise we wouldn'ty
-		     	have asked for more data.
-			   See what space we have in the fifo, try reading as much as that,
-			   and push it to the FIFO */
+			/*
+			 * Here we know the read fifo isn't full, otherwise we wouldn't have
+		     * asked for more data. See what space we have in the fifo, try
+		     * reading as much as that, and push it to the FIFO
+			 */
 			if (FD_ISSET(c->tty_fd, &rfds)) {
 				uint8_t buf[mii_ssc_cmd_fifo_fifo_size];
 				int max = mii_ssc_fifo_get_write_size(&c->rx);
@@ -278,10 +286,12 @@ _mii_ssc_thread(
 				for (int i = 0; i < res; i++)
 					mii_ssc_fifo_write(&c->rx, buf[i]);
 			}
-			/* here as well, this wouldn't be set if we hadn't got stuff
-				to send -- see what's in the fifo, 'peek' the bytes into
-				an aligned buffer, try to write it all, and then *actually*
-				remove them (read) the one that were sent from the fifo */
+			/*
+			 * Same here, this wouldn't be set if we hadn't got stuff to send --
+			 * see what's in the fifo, 'peek' the bytes into an aligned buffer,
+			 * try to write it all, and then *actually* remove them (read) the
+			 * one that were sent from the fifo
+			 */
 			if (FD_ISSET(c->tty_fd, &wfds)) {
 				uint8_t buf[mii_ssc_cmd_fifo_fifo_size];
 				int max = mii_ssc_fifo_get_read_size(&c->tx);
@@ -303,6 +313,20 @@ _mii_ssc_thread(
 	return NULL;
 }
 
+/*
+ * Write a byte to 'our' end of the socketpair (the other end is in the thread).
+ * This is used to wake up the thread for example when the FIFO is full/empty
+ */
+static void
+_mii_ssc_thread_signal(
+		mii_card_ssc_t *c)
+{
+	uint8_t b = 0x55;
+	if (_mii_ssc_signal[1] > 0) {
+		write(_mii_ssc_signal[1], &b, sizeof(b));
+	}
+}
+
 static void
 _mii_ssc_thread_start(
 		mii_card_ssc_t *c)
@@ -311,6 +335,11 @@ _mii_ssc_thread_start(
 		return;
 	if (c->tty_fd < 0) {
 		printf("%s TTY not open, skip\n", __func__);
+		return;
+	}
+	// create as socketpair in _mii_ssc_signal
+	if (socketpair(AF_UNIX, SOCK_STREAM, 0, _mii_ssc_signal) < 0) {
+		printf("%s: socketpair: %s\n", __func__, strerror(errno));
 		return;
 	}
 	c->state = MII_SSC_STATE_START;
@@ -323,16 +352,23 @@ _mii_ssc_thread_start(
 		printf("%s: starting thread\n", __func__);
 		pthread_create(&_mii_ssc_thread_id, NULL, _mii_ssc_thread, NULL);
 	} else {
-		pthread_kill(_mii_ssc_thread_id, SIGUSR1);
+		_mii_ssc_thread_signal(c);
 	}
 }
 
 /*
  * This is called when the CPU touches the CX00-CXFF ROM area, and we
  * need to install the secondary part of the ROM.
- * Also, if the access was from the ROM, we start the card as there's no
- * other way to know when the card is started -- we don't want to create
- * a thread fro SSC if the card is being ignored by the Apple IIe
+ * This is what the hardware does, and that ROM gets 'reset' when something
+ * touches $cfff. (see _mii_deselect_cXrom())
+ *
+ * Also, the other key thing here is that if we detect the PC is in the the main
+ * part of our ROM code, we start the card as there's no other way to know when
+ * the card is started -- we don't want to create a thread for SSC if the card
+ * is installed but never used.
+ *
+ * This seems to work pretty well, it handles most programs that use the SSC
+ * that I have tried.
  */
 static bool
 _mii_ssc_select(
@@ -364,11 +400,11 @@ _mii_ssc_select(
 	return false;
 }
 
-/* Called a some sort of proportional number of cycles related to the
-  baudrate to check the FIFOs and update the status/raise IRQs.
-  this doesn't have to be exact, it just have to be often enough to
-  not miss any data.
-  */
+/*
+ * Called at some sort of proportional number of cycles related to the baudrate
+ * to check the FIFOs and update the status/raise IRQs. this doesn't have to be
+ * exact, it just have to be often enough to not miss any data.
+ */
 static uint64_t
 _mii_ssc_timer_cb(
 		mii_t * mii,
@@ -384,7 +420,7 @@ _mii_ssc_timer_cb(
 	uint8_t rx_full = !mii_ssc_fifo_isempty(&c->rx);
 	// what it really mean is 'there room for more data', not 'full'
 	uint8_t tx_empty = !mii_ssc_fifo_isfull(&c->tx);
-	uint8_t old = c->status;
+//	uint8_t old = c->status;
 	c->status = (c->status & ~(1 << SSC_6551_RX_FULL)) |
 					(rx_full << SSC_6551_RX_FULL);
 	c->status = (c->status & ~(1 << SSC_6551_TX_EMPTY)) |
@@ -392,32 +428,33 @@ _mii_ssc_timer_cb(
 	uint8_t irq = 0;//(c->status & (1 << SSC_6551_IRQ));
 	uint8_t t_irqen = ((c->command >> SSC_6551_COMMAND_IRQ_T) & 3) == 1;
 	uint8_t r_irqen = !(c->command & (1 << SSC_6551_COMMAND_IRQ_R));
-
+#if 0
 	if (old != c->status)
 		printf("SSC%d New Status %08b RX:%2d TX:%2d t_irqen:%d r_irqen:%d\n",
 			c->slot->id+1, c->status,
 			mii_ssc_fifo_get_read_size(&c->rx), mii_ssc_fifo_get_write_size(&c->tx),
 			t_irqen, r_irqen);
+#endif
 	// we set the IRQ flag even if the real IRQs are disabled.
 	// rising edge triggers the IRQR
 	if (!irq && rx_full) {
 		// raise the IRQ
 		if (r_irqen) {
 			irq = 1;
-			printf("SSC%d: IRQ RX\n", c->slot->id+1);
-			mii->cpu_state.irq = 1;
+		//	printf("SSC%d: IRQ RX\n", c->slot->id+1);
 		}
 	}
 	if (!irq && (tx_empty)) {
 		// raise the IRQ
 		if (t_irqen) {
 			irq = 1;
-			printf("SSC%d: IRQ TX\n", c->slot->id+1);
-			mii->cpu_state.irq = 1;
+		//	printf("SSC%d: IRQ TX\n", c->slot->id+1);
 		}
 	}
-	if (irq)
+	if (irq) {
 		c->status |= 1 << SSC_6551_IRQ;
+		mii_irq_raise(mii, c->irq_num);
+	}
 	return c->timer_delay;
 }
 
@@ -549,7 +586,10 @@ _mii_ssc_init(
 	snprintf(name, sizeof(name), "SSC %d", slot->id+1);
 	c->timer_check = mii_timer_register(mii,
 							_mii_ssc_timer_cb, c, 0, strdup(name));
-	// fastest speed we could get to?
+	c->irq_num = mii_irq_register(mii, strdup(name));
+
+	// this is semi random for now, it is recalculated once the program
+	// changes the baud rate/config
 	c->timer_delay = 11520;
 	c->tty_fd = -1;
 	STAILQ_INSERT_TAIL(&_mii_card_ssc_slots, c, self);
@@ -577,7 +617,7 @@ _mii_ssc_dispose(
 	if (c->state == MII_SSC_STATE_RUNNING) {
 		mii_ssc_cmd_t cmd = { .cmd = MII_SSC_STATE_STOP, .card = c };
 		mii_ssc_cmd_fifo_write(&_mii_ssc_cmd, cmd);
-		pthread_kill(_mii_ssc_thread_id, SIGUSR1);
+		_mii_ssc_thread_signal(c);
 		while (c->state == MII_SSC_STATE_RUNNING)
 			usleep(1000);
 		printf("SSC%d: stopped\n", c->slot->id+1);
@@ -588,10 +628,11 @@ _mii_ssc_dispose(
 		_mii_ssc_thread_id = 0;
 		mii_ssc_cmd_t cmd = { .cmd = MII_THREAD_TERMINATE };
 		mii_ssc_cmd_fifo_write(&_mii_ssc_cmd, cmd);
-		pthread_kill(id, SIGUSR1);
+		_mii_ssc_thread_signal(c);
 		pthread_join(id, NULL);
 		printf("SSC%d: thread stopped\n", c->slot->id+1);
 	}
+	mii_irq_unregister(mii, c->irq_num);
 	free(c);
 	slot->drv_priv = NULL;
 }
@@ -617,7 +658,7 @@ _mii_ssc_command_set(
 	if ((c->command & (1 << SSC_6551_COMMAND_IRQ_R)) &&
 			!(byte & (1 << SSC_6551_COMMAND_IRQ_R))) {
 		if (c->status & (1 << SSC_6551_IRQ))
-			mii->cpu_state.irq = 1;
+			mii_irq_raise(mii, c->irq_num);
 	}
 	int status;
 	if (ioctl(c->tty_fd, TIOCMGET, &status) == -1) {
@@ -693,7 +734,7 @@ _mii_ssc_access(
 				c->total_tx++;
 				mii_ssc_fifo_write(&c->tx, byte);
 				if (tx_empty)	// wake thread if it's sleeping
-					pthread_kill(_mii_ssc_thread_id, SIGUSR1);
+					_mii_ssc_thread_signal(c);
 				bool isfull = mii_ssc_fifo_isfull(&c->tx);
 				if (isfull) {
 					c->status &= ~(1 << SSC_6551_TX_EMPTY);
@@ -710,12 +751,12 @@ _mii_ssc_access(
 						c->status &= ~(1 << SSC_6551_RX_FULL);
 					} else {
 						if (wasfull)	// wake thread to read more
-							pthread_kill(_mii_ssc_thread_id, SIGUSR1);
+							_mii_ssc_thread_signal(c);
 						// send another irq?
 						uint8_t r_irqen =
 									!(c->command & (1 << SSC_6551_COMMAND_IRQ_R));
 						if (r_irqen) {
-							mii->cpu_state.irq = 1;
+							mii_irq_raise(mii, c->irq_num);
 						}
 					}
 				}
@@ -723,13 +764,14 @@ _mii_ssc_access(
 		}	break;
 		case 0x9: {// STATUS
 			if (write) {
-				printf("SSC%d: RESET requesdt\n",c->slot->id+1);
+				printf("SSC%d: RESET request\n", c->slot->id+1);
 				_mii_ssc_command_set(c, 0x10);
 				break;
 			}
 			res = c->status;
 			// if it was set before, clear it.
 			c->status &= ~(1 << SSC_6551_IRQ);
+			mii_irq_clear(mii, c->irq_num);
 		}	break;
 		case 0xa: {// COMMAND
 			if (!write) {
@@ -750,24 +792,36 @@ _mii_ssc_access(
 			int baud = _mii_ssc_to_baud[c->control & 0x0F];
 			cfsetospeed(&tio, baud);
 			cfsetispeed(&tio, baud);
+			tio.c_cflag &= ~(CSTOPB|CSIZE|PARENB|PARODD);
 			// Update stop bits bit 7: 0 = 1 stop bit, 1 = 2 stop bits
-			tio.c_cflag &= ~CSTOPB;
 			tio.c_cflag |= _mii_ssc_to_stop[(c->control >> 7) & 1];
 			// Update data bits bit 5-6 0=8 bits, 1=7 bits, 2=6 bits, 3=5 bits
-			tio.c_cflag &= ~CSIZE;
 			tio.c_cflag |= _mii_ssc_to_bits[(c->control >> 6) & 3];
 			// parity are in c->command, bits 5-7,
 			// 0=None, 1=Odd, 2=Even, 3=Mark, 4=Space
-			tio.c_cflag &= ~PARENB;
-			tio.c_cflag &= ~PARODD;
 			tio.c_cflag |= _mii_ssc_to_parity[(c->command >> 5) & 3];
 			tcsetattr(c->tty_fd, TCSANOW, &tio);
-			printf("SSC%d: set %02x baud %d stop %d bits %d parity %d\n",
-					c->slot->id+1, byte,
+			int framesize = 1 + (((c->control >> 6) & 3)) +
+								((c->control >> 7) & 1 ? 2 : 1) +
+								_mii_scc_to_bits_count[(c->control >> 5) & 3] +
+								(((c->command >> 5) & 3) ? 1 : 0);
+			// recalculate the timer delay between characters
+			float cps = (float)_mii_ssc_to_baud_rate[c->control & 0x0F] / framesize;
+			c->timer_delay = (1000000.0 * mii->speed) / cps;
+
+			printf("SSC%d: baud:%5d stop:%d data:%d parity:%d (total %d)\n",
+					c->slot->id+1,
 					_mii_ssc_to_baud_rate[c->control & 0x0F],
 					(c->control >> 7) & 1 ? 2 : 1,
 					_mii_scc_to_bits_count[(c->control >> 5) & 3],
-					(c->command >> 5) & 3);
+					(c->command >> 5) & 3,
+					framesize);
+//			printf("SSC%d: cps %.2f timer cycles %u\n",
+//					c->slot->id+1, cps, c->timer_delay);
+			// update the timer if it is too far in the future
+			if (mii_timer_get(mii, c->timer_check) > c->timer_delay) {
+				mii_timer_set(mii, c->timer_check, c->timer_delay);
+			}
 		}	break;
 		default:
 		//	printf("%s PC:%04x addr %04x %02x wr:%d\n", __func__,
@@ -793,6 +847,12 @@ _mii_ssc_command(
 			res = _mii_scc_set_conf(c, conf, 0);
 			printf("SSC%d: set tty %s: %s\n",
 					slot->id+1, conf->device, c->human_config);
+		}	break;
+		case MII_SLOT_SSC_GET_TTY: {
+			mii_ssc_setconf_t * conf = param;
+			mii_card_ssc_t *c = slot->drv_priv;
+			*conf = c->conf;
+			res = 0;
 		}	break;
 	}
 	return res;

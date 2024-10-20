@@ -76,7 +76,8 @@ enum {
 	MII_SLOT_DRIVE_LOAD		= 0x20, // + drive index 0...n
 	MII_SLOT_DRIVE_WP		= 0x30, // + drive index 0...n
 
-	MII_SLOT_SSC_SET_TTY	= 0x10, // param is a pathname, or NULL for a pty
+	MII_SLOT_SSC_SET_TTY	= 0x10, // param is a mii_ssc_setconf_t
+	MII_SLOT_SSC_GET_TTY	= 0x11, // param is a mii_ssc_setconf_t
 	// + drive index 0..1. Param is a mii_floppy_t **
 	MII_SLOT_D2_GET_FLOPPY	= 0x40,
 };

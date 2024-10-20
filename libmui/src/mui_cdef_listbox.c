@@ -24,6 +24,7 @@ typedef struct mui_listbox_control_t {
 	uint8_t				elem_height;
 	mui_listbox_elems_t	elems;
 	mui_ldef_p			ldef;
+	void * 				ldef_param;	// returned from MUI_LDEF_OP_INIT
 	// to handle double-click
 	mui_time_t			last_click;
 	// typehead search related
@@ -36,6 +37,56 @@ typedef struct mui_listbox_control_t {
 } mui_listbox_control_t;
 
 extern const mui_control_color_t mui_control_color[MUI_CONTROL_STATE_COUNT];
+
+typedef struct mui_ldef_default_t {
+	mui_font_t * main;
+	mui_font_t * icons;
+} mui_ldef_default_t;
+
+/*
+ * CURRENTLY NOT IN USE
+ */
+static void
+mui_ldef_default(
+		mui_control_t * 	c,
+		enum mui_ldef_op_e 	op,
+		void *				ldef_param,
+		uint32_t 			elem_index,
+		mui_listbox_elem_t * elem,
+		void * 				io_result )
+{
+	switch (op) {
+		case MUI_LDEF_OP_INIT: {
+			mui_ldef_default_t * d = calloc(1, sizeof(*d));
+			d->main = mui_font_find(c->win->ui, "main");
+			d->icons = mui_font_find(c->win->ui, "icons");
+			*((mui_ldef_default_t **)io_result) = d;
+		}	break;
+		case MUI_LDEF_OP_DISPOSE:
+			if (ldef_param)
+				free(ldef_param);
+			break;
+		case MUI_LDEF_OP_DRAW: {
+			mui_drawable_t * dr = io_result;
+			mui_font_t * main = mui_font_find(c->win->ui, "main");
+			c2_rect_t f = c->frame;
+			c2_rect_offset(&f, c->win->content.l, c->win->content.t);
+			f.t += elem_index * ((mui_listbox_control_t *)c)->elem_height;
+			f.b = f.t + ((mui_listbox_control_t *)c)->elem_height;
+			mui_font_text_draw(main, dr, f.tl, elem->elem, 0,
+						mui_control_color[elem->disabled ?
+									MUI_CONTROL_STATE_DISABLED : 0].text);
+		}	break;
+		case MUI_LDEF_OP_GET_TEXT:
+			*((char **)io_result) = elem->elem;
+			break;
+		case MUI_LDEF_OP_EVENT:
+			break;
+		default:
+			break;
+	}
+}
+
 
 static void
 mui_listbox_draw(
@@ -52,7 +103,7 @@ mui_listbox_draw(
 	cg_rectangle(cg, f.l, f.t,
 					c2_rect_width(&f), c2_rect_height(&f));
 	cg_stroke(cg);
-	{
+	{	// this clips the frame so we don't draw over the border
 		c2_rect_t clip = f;
 		c2_rect_inset(&clip, 1, 1);
 		mui_drawable_clip_push(dr, &clip);
@@ -402,4 +453,19 @@ mui_listbox_prepare(
 	}
 	mui_control_inval(lb->scrollbar);
 	mui_control_inval(c);
+}
+
+void
+mui_listbox_set_ldef(
+		mui_control_t * c,
+		mui_ldef_p 		ldef,
+		void * 			ldef_param)
+{
+	mui_listbox_control_t *lb = (mui_listbox_control_t *)c;
+	if (lb->ldef)
+		lb->ldef(c, MUI_LDEF_OP_DISPOSE, lb->ldef_param, 0, NULL, NULL);
+	lb->ldef = ldef;
+	lb->ldef_param = ldef_param;
+	if (lb->ldef)
+		lb->ldef(c, MUI_LDEF_OP_INIT, ldef_param, 0, NULL, &lb->ldef_param);
 }

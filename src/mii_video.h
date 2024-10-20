@@ -35,7 +35,10 @@ struct mii_t;
 struct mii_video_t;
 
 typedef void (*mii_video_line_drawing_cb)(
-					mii_t *mii );
+					struct mii_video_t *video,
+					uint32_t 			sw,
+					mii_bank_t * 		main,
+					mii_bank_t * 		aux );
 typedef void (*mii_video_line_check_cb)(
 					struct mii_video_t *video,
 					uint32_t 			sw,
@@ -58,7 +61,6 @@ typedef union mii_video_clut_t {
 		mii_color_t 	lores[2][16];	// lores (main, and aux page DLORES)
 		mii_color_t 	dhires[16];
 		mii_color_t 	hires[10];
-//		mii_color_t 	hires2[8];
 		mii_color_t 	text[2];		// text
 		mii_color_t 	mono[2];		// DHRES mono mode
 	};
@@ -69,6 +71,7 @@ typedef struct mii_video_t {
 	void *				state;		// protothread state in mii_video.c
 	uint8_t 			timer_id;	// timer id for the video thread
 	uint8_t				line;		// current line for cycle timer
+	uint8_t 			an3_mode;	// current mode
 	uint16_t 			base_addr;	// current mode base address
 	uint16_t			line_addr;	// VRAM address for the line we are on
 	uint64_t 			timer_max;	// timer start value

@@ -49,12 +49,21 @@ static const mii_bank_t	_mii_banks_init[MII_BANK_COUNT] = {
 		.mem_offset = 0xc000,
 		.no_alloc = 1,
 	},
+	/*
+	 * Aux memory is multiple times 64KB (with the ramworks card). *This* bank
+	 * is always mapped to that aux bank zero, and is used for video as the
+	 * video is always locked to that bank.
+	 *
+	 * So in MOST cases MII_BANK_AUX_BASE is pretty much the same as
+	 * MII_BANK_AUX whent he ramworks is not in use.
+	 */
 	[MII_BANK_AUX_BASE] = {
 		.name = "AUX_BASE",
 		.base = 0x0000,
 		.size = 0xd0, // 208 pages, 48KB
 		.no_alloc = 1,
 	},
+	/* This one is the one that is remapped with ramworks is in use */
 	[MII_BANK_AUX] = {
 		.name = "AUX",
 		.base = 0x0000,
@@ -698,8 +707,9 @@ mii_prepare(
 		mii->bank[MII_BANK_ROM].mem = (uint8_t*)&mii_rom_iic[0];
 	}
 
-	int banks = (flags >> MII_INIT_RAMWORKS_BIT) & 0xf;
-	banks = 12;
+//	int banks = (flags >> MII_INIT_RAMWORKS_BIT) & 0xf;
+	// hard code it for now, doesn't seem to have any detrimental effect
+	int banks = 12;
 	if (banks > 12)
 		banks = 12;
 	for (int i = 0; i < banks; i++)	// add available banks
@@ -861,7 +871,7 @@ mii_timer_register(
 		int64_t when,
 		const char *name)
 {
-	if (mii->timer.map == (uint64_t)-1) {
+	if (mii->timer.map == (uint64_t)-1ll) {
 		printf("%s no more timers!!\n", __func__);
 		return 0xff;
 	}
@@ -916,7 +926,62 @@ mii_timer_run(
 	}
 }
 
-#if MII_65C02_DIRECT_ACCESS
+uint8_t
+mii_irq_register(
+		mii_t *mii,
+		const char *name )
+{
+	if (mii->irq.map == 0xff) {
+		printf("%s no more IRQs!!\n", __func__);
+		return 0xff;
+	}
+	for (int i = 0; i < (int)sizeof(mii->irq.map) * 8; i++) {
+		if (!(mii->irq.map & (1 << i))) {
+			mii->irq.map |= 1 << i;
+			mii->irq.irq[i].name = name;
+			return i;
+		}
+	}
+	return 0xff;
+}
+
+void
+mii_irq_unregister(
+		mii_t *mii,
+		uint8_t irq_id )
+{
+	if (irq_id >= (int)sizeof(mii->irq.map) * 8)
+		return;
+	mii->irq.map &= ~(1 << irq_id);
+}
+
+void
+mii_irq_raise(
+		mii_t *mii,
+		uint8_t irq_id )
+{
+	if (irq_id >= (int)sizeof(mii->irq.map) * 8)
+		return;
+	if (!(mii->irq.raised & (1 << irq_id)))
+		mii->irq.irq[irq_id].count++;
+	mii->irq.raised |= 1 << irq_id;
+}
+
+void
+mii_irq_clear(
+		mii_t *mii,
+		uint8_t irq_id )
+{
+	if (irq_id >= (int)sizeof(mii->irq.map) * 8)
+		return;
+	mii->irq.raised &= ~(1 << irq_id);
+}
+
+
+#if MII_65C02_DIRECT_ACCESS == 0
+#error "MII_65C02_DIRECT_ACCESS *has* to be enabled here"
+#endif
+
 static mii_cpu_state_t
 _mii_cpu_direct_access_cb(
 		struct mii_cpu_t *cpu,
@@ -924,6 +989,7 @@ _mii_cpu_direct_access_cb(
 {
 	mii_t *mii = cpu->access_param;
 
+	mii->cpu_state = access;	// update to latest state
 	uint8_t cycle = mii->timer.last_cycle;
 	mii_timer_run(mii,
 				mii->cpu.cycle > cycle ? mii->cpu.cycle - cycle :
@@ -962,8 +1028,11 @@ _mii_cpu_direct_access_cb(
 			}
 		}
 	}
-	mii_mem_access(mii, addr, &access.data, wr, true);
-	return access;
+	mii_mem_access(mii, addr, &mii->cpu_state.data, wr, true);
+	// if any registered IRQ is raise, raise the CPU IRQ
+	mii->cpu_state.irq = mii->cpu_state.irq | !!mii->irq.raised;
+
+	return mii->cpu_state;
 }
 void
 mii_run(
@@ -981,63 +1050,6 @@ mii_run(
 	if (unlikely(mii->cpu_state.trap))
 		_mii_handle_trap(mii);
 }
-#else
-
-void
-mii_run(
-		mii_t *mii)
-{
-	/* this runs all cycles for one instruction */
-	uint16_t cycle = mii->cpu.cycle;
-	do {
-		if (unlikely(mii->trace_cpu > 1))
-			mii_dump_trace_state(mii);
-		mii->cpu_state = mii_cpu_run(&mii->cpu, mii->cpu_state);
-
-		mii_timer_run(mii,
-					mii->cpu.cycle > cycle ? mii->cpu.cycle - cycle :
-					mii->cpu.cycle);
-		cycle = mii->cpu.cycle;
-
-		// extract 16-bit address from pin mask
-		const uint16_t addr = mii->cpu_state.addr;
-//		const uint8_t data = mii->cpu_state.data;
-		int wr = mii->cpu_state.w;
-//		uint8_t d = data;
-		if (unlikely(mii->debug.bp_map)) {
-			for (int i = 0; i < (int)sizeof(mii->debug.bp_map) * 8; i++) {
-				if (!(mii->debug.bp_map & (1 << i)))
-					continue;
-				if (addr >= mii->debug.bp[i].addr &&
-						addr < mii->debug.bp[i].addr + mii->debug.bp[i].size) {
-					if (((mii->debug.bp[i].kind & MII_BP_R) && !wr) ||
-							((mii->debug.bp[i].kind & MII_BP_W) && wr)) {
-
-						if (1 || !mii->debug.bp[i].silent) {
-							printf("BREAKPOINT %d at %04x PC:%04x\n",
-								i, addr, mii->cpu.PC);
-							mii_dump_run_trace(mii);
-							mii_dump_trace_state(mii);
-							mii->state = MII_STOPPED;
-						}
-					}
-					if (!(mii->debug.bp[i].kind & MII_BP_STICKY))
-						mii->debug.bp_map &= ~(1 << i);
-					mii->debug.bp[i].kind |= MII_BP_HIT;
-				}
-			}
-		}
-		mii_mem_access(mii, addr, &mii->cpu_state.data, wr, true);
-		if (unlikely(mii->cpu_state.trap)) {
-			_mii_handle_trap(mii);
-		}
-	} while (!(mii->cpu_state.sync));
-
-	// log PC for the running disassembler display
-	mii->trace.log[mii->trace.idx] = mii->cpu.PC;
-	mii->trace.idx = (mii->trace.idx + 1) & (MII_PC_LOG_SIZE - 1);
-}
-#endif
 
 //! Read one byte from and addres, using the current memory mapping
 uint8_t
@@ -1116,7 +1128,7 @@ mii_cpu_next(
 	printf("NEXT opcode %04x:%02x\n", mii->cpu.PC, op);
 	if (op == 0x20) {	// JSR here?
 		// set a temp breakpoint on reading 3 bytes from PC
-		if (mii->debug.bp_map != 0xffff) {
+		if (mii->debug.bp_map != (uint16_t)-1) {
 			int i = ffsl(~mii->debug.bp_map) - 1;
 			mii->debug.bp[i].addr = mii->cpu.PC + 3;
 			mii->debug.bp[i].kind = MII_BP_R;

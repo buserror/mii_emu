@@ -31,7 +31,7 @@ mui_window_update_rects(
 	memset(parts, 0, sizeof(parts[0]) * MUI_WINDOW_PART_COUNT);
 	parts[MUI_WINDOW_PART_CONTENT] = win->frame;
 	c2_rect_inset(&parts[MUI_WINDOW_PART_CONTENT], 4, 4);
-	parts[MUI_WINDOW_PART_CONTENT].t += title_height - 1;
+	parts[MUI_WINDOW_PART_CONTENT].t += title_height - 2;
 
 	stb_ttc_measure m = {};
 	if (win->title) {
@@ -98,11 +98,16 @@ mui_titled_window_draw(
 	if (isFront) {
 		const int lrMargin = 6;
 		const int steps = 6;
+		struct cg_matrix_t m = cg->state->matrix;
 		cg_set_line_width(cg, 2);
 		for (int i = 1; i < (title_height + 4) / steps; i++) {
 			cg_move_to(cg, win->frame.l + lrMargin, win->frame.t + i * steps);
 			cg_line_to(cg, win->frame.r - lrMargin, win->frame.t + i * steps);
 		}
+		cg_translate(cg, 0.5, 0.5);
+		cg_set_source_color(cg, &CG_COLOR(contentFill));
+		cg_stroke_preserve(cg);
+		cg_set_matrix(cg, &m);
 		cg_set_source_color(cg, &CG_COLOR(decoColor));
 		cg_stroke(cg);
 	}
@@ -131,7 +136,7 @@ mui_titled_window_draw(
 		c2_rect_t title = parts[MUI_WINDOW_PART_TITLE];
 		if (isFront) {
 			c2_rect_t titleBack = parts[MUI_WINDOW_PART_TITLE];
-			c2_rect_inset(&titleBack, -6, 0);
+			c2_rect_inset(&titleBack, -8, 0);
 			cg_round_rectangle(cg, titleBack.l, titleBack.t,
 					c2_rect_width(&titleBack), c2_rect_height(&titleBack), 12, 12);
 			cg_set_source_color(cg, &CG_COLOR(frameFill));

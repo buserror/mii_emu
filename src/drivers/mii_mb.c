@@ -12,6 +12,7 @@ typedef struct mii_mb_t {
 	uint8_t	 			init; 		// init sequence bits
 	bool 				init_done;
 	uint8_t 			timer;
+	uint8_t 			irq_num;
 	struct mb_t *		mb;
 	mii_audio_source_t	source;
 	uint64_t 			flush_cycle_count;
@@ -66,8 +67,6 @@ mii_mb_start(
 	printf("MB Start\n");
 	mb->init = 0;
 	mb->init_done = true;
-	mb->timer = mii_timer_register(mb->mii, _mii_mb_timer, mb, 1000, __func__);
-
 	mb->flush_cycle_count = 512 * mb->mii->audio.clk_per_sample;
 	mii_audio_add_source(&mb->mii->audio, &mb->source);
 }
@@ -151,6 +150,13 @@ _mii_mb_init(
 			.ts = mii->cpu.total_cycle,
 	};
 	mb_io_reset(mb->mb, &clock);
+
+	char name[32];
+	snprintf(name, sizeof(name), "MB %d", slot->id+1);
+
+	mb->timer = mii_timer_register(mb->mii, _mii_mb_timer, mb, 1000, name);
+	mb->irq_num = mii_irq_register(mb->mii, name);
+
 	uint16_t addr = 0xc100 + (slot->id * 0x100);
 	mii_mb_start(mb);
 	mii_bank_install_access_cb(&mii->bank[MII_BANK_CARD_ROM],

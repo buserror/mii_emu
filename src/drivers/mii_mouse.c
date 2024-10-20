@@ -65,6 +65,22 @@
  */
 
 enum {
+	MOUSE_STATUS_PREV_BUT1	= (1 << 0),
+	MOUSE_STATUS_MOVE_IRQ	= (1 << 1),
+	MOUSE_STATUS_BUT_IRQ	= (1 << 2),
+	MOUSE_STATUS_VBL_IRQ	= (1 << 3),
+	MOUSE_STATUS_BUT1		= (1 << 4),
+	MOUSE_STATUS_MOVED		= (1 << 5),
+	MOUSE_STATUS_PREV_BUT0	= (1 << 6),
+	MOUSE_STATUS_BUT0		= (1 << 7),
+
+	MOUSE_MODE_ON			= (1 << 0),
+	MOUSE_MODE_MOVE_IRQ		= (1 << 1),
+	MOUSE_MODE_BUT_IRQ		= (1 << 2),
+	MOUSE_MODE_VBL_IRQ		= (1 << 3),
+};
+
+enum {
 	CLAMP_MIN_LO    = 0x478,
 	CLAMP_MIN_HI    = 0x578,
 	CLAMP_MAX_LO    = 0x4F8,
@@ -80,24 +96,23 @@ enum {
 	MOUSE_MODE      = 0x0738,
 };
 
-enum {
-	mouseEnabled          = 1,
-	mouseIntMoveEnabled   = 2,
-	mouseIntButtonEnabled = 4,
-	mouseIntVBlankEnabled = 8,
-};
-
 typedef struct mii_card_mouse_t {
+	STAILQ_ENTRY(mii_card_mouse_t) self;
 	struct mii_slot_t *	slot;
 	mii_t *				mii;
+	uint8_t 			irq_num;	// MII IRQ line
 	uint8_t 			timer_id;	// 60hz timer
 	uint8_t 			slot_offset;
-	uint8_t				mode; // cached mode byte
+	uint8_t				mode; 		// cached mode byte
+	uint8_t 			status; 	// cached status byte
 	struct {
 		uint16_t 			x, y;
 		bool 				button;
 	}					last;
 } mii_card_mouse_t;
+
+STAILQ_HEAD(, mii_card_mouse_t)
+		_mii_card_mouse = STAILQ_HEAD_INITIALIZER(_mii_card_mouse);
 
 static uint64_t
 _mii_mouse_vbl_handler(
@@ -105,36 +120,33 @@ _mii_mouse_vbl_handler(
 		void *param)
 {
 	mii_card_mouse_t *c = param;
-	/* this is not exact, the VBL interrupt should still work when
-	 * the mouse is disabled, but it's not really important -- for the moment
-	 */
-	if (!mii->mouse.enabled)
-		return 1000000 / 60;
 
 	mii_bank_t * main = &mii->bank[MII_BANK_MAIN];
 //	mii_bank_t * sw = &mii->bank[MII_BANK_SW];
-	uint8_t status = mii_bank_peek(main, MOUSE_STATUS + c->slot_offset);
+	uint8_t status = c->status;
 	uint8_t old = status;
 
-	if (c->mode & mouseIntMoveEnabled) {
+	if (c->mode & MOUSE_MODE_MOVE_IRQ) {
 		if ((mii->mouse.x != c->last.x) || (mii->mouse.y != c->last.y)) {
-			mii->cpu_state.irq = 1;
-			status |= 1 << 1;
+			mii_irq_raise(mii, c->irq_num);
+			status |= MOUSE_STATUS_MOVE_IRQ;
 		}
 	}
-	if (c->mode & mouseIntButtonEnabled) {
+	if (c->mode & MOUSE_MODE_BUT_IRQ) {
 		if (mii->mouse.button && !c->last.button) {
-			mii->cpu_state.irq = 1;
-			status |= 1 << 2;
+			mii_irq_raise(mii, c->irq_num);
+			status |= MOUSE_STATUS_BUT_IRQ;
 		}
 	}
-	if (c->mode & mouseIntVBlankEnabled) {
-		mii->cpu_state.irq = 1;
-		status |= 1 << 3;
+	if (c->mode & MOUSE_MODE_VBL_IRQ && !(status & MOUSE_STATUS_VBL_IRQ)) {
+		mii_irq_raise(mii, c->irq_num);
+		status |= MOUSE_STATUS_VBL_IRQ;
 	}
 //	if (mii->cpu_state.irq) mii->trace_cpu = true;
-	if (status != old)
+	if (status != old) {
 		mii_bank_poke(main, MOUSE_STATUS + c->slot_offset, status);
+		c->status = status;
+	}
 	return 1000000 / 60;
 }
 
@@ -151,11 +163,20 @@ _mii_mouse_init(
 	printf("%s loading in slot %d\n", __func__, slot->id + 1);
 
 	c->slot_offset = slot->id + 1 + 0xc0;
-	uint8_t data[256] = {};
 
 	c->timer_id = mii_timer_register(mii,
-			_mii_mouse_vbl_handler, c,
-			1000000 / 60, __func__);
+					_mii_mouse_vbl_handler, c,
+					1000000 / 60, __func__);
+	STAILQ_INSERT_TAIL(&_mii_card_mouse, c, self);
+	c->irq_num = mii_irq_register(mii, "mouse");
+
+	/*
+	 * The mouse card ROM is a 256 bytes, and has entry points for the
+	 * various calls, and a signature at the start.
+	 * This re-create it as a bare minimum - the entry points poke at the
+	 * softswitches, which in turn calls back the emulator.
+	 */
+	uint8_t data[256] = {};
 	// Identification as a mouse card
 	// From Technical Note Misc #8, "Pascal 1.1 Firmware Protocol ID Bytes":
 	data[0x05] = 0x38;
@@ -189,6 +210,10 @@ _mii_mouse_dispose(
 		struct mii_slot_t *slot )
 {
 	mii_card_mouse_t *c = slot->drv_priv;
+
+//	mii_timer_unregister(mii, c->timer_id);
+	mii_irq_unregister(mii, c->irq_num);
+	STAILQ_REMOVE(&_mii_card_mouse, c, mii_card_mouse_t, self);
 	free(c);
 	slot->drv_priv = NULL;
 }
@@ -205,37 +230,51 @@ _mii_mouse_access(
 
 	int psw = addr & 0x0F;
 	mii_bank_t * main = &mii->bank[MII_BANK_MAIN];
+
 	switch (psw) {
 		case 2: {
 			if (write) {
 				byte &= 0xf;
 				mii_bank_poke(main, MOUSE_MODE + c->slot_offset, byte);
-				mii->mouse.enabled = byte & mouseEnabled;
+				mii->mouse.enabled = byte & MOUSE_MODE_ON;
 				printf("%s: mode %02x: %s Move:%d Button:%d VBL:%d\n", __func__,
 						byte, mii->mouse.enabled ? "ON " : "OFF",
-						byte & mouseIntMoveEnabled ? 1 : 0,
-						byte & mouseIntButtonEnabled ? 1 : 0,
-						byte & mouseIntVBlankEnabled ? 1 : 0);
+						byte & MOUSE_MODE_MOVE_IRQ ? 1 : 0,
+						byte & MOUSE_MODE_BUT_IRQ ? 1 : 0,
+						byte & MOUSE_MODE_VBL_IRQ ? 1 : 0);
 				c->mode = byte;
 			}
 		}	break;
-		case 3: // service mouse
-			// no need to handle that, the VBL handler does it
-			break;
+		case 3: {// service mouse
+			// call the timer now, and reset it
+		//	mii_timer_set(mii, c->timer_id, 1000000 / 60);
+		//	_mii_mouse_vbl_handler(mii, c);
+			// now they've been read, clear the flags
+			uint8_t status = c->status;
+			status &= ~(MOUSE_STATUS_BUT_IRQ|
+								MOUSE_STATUS_MOVE_IRQ|MOUSE_STATUS_VBL_IRQ);
+			mii_bank_poke(main, MOUSE_STATUS + c->slot_offset, status);
+			c->status = status;
+			mii_irq_clear(mii, c->irq_num);
+		}	break;
 		case 4: {// read mouse
 			if (!mii->mouse.enabled)
 				break;
-			uint8_t status = 0;
-			if ((mii->mouse.x != c->last.x) || (mii->mouse.y != c->last.y))
-				status |= 1 << 5;
-			status |= c->last.button ? 1 << 6 : 0;
-			status |= mii->mouse.button ? 1 << 7 : 0;
 			mii_bank_poke(main, MOUSE_X_HI + c->slot_offset, mii->mouse.x >> 8);
 			mii_bank_poke(main, MOUSE_Y_HI + c->slot_offset, mii->mouse.y >> 8);
 			mii_bank_poke(main, MOUSE_X_LO + c->slot_offset, mii->mouse.x);
 			mii_bank_poke(main, MOUSE_Y_LO + c->slot_offset, mii->mouse.y);
+			// update the status byte. IRQ flags were set by timer
+			uint8_t status = c->status;
+			status &= ~MOUSE_STATUS_MOVED;
+			if ((mii->mouse.x != c->last.x) || (mii->mouse.y != c->last.y))
+				status |= MOUSE_STATUS_MOVED;
+			status = (status & ~MOUSE_STATUS_PREV_BUT0) |
+							(c->last.button ? MOUSE_STATUS_PREV_BUT0 : 0);
+			status = (status & ~MOUSE_STATUS_BUT0) |
+							(mii->mouse.button ? MOUSE_STATUS_BUT0 : 0);
 			mii_bank_poke(main, MOUSE_STATUS + c->slot_offset, status);
-		//	mii_bank_poke(main, MOUSE_MODE + c->slot_offset, 0xf); // already in place
+			c->status = status;
 			c->last.x = mii->mouse.x;
 			c->last.y = mii->mouse.y;
 			c->last.button = mii->mouse.button;
@@ -254,9 +293,9 @@ _mii_mouse_access(
 				mii->mouse.max_y = mii_bank_peek(main, CLAMP_MAX_LO) |
 									(mii_bank_peek(main, CLAMP_MAX_HI) << 8);
 			}
-		//	printf("Mouse clamp to %d,%d - %d,%d\n",
-		//			mii->mouse.min_x, mii->mouse.min_y,
-		//			mii->mouse.max_x, mii->mouse.max_y);
+			printf("Mouse clamp to %d,%d - %d,%d\n",
+					mii->mouse.min_x, mii->mouse.min_y,
+					mii->mouse.max_x, mii->mouse.max_y);
 			break;
 		case 8: // home mouse
 			mii->mouse.x = mii->mouse.min_x;
@@ -284,3 +323,65 @@ static mii_slot_drv_t _driver = {
 	.access = _mii_mouse_access,
 };
 MI_DRIVER_REGISTER(_driver);
+
+
+
+#include "mish.h"
+
+static void
+_mii_mish_mouse(
+		void * param,
+		int argc,
+		const char * argv[])
+{
+	mii_t * mii = param;
+	mii_bank_t * main = &mii->bank[MII_BANK_MAIN];
+
+	if (!argv[1] || !strcmp(argv[1], "status")) {
+		mii_card_mouse_t *c;
+		printf("mouse: cards:\n");
+		STAILQ_FOREACH(c, &_mii_card_mouse, self) {
+			printf("mouse %d:\n", c->slot->id + 1);
+
+		#define MCM(__n) { .a = __n, .s = (#__n)+6 }
+			static const struct {
+				uint16_t a;
+				const char * s;
+			} mouse_regs[] = {
+				MCM(MOUSE_X_LO), MCM(MOUSE_X_HI), MCM(MOUSE_Y_LO),
+				MCM(MOUSE_Y_HI), MCM(MOUSE_STATUS), MCM(MOUSE_MODE),
+			};
+			for (int i = 0; i < 6; i++) {
+				uint8_t val = mii_bank_peek(main, mouse_regs[i].a + c->slot_offset);
+				printf(" $%04x: %-10s: $%02x\n",
+				mouse_regs[i].a, mouse_regs[i].s, val);
+			}
+			uint8_t status = mii_bank_peek(main, MOUSE_STATUS + c->slot_offset);
+			// printf individual status bits
+			static char * status_bits[] = {
+				"PREV_BUT1", "MOVE_IRQ", "BUT_IRQ", "VBL_IRQ",
+				"BUT1", "MOVED", "PREV_BUT0", "BUT0",
+			};
+			printf("  status: ");
+			for (int i = 0; i < 8; i++)
+				printf("%s ", (status & (1 << i)) ? status_bits[i] : ".");
+			printf("\n");
+			// printf individual mode bits
+			uint8_t mode = mii_bank_peek(main, MOUSE_MODE + c->slot_offset);
+			static char * mode_bits[] = {
+				"ON", "MOVE_IRQ", "BUT_IRQ", "VBL_IRQ",
+			};
+			printf("  mode: ");
+			for (int i = 0; i < 4; i++)
+				printf("%s ", (mode & (1 << i)) ? mode_bits[i] : ".");
+		}
+		return;
+	}
+}
+
+MISH_CMD_NAMES(_mouse, "mouse");
+MISH_CMD_HELP(_mouse,
+		"mouse: Mouse card internals",
+		" <default>: dump status"
+		);
+MII_MISH(_mouse, _mii_mish_mouse);

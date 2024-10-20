@@ -222,7 +222,6 @@ _mii_line_to_video_addr(
 	return addr;
 }
 
-
 static inline int
 _mii_addr_to_line_text_lores(
 		uint16_t a)	// ZERO based, not 0x400 based
@@ -315,22 +314,23 @@ _mii_line_check_hires_dires(
 
 static void
 _mii_line_render_dhires_mono(
-		mii_t *mii)
+		struct mii_video_t *video,
+		uint32_t 			sw,
+		mii_bank_t * 		main,
+		mii_bank_t * 		aux )
 {
-	mii_bank_t * main = &mii->bank[MII_BANK_MAIN];
-	mii_bank_t * aux = &mii->bank[MII_VIDEO_BANK];
-	bool 	page2 	= SW_GETSTATE(mii, SW80STORE) ? 0 : SW_GETSTATE(mii, SWPAGE2);
-//	uint8_t mode 	= mii->video.color_mode;
+	bool page2 	= SWW_GETSTATE(sw, SW80STORE) ? 0 : SWW_GETSTATE(sw, SWPAGE2);
 	uint16_t a = (0x2000 + (0x2000 * page2));
-	mii->video.base_addr = a;
-	a = _mii_line_to_video_addr(a, mii->video.line);
-	mii->video.line_addr = a;
-	uint32_t * screen = mii->video.pixels +
-						(mii->video.line * MII_VRAM_WIDTH * 2);
+
+	video->base_addr = a;
+	a = _mii_line_to_video_addr(a, video->line);
+	video->line_addr = a;
+	uint32_t * screen = video->pixels +
+						(video->line * MII_VRAM_WIDTH * 2);
 
 	const uint32_t clut[2] = {
-			mii->video.clut.mono[0],
-			mii->video.clut.mono[1] };
+			video->clut.mono[0],
+			video->clut.mono[1] };
 	for (int x = 0; x < 40; x++) {
 		uint32_t ext = (mii_bank_peek(aux, a + x) & 0x7f) |
 						((mii_bank_peek(main, a + x) & 0x7f) << 7);
@@ -357,18 +357,19 @@ _mii_get_1bits(
 
 static void
 _mii_line_render_dhires_color(
-		mii_t *mii)
+		struct mii_video_t *video,
+		uint32_t 			sw,
+		mii_bank_t * 		main,
+		mii_bank_t * 		aux )
 {
-	mii_bank_t * main = &mii->bank[MII_BANK_MAIN];
-	mii_bank_t * aux = &mii->bank[MII_VIDEO_BANK];
-	bool 	page2 	= SW_GETSTATE(mii, SW80STORE) ? 0 : SW_GETSTATE(mii, SWPAGE2);
-
+	bool page2 	= SWW_GETSTATE(sw, SW80STORE) ? 0 : SWW_GETSTATE(sw, SWPAGE2);
 	uint16_t a = (0x2000 + (0x2000 * page2));
-	mii->video.base_addr = a;
-	a = _mii_line_to_video_addr(a, mii->video.line);
-	mii->video.line_addr = a;
-	uint32_t * screen = mii->video.pixels +
-						(mii->video.line * MII_VRAM_WIDTH * 2);
+
+	video->base_addr = a;
+	a = _mii_line_to_video_addr(a, video->line);
+	video->line_addr = a;
+	uint32_t * screen = video->pixels +
+						(video->line * MII_VRAM_WIDTH * 2);
 
 	uint8_t bits[71] = { 0 };
 
@@ -392,78 +393,26 @@ _mii_line_render_dhires_color(
 			(_mii_get_1bits(bits, i + 2) << (3 - ((d + 2) % 4))) +
 			(_mii_get_1bits(bits, i + 1) << (3 - ((d + 1) % 4))) +
 			(_mii_get_1bits(bits, i) << (3 - (d % 4)));
-		uint32_t col = mii->video.clut.dhires[pixel];
+		uint32_t col = video->clut.dhires[pixel];
 		*screen++ = col;
 	}
 }
 
-#if 0
-static int _trace = 0;
-#define TRACE
-#ifdef TRACE
-#define T(_w) if (_trace) { _w; }
-#else
-#define T(_w)
-#endif
+static void
+_mii_line_render_hires(
+		struct mii_video_t *video,
+		uint32_t 			sw,
+		mii_bank_t * 		main,
+		mii_bank_t * 		aux )
+{
+	bool page2 	= SWW_GETSTATE(sw, SW80STORE) ? 0 : SWW_GETSTATE(sw, SWPAGE2);
+	uint16_t a = (0x2000 + (0x2000 * page2));
 
-static void
-_mii_line_render_hires(
-		mii_t *mii)
-{
-	mii_bank_t * main = &mii->bank[MII_BANK_MAIN];
-	bool 	page2 	= SW_GETSTATE(mii, SW80STORE) ? 0 : SW_GETSTATE(mii, SWPAGE2);
-	uint8_t mode 	= mii->video.color_mode;
-	uint16_t a = (0x2000 + (0x2000 * page2));
-	mii->video.base_addr = a;
-	a = _mii_line_to_video_addr(a, mii->video.line);
-	mii->video.line_addr = a;
-	uint32_t * screen = mii->video.pixels +
-						(mii->video.line * MII_VRAM_WIDTH * 2);
-	uint8_t bits[280] = { 0 };
-	uint8_t *src = main->mem + a;
-	uint bits_dx = 0;
-	uint8_t last_run = 0;
-	for (int x = 0; x < 40; x += 2) {
-		/* prepare fourteen pixels */
-		uint8_t b0 	= src[x];
-		uint8_t b1 	= src[x + 1];
-		uint8_t t[2] = { (b0 >> 7) << 2, (b1 >> 7) << 2 };	// prepare high bits
-		// just want the pixels as a nice clean 14 bits bitfield here
-		uint16_t run = ((reverse8(b0) >> 1) << 7) | (reverse8(b1) >> 1);
-//		uint16_t run = ((b1 & 0x7f) << 9) | ((b0 & 0x7f) << 2) | last_run;
-		uint8_t px;
-		for (int dx = 0 ; dx < 14; dx++) {
-			// take 2 bits, add the corresponding 'high bit' to it
-			px = run & 3;
-			px |= t[dx > 7];
-			// now we have 2 pixels, we can set them in the bit buffer
-			bits[bits_dx++] = px;
-		}
-		last_run = run >> 14;
-	}
-	// now we have a 'nice' table of actual colors, without artifacts in bits
-	// we can plot this
-	for (int i = 0; i < 280; i++) {
-		uint8_t pixel = bits[i];
-		uint32_t col = mii->video.clut.hires2[pixel];
-		*screen++ = col;
-		*screen++ = col;
-	}
-}
-#else
-static void
-_mii_line_render_hires(
-		mii_t *mii)
-{
-	mii_bank_t * main = &mii->bank[MII_BANK_MAIN];
-	bool 	page2 	= SW_GETSTATE(mii, SW80STORE) ? 0 : SW_GETSTATE(mii, SWPAGE2);
-//	uint8_t mode 	= mii->video.color_mode;
-	uint16_t a = (0x2000 + (0x2000 * page2));
-	mii->video.base_addr = a;
-	a = _mii_line_to_video_addr(a, mii->video.line);
-	mii->video.line_addr = a;
-	uint32_t * screen = mii->video.pixels +
-						(mii->video.line * MII_VRAM_WIDTH * 2);
+	video->base_addr = a;
+	a = _mii_line_to_video_addr(a, video->line);
+	video->line_addr = a;
+	uint32_t * screen = video->pixels +
+						(video->line * MII_VRAM_WIDTH * 2);
 	uint8_t *src = main->mem;
 
 	uint8_t b0 = 0;
@@ -477,7 +426,7 @@ _mii_line_render_hires(
 						((b2 & 0x03) << ( 9 ));
 		int odd = (x & 1) << 1;
 		int offset = (b1 & 0x80) >> 5;
-		if (!mii->video.monochrome) {
+		if (!video->monochrome) {
 			for (int i = 0; i < 7; i++) {
 				uint8_t left = (run >> (1 + i)) & 1;
 				uint8_t pixel = (run >> (2 + i)) & 1;
@@ -495,9 +444,9 @@ _mii_line_render_hires(
 						idx = offset + odd + 1 - (i & 1) + 1;
 					}
 				}
-				uint32_t col = mii->video.clut.hires[idx];
+				uint32_t col = video->clut.hires[idx];
 				if (col != lastcol) {
-					uint32_t nc  = mii->video.clut_low.hires[idx];
+					uint32_t nc  = video->clut_low.hires[idx];
 					*screen++ = nc; //col & C_SCANLINE_MASK;
 					*screen++ = nc; //col & C_SCANLINE_MASK;
 					lastcol = col;
@@ -509,7 +458,7 @@ _mii_line_render_hires(
 		} else {
 			for (int i = 0; i < 7; i++) {
 				uint8_t pixel = (run >> (2 + i)) & 1;
-				uint32_t col = mii->video.clut.mono[pixel];
+				uint32_t col = video->clut.mono[pixel];
 				if (col != lastcol) {
 					*screen++ = col & C_SCANLINE_MASK;
 					lastcol = col;
@@ -522,31 +471,32 @@ _mii_line_render_hires(
 		b1 = b2;
 	}
 }
-#endif
 
 static void
 _mii_line_render_text(
-		mii_t *mii)
+		struct mii_video_t *video,
+		uint32_t 			sw,
+		mii_bank_t * 		main,
+		mii_bank_t * 		aux )
 {
-	mii_bank_t * main = &mii->bank[MII_BANK_MAIN];
-	mii_bank_t * aux = &mii->bank[MII_VIDEO_BANK];
-	bool 	page2 	= SW_GETSTATE(mii, SW80STORE) ? 0 : SW_GETSTATE(mii, SWPAGE2);
-//	uint8_t mode 	= mii->video.color_mode;
-
+	bool page2 	= SWW_GETSTATE(sw, SW80STORE) ? 0 : SWW_GETSTATE(sw, SWPAGE2);
 	uint16_t a = (0x400 + (0x400 * page2));
-	mii->video.base_addr = a;
-	int i = mii->video.line >> 3;
-	a += ((i & 0x07) << 7) | ((i >> 3) << 5) | ((i >> 3) << 3);
-	mii->video.line_addr = a;
-	const uint8_t *rom_base = mii->emu == MII_EMU_IIEE ?
-								mii_rom_iiee_video : mii_rom_iic_video;
 
-	bool 	col80 	= SW_GETSTATE(mii, SW80COL);
-	bool 	altset 	= SW_GETSTATE(mii, SWALTCHARSET);
-	int 	flash 	= mii->video.frame_count & MII_VIDEO_FLASH_FRAME_MASK ?
+	video->base_addr = a;
+	int i = video->line >> 3;
+	a += ((i & 0x07) << 7) | ((i >> 3) << 5) | ((i >> 3) << 3);
+	video->line_addr = a;
+//	const uint8_t *rom_base = mii->emu == MII_EMU_IIEE ?
+//								mii_rom_iiee_video : mii_rom_iic_video;
+	// TODO custom fonts
+	const uint8_t *rom_base = mii_rom_iiee_video;
+
+	bool 	col80 	= SWW_GETSTATE(sw, SW80COL);
+	bool 	altset 	= SWW_GETSTATE(sw, SWALTCHARSET);
+	int 	flash 	= video->frame_count & MII_VIDEO_FLASH_FRAME_MASK ?
 							-0x40 : 0x40;
-	uint32_t * screen = mii->video.pixels +
-						(mii->video.line * MII_VRAM_WIDTH * 2);
+	uint32_t * screen = video->pixels +
+						(video->line * MII_VRAM_WIDTH * 2);
 
 	for (int x = 0; x < 40 + (40 * col80); x++) {
 		uint8_t c = 0;
@@ -559,10 +509,10 @@ _mii_line_render_text(
 				c = (int)c + flash;
 		}
 		const uint8_t * rom = rom_base + (c << 3);
-		uint8_t bits = rom[mii->video.line & 0x07];
+		uint8_t bits = rom[video->line & 0x07];
 		for (int pi = 0; pi < 7; pi++) {
 			uint8_t pixel = (bits >> pi) & 1;
-			uint32_t col = mii->video.clut.mono[!pixel];
+			uint32_t col = video->clut.mono[!pixel];
 			*screen++ = col;
 			if (!col80)
 				*screen++ = col;
@@ -572,24 +522,24 @@ _mii_line_render_text(
 
 static void
 _mii_line_render_lores(
-		mii_t *mii )
+		struct mii_video_t *video,
+		uint32_t 			sw,
+		mii_bank_t * 		main,
+		mii_bank_t * 		aux )
 {
-	mii_bank_t * main = &mii->bank[MII_BANK_MAIN];
-	mii_bank_t * aux = &mii->bank[MII_VIDEO_BANK];
-	bool 	page2 	= SW_GETSTATE(mii, SW80STORE) ? 0 : SW_GETSTATE(mii, SWPAGE2);
-//	uint8_t mode 	= mii->video.color_mode;
-
+	bool page2 	= SWW_GETSTATE(sw, SW80STORE) ? 0 : SWW_GETSTATE(sw, SWPAGE2);
 	uint16_t a = (0x400 + (0x400 * page2));
-	mii->video.base_addr = a;
-	int i = mii->video.line >> 3;
-	a += ((i & 0x07) << 7) | ((i >> 3) << 5) | ((i >> 3) << 3);
-	mii->video.line_addr = a;
 
-	bool 	col80 	= SW_GETSTATE(mii, SW80COL);
-	uint32_t * screen = mii->video.pixels +
-						(mii->video.line * MII_VRAM_WIDTH * 2);
-	mii_video_clut_t * clut = &mii->video.clut;
-	mii_video_clut_t * clut_low = &mii->video.clut_low;
+	video->base_addr = a;
+	int i = video->line >> 3;
+	a += ((i & 0x07) << 7) | ((i >> 3) << 5) | ((i >> 3) << 3);
+	video->line_addr = a;
+
+	bool 	col80 	= SWW_GETSTATE(sw, SW80COL);
+	uint32_t * screen = video->pixels +
+						(video->line * MII_VRAM_WIDTH * 2);
+	mii_video_clut_t * clut = &video->clut;
+	mii_video_clut_t * clut_low = &video->clut_low;
 	uint32_t lastcolor = 0;
 	for (int x = 0; x < 40 + (40 * col80); x++) {
 		uint16_t c = 0;
@@ -598,12 +548,12 @@ _mii_line_render_lores(
 		else
 			c = mii_bank_peek(main, a + x);
 
-		int lo_line = mii->video.line / 4;
+		int lo_line = video->line / 4;
 		c = (c >> ((lo_line & 1) * 4)) & 0xf;
 //		c |= (c << 4);
 		uint32_t color = clut->lores[(x & col80) ^ col80][c & 0x0f];
 		uint32_t dim = clut_low->lores[(x & col80) ^ col80][c & 0x0f];
-		if (!mii->video.monochrome) {
+		if (!video->monochrome) {
 			for (int pi = 0; pi < 7; pi++) {
 				uint32_t pixel = color;
 				if (pixel != lastcolor) {
@@ -636,21 +586,6 @@ _mii_line_render_lores(
 	}
 }
 
-/*
- * This is called when writes are made from outside the 6502 emulation, for
- * example the DMA froms smartport. Otherwise you could BLOAD an image in video
- * ram and there would be now way of knowing if the addresses *were* in the
- * video ram. So this call is used by anything doing DMA (curretnly just smartport)
- */
-void
-mii_video_OOB_write_check(
-		mii_t *mii,
-		uint16_t addr,
-		uint16_t size)
-{
-	for (int i = 0; i < size; i += 40)
-		mii->video.line_cb.check(&mii->video, mii->sw_state, addr + i);
-}
 
 /*
  * This return the correct line drawing function callback for the mode
@@ -658,7 +593,7 @@ mii_video_OOB_write_check(
  */
 static mii_video_cb_t
 _mii_video_get_line_render_cb(
-		mii_t *mii,
+		mii_video_t *video,
 		uint32_t sw_state)
 {
 	mii_video_cb_t res = { 0 };
@@ -669,9 +604,8 @@ _mii_video_get_line_render_cb(
 	bool 	dhires 	= SWW_GETSTATE(sw_state, SWDHIRES);
 
 	if (hires && !text && col80 && dhires) {
-		mii_bank_t * sw = &mii->bank[MII_BANK_SW];
-		uint8_t reg = mii_bank_peek(sw, SWAN3_REGISTER);
-		if (reg != 0 && !mii->video.monochrome)
+		uint8_t reg = video->an3_mode;
+		if (reg != 0 && !video->monochrome)
 			res.render = _mii_line_render_dhires_color;
 		else
 			res.render = _mii_line_render_dhires_mono;
@@ -705,31 +639,47 @@ _mii_video_mark_dirty(
  */
 static void
 _mii_video_mode_changed(
-		mii_t *mii)
+		mii_video_t *video,
+		uint32_t sw_state)
 {
-	uint32_t sw_state = mii->sw_state;
-
-	mii_video_cb_t res = _mii_video_get_line_render_cb(mii, sw_state);
-	if (res.render != mii->video.line_cb.render) {
-		mii->video.line_cb = res;
-		_mii_video_mark_dirty(&mii->video);
+	mii_video_cb_t res = _mii_video_get_line_render_cb(video, sw_state);
+	if (res.render != video->line_cb.render) {
+		video->line_cb = res;
+		_mii_video_mark_dirty(video);
 	}
 }
 
+
 /*
- * This is the state of the video output
+ * This is called when writes are made from outside the 6502 emulation, for
+ * example the DMA from smartport. Otherwise you could BLOAD an image in video
+ * ram and there would be no way of knowing if the addresses *were* in the video
+ * ram. So this call is used by anything doing DMA (currently just smartport)
+ */
+void
+mii_video_OOB_write_check(
+		mii_t *mii,
+		uint16_t addr,
+		uint16_t size)
+{
+	for (int i = 0; i < size; i += 40)
+		mii->video.line_cb.check(&mii->video, mii->sw_state, addr + i);
+}
+
+/*
+ * This is the state machine to draw a line of the video output
  * All timings lifted from https://rich12345.tripod.com/aiivideo/vbl.html
  *
  * This is a 'protothread' basically cooperative scheduling using an
  * old compiler trick. It's not a real thread, but it's a way to
  * write code that looks like a thread, and is easy to read.
- * The 'pt_start' macro starts the thread, and pt_yield() yields
- * the thread to the main loop.
- * The pt_end() macro ends the thread.
+ * + pt_start macro starts the 'thread' (and return to last yield point).
+ * + pt_yield() yields until the function is called again.
+ * + pt_end() macro ends the thread.
  * Remeber you cannot have locals in the thread, they must be
  * static or global.
  * *everything* before the pt_start call is ran every time, so you can use
- * that to reload some sort of state, as here, were we reload all the
+ * that to reload some sort of state, as here, were we get all the
  * video mode softswitches.
  *
  * This function is also a 'cycle timer' it returns the number of 6502
@@ -740,40 +690,44 @@ _mii_video_mode_changed(
  */
 static uint64_t
 mii_video_timer_cb(
-	mii_t *mii,
-	void *param)
+		mii_t *mii,
+		void *param)
 {
 	uint64_t res = MII_VIDEO_H_CYCLES * mii->speed;
-	mii_bank_t * sw = &mii->bank[MII_BANK_SW];
-	uint32_t sw_state = mii->sw_state;
 
-	pt_start(mii->video.state);
+	mii_bank_t * sw = &mii->bank[MII_BANK_SW];
+	uint32_t 	sw_state = mii->sw_state;
+	mii_bank_t * main = &mii->bank[MII_BANK_MAIN];
+	mii_bank_t * aux = &mii->bank[MII_VIDEO_BANK];
+	mii_video_t * video = &mii->video;
+
+	pt_start(video->state);
 	/*
-		We cheat and draw a whole line at a time, then 'wait' until
+		We 'cheat' and draw a whole line at a time, then 'wait' until
 		horizontal blanking, then wait until vertical blanking.
 	*/
 	do {
 		// 'clear' VBL flag. Flag is 0 during retrace
 		mii_bank_poke(sw, SWVBL, 0x80);
 
-		mii_video_line_drawing_cb line_drawing = mii->video.line_cb.render;
+		mii_video_line_drawing_cb line_drawing = video->line_cb.render;
 		/* If we are in mixed mode past line 160, check if we need to
 		 * switch from the 'main mode' callback to the text callback */
-		if (mii->video.line >= MII_VIDEO_MIXED_LINE) {
+		if (video->line >= MII_VIDEO_MIXED_LINE) {
 			bool	mixed	= SWW_GETSTATE(sw_state, SWMIXED);
 			if (mixed) {
 				uint32_t sw 	= sw_state;
 				SWW_SETSTATE(sw, SWTEXT, 1);
 				if (sw != sw_state)
-					line_drawing = _mii_video_get_line_render_cb(mii, sw).render;
+					line_drawing = _mii_video_get_line_render_cb(video, sw).render;
 			}
 		}
-		if (mii->video.lines_dirty[mii->video.line / 64] &
-								(1ULL << (mii->video.line & 63))) {
-			line_drawing(mii);
+		if (video->lines_dirty[video->line / 64] &
+								(1ULL << (video->line & 63))) {
+			line_drawing(video, sw_state, main, aux);
 
-			uint32_t * screen = mii->video.pixels +
-								(mii->video.line * MII_VRAM_WIDTH * 2);
+			uint32_t * screen = video->pixels +
+								(video->line * MII_VRAM_WIDTH * 2);
 			uint32_t * l2 = screen + MII_VRAM_WIDTH;
 
 #if defined(__AVX2__)
@@ -807,57 +761,65 @@ mii_video_timer_cb(
 #endif
 #endif
 
-			mii->video.lines_dirty[mii->video.line / 64] &=
-								~(1ULL << (mii->video.line & 63));
-			mii->video.frame_dirty = 1;
+			video->lines_dirty[video->line / 64] &=
+								~(1ULL << (video->line & 63));
+			video->frame_dirty = 1;
 #if MII_VIDEO_DEBUG_HEAPMAP
-			mii->video.video_hmap[mii->video.line] = 0xff;
+			video->video_hmap[video->line] = 0xff;
 #endif
 		}
-		mii->video.line++;
-		if (mii->video.line == 192) {
-			mii->video.line = 0;
-			mii->video.line_addr = mii->video.base_addr;
-			mii->video.timer_max = MII_VIDEO_H_CYCLES;
-			res = mii->video.timer_max * mii->speed;
-			pt_yield(mii->video.state);
+		video->line++;
+		if (video->line == 192) {
+			video->line = 0;
+			video->line_addr = video->base_addr;
+			video->timer_max = MII_VIDEO_H_CYCLES;
+			res = video->timer_max * mii->speed;
+			pt_yield(video->state);
 			mii_bank_poke(sw, SWVBL, 0x00);
-			mii->video.timer_max = MII_VBL_UP_CYCLES;
-			res = mii->video.timer_max * mii->speed;
+			video->timer_max = MII_VBL_UP_CYCLES;
+			res = video->timer_max * mii->speed;
 			/*
-			 * This is to handle the corner case where text has some blinking
-			 * text, and we need to redraw the screen.
-			 * We only check every 16 frames, so we don't waste time
-			 * redrawing the screen every frame. Also, the alt char set needs
-			 * to be off, as the blinking text is only in the main charset.
+			 * This is to handle the corner case where text screen has some
+			 * blinking text, and we need to redraw the screen.
+			 *
+			 * We only check every 16 frames, so we don't waste time redrawing
+			 * the screen every frame. Also, the alt char set needs to be off,
+			 * as the blinking text is only in the main charset.
 			 */
-			uint32_t new_frame = mii->video.frame_count + 1;
+			uint32_t new_frame = video->frame_count + 1;
 			if ((new_frame & MII_VIDEO_FLASH_FRAME_MASK) !=
-					(mii->video.frame_count & MII_VIDEO_FLASH_FRAME_MASK)) {
+					(video->frame_count & MII_VIDEO_FLASH_FRAME_MASK)) {
 				if (!SW_GETSTATE(mii, SWALTCHARSET))
-					_mii_video_mark_dirty(&mii->video);
+					_mii_video_mark_dirty(video);
 			}
-			mii->video.frame_count = new_frame;
-			pt_yield(mii->video.state);
+			video->frame_count = new_frame;
+			pt_yield(video->state);
 			// check if we need to switch the video mode, in case the UI switches
 			// Color/mono palette etc
 			mii->cpu.instruction_run = 0;	// stop current instruction run!
-			if (mii->video.frame_dirty)
-				mii->video.frame_seed++;
-			mii->video.frame_dirty = 0;
+			if (video->frame_dirty)
+				video->frame_seed++;
+			video->frame_dirty = 0;
 		} else {
-			mii->video.timer_max = MII_VIDEO_H_CYCLES + MII_VIDEO_HB_CYCLES;
-			res = mii->video.timer_max * mii->speed;
-			pt_yield(mii->video.state);
+			video->timer_max = MII_VIDEO_H_CYCLES + MII_VIDEO_HB_CYCLES;
+			res = video->timer_max * mii->speed;
+			pt_yield(video->state);
 		}
 	} while (1);
-	pt_end(mii->video.state);
+	pt_end(video->state);
 	return res;
 }
 
 /*
  * TODO: this doesn't work yet. Don't get overexcited about this.
  * Or, get overexcited about this and fix it! :-)
+ *
+ * This is mostly how it's supposed to work anyway. Any 'read' access should
+ * be able to deduce where the 'beam' is by looking at what the remaining
+ * timer cycles are, and the current line.
+ * And then deduce the exact position horizontally on the screen.
+ *
+ * But, it doesn't really work for now.
  */
 uint8_t
 mii_video_get_vapor(
@@ -914,7 +876,7 @@ mii_access_video(
 		//	res = true;	// we return false here, so generic SW code is called
 			SW_SETSTATE(mii, SWHIRES, addr & 1);
 			mii_bank_poke(sw, SWHIRES, (addr & 1) << 7);
-			_mii_video_mode_changed(mii);
+			_mii_video_mode_changed(&mii->video, mii->sw_state);
 			break;
 		case SWPAGE2OFF:
 		case SWPAGE2ON:
@@ -925,7 +887,7 @@ mii_access_video(
 				*byte = mii_bank_peek(sw, SWPAGE2);
 			// 80STORE completely changes the meaning of PAGE2
 			if (!SW_GETSTATE(mii, SW80STORE)) {
-				_mii_video_mode_changed(mii);
+				_mii_video_mode_changed(&mii->video, mii->sw_state);
 				_mii_video_mark_dirty(&mii->video);
 			}
 		 	break;
@@ -935,11 +897,12 @@ mii_access_video(
 			res = true;
 			SW_SETSTATE(mii, SW80COL, addr & 1);
 			mii_bank_poke(sw, SW80COL, (addr & 1) << 7);
-			_mii_video_mode_changed(mii);
+			_mii_video_mode_changed(&mii->video, mii->sw_state);
 			break;
 		case SWDHIRESOFF: 	//  0xc05f,
 		case SWDHIRESON: { 	// = 0xc05e,
 			res = true;
+			mii_video_t * video = &mii->video;
 			uint8_t an3 = !!mii_bank_peek(sw, SWAN3);
 			bool an3_on = !!(addr & 1); // 5f is ON, 5e is OFF
 			uint8_t reg = mii_bank_peek(sw, SWAN3_REGISTER);
@@ -947,21 +910,22 @@ mii_access_video(
 				uint8_t bit = SW_GETSTATE(mii, SW80COL);
 				reg = ((reg << 1) | bit) & 3;
 			//	printf("VIDEO 80:%d REG now %x\n", bit, reg);
+				video->an3_mode = reg;
 				mii_bank_poke(sw, SWAN3_REGISTER, reg);
 			}
 			mii_bank_poke(sw, SWAN3, an3_on ? 0x80 : 0);
 		//	printf("DHRES IS %s mode:%d\n", (addr & 1) ? "OFF" : "ON ", reg);
 			SW_SETSTATE(mii, SWDHIRES, !(addr & 1));
 			mii_bank_poke(sw, SWRDDHIRES, (!(addr & 1)) << 7);
-			_mii_video_mark_dirty(&mii->video);
-			_mii_video_mode_changed(mii);
+			_mii_video_mark_dirty(video);
+			_mii_video_mode_changed(&mii->video, mii->sw_state);
 		}	break;
 		case SWTEXTOFF:
 		case SWTEXTON:
 			res = true;
 			SW_SETSTATE(mii, SWTEXT, addr & 1);
 			mii_bank_poke(sw, SWTEXT, (addr & 1) << 7);
-			_mii_video_mode_changed(mii);
+			_mii_video_mode_changed(&mii->video, mii->sw_state);
 			if (!write)
 				*byte = mii_video_get_vapor(mii);
 			break;
@@ -970,7 +934,7 @@ mii_access_video(
 			res = true;
 			SW_SETSTATE(mii, SWMIXED, addr & 1);
 			mii_bank_poke(sw, SWMIXED, (addr & 1) << 7);
-			_mii_video_mode_changed(mii);
+			_mii_video_mode_changed(&mii->video, mii->sw_state);
 			if (!write)
 				*byte = mii_video_get_vapor(mii);
 			break;
@@ -978,6 +942,11 @@ mii_access_video(
 	return res;
 }
 
+/*
+ * This is mostly a debug function, to be able to 'force' a full screen
+ * refresh, for example when the emulator is paused, and you want to see
+ * the screen 'as it is' for example if you poke memory while debugging.
+ */
 void
 mii_video_full_refresh(
 		mii_t *mii)
@@ -1006,7 +975,7 @@ mii_video_init(
 	// start the DHRES in color
 	mii_bank_t * sw = &mii->bank[MII_BANK_SW];
 	mii_bank_poke(sw, SWAN3_REGISTER, 1);
-	_mii_video_mode_changed(mii);
+	_mii_video_mode_changed(&mii->video, mii->sw_state);
 	mii_video_set_mode(mii, 0);
 }
 
@@ -1136,22 +1105,31 @@ _mii_rgb_to_lumed_color(
 #endif
 }
 
-
+/*
+ * All this kitchen mess is to implement a 'palette' system, where we can
+ * cycle through different color palettes. The palettes are defined in the
+ * palettes array, and the mii_video_set_mode() function is used to switch
+ * between them.
+ *
+ * It calculates a 'dimmed' version of the colors, and stores them in the
+ * clut_low structure, the 'dimmed' colors are used for creating artifacts.
+ */
 void
 mii_video_set_mode(
 		mii_t *mii,
 		uint8_t mode)
 {
+	mii_video_t * video = &mii->video;
 	// used to implement cycling through palettes
 	if (mode >= (sizeof(palettes) / sizeof(palettes[0])))
 		mode = 0;
 //	printf("%s mode %d\n", __func__, mode);
-	mii->video.color_mode = mode;
-	mii_video_clut_t * clut = &mii->video.clut;
+	video->color_mode = mode;
+	mii_video_clut_t * clut = &video->clut;
 
 	uint32_t base = palettes[mode].mono_color;
-	mii->video.monochrome = base != 0;
-	if (mii->video.monochrome) {
+	video->monochrome = base != 0;
+	if (video->monochrome) {
 		// convert one set of RGB colors to monochrome. arbitrarily 0
 		const mii_palette_t * pal = &palettes[0];
 		// base CLUT is using color *indexes* in the palette we picked
@@ -1173,8 +1151,8 @@ mii_video_set_mode(
 		bb = out.b * 255;
 		base = HI_RGB(br, bg, bb);
 
-		clut = &mii->video.clut_low;
-		*clut = mii->video.clut;
+		clut = &video->clut_low;
+		*clut = video->clut;
 
 		for (uint i = 0; i < sizeof(clut->colors) / sizeof(clut->colors[0]); i++) {
 			clut->colors[i] = _mii_rgb_to_lumed_color(
@@ -1185,8 +1163,8 @@ mii_video_set_mode(
 		// base CLUT is using color *indexes* in the palette we picked
 		for (uint i = 0; i < sizeof(clut->colors) / sizeof(clut->colors[0]); i++)
 			clut->colors[i] = pal->color[mii_base_clut.colors[i]];
-		clut = &mii->video.clut_low;
-		*clut = mii->video.clut;
+		clut = &video->clut_low;
+		*clut = video->clut;
 
 		for (uint i = 0; i < sizeof(clut->colors) / sizeof(clut->colors[0]); i++) {
 			uint8_t br, bg, bb;
@@ -1213,13 +1191,14 @@ _mii_mish_video(
 		const char * argv[])
 {
 	mii_t * mii = param;
+	mii_video_t * video = &mii->video;
 
 	if (!argv[1] || !strcmp(argv[1], "list")) {
 		for (int i = 0; i < 16; i++) {
 			printf("%01x: %08x %08x %08x\n", i,
-					mii->video.clut.lores[0][i],
-					mii->video.clut.lores[1][i],
-					mii->video.clut.dhires[i]);
+					video->clut.lores[0][i],
+					video->clut.lores[1][i],
+					video->clut.dhires[i]);
 		}
 		return;
 	}
@@ -1227,8 +1206,9 @@ _mii_mish_video(
 		mii_bank_t * sw = &mii->bank[MII_BANK_SW];
 		uint8_t reg = mii_bank_peek(sw, SWAN3_REGISTER);
 		printf("AN3 REG %d -> %d\n", reg, 1);
+		video->an3_mode = 1;
 		mii_bank_poke(sw, SWAN3_REGISTER, 1);
-		_mii_video_mode_changed(mii);
+		_mii_video_mode_changed(video, mii->sw_state);
 		mii_video_full_refresh(mii);
 		return;
 	}
@@ -1236,13 +1216,14 @@ _mii_mish_video(
 		mii_bank_t * sw = &mii->bank[MII_BANK_SW];
 		uint8_t reg = mii_bank_peek(sw, SWAN3_REGISTER);
 		printf("AN3 REG %d -> %d\n", reg, 0);
+		video->an3_mode = 0;
 		mii_bank_poke(sw, SWAN3_REGISTER, 0);
-		_mii_video_mode_changed(mii);
+		_mii_video_mode_changed(video, mii->sw_state);
 		mii_video_full_refresh(mii);
 		return;
 	}
 	if (!strcmp(argv[1], "dirty")) {
-		_mii_video_mode_changed(mii);
+		_mii_video_mode_changed(video, mii->sw_state);
 		mii_video_full_refresh(mii);
 		return;
 	}

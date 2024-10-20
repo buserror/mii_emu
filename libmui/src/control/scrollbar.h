@@ -11,11 +11,11 @@
 #include <mui/mui_types.h>
 #include <mui/mui_control.h>
 
-
-
-/* Page step and line step are optional, they default to '30' pixels and
- * the 'visible' area of the scrollbar, respectively.
- * If you want to for example have a scrollbar that scrolls by 5 when you
+/*
+ * Page step and line step are optional, they default to '30' pixels and the
+ * 'visible' area of the scrollbar, respectively.
+ *
+ * If you want to -for example- have a scrollbar that scrolls by 5 when you
  * click the arrows, and by 20 when you click the bar, you would set the
  * line_step to 5, and the page_step to 20.
  */
