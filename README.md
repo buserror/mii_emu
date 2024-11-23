@@ -53,13 +53,20 @@ I wanted something:
  * No dependencies (X11) OpenGL rendering
  * Built-in debugger (using telnet access)
  * Super cool looking UI!
+ * Unique, and accurate view of the spinning floppies!
+ <div align="center">
+  <img src="docs/screen/v18new_display.gif" alt="New Floppy display">
+</div>
+<center><i>Poor quality gif, It is a LOT smoother at 60fps in the program!</i>
+</center>
+
+## How to I compile it and run it?
 
 <center>
    <img src="docs/screen/screen_green.png" alt="Phosphorescent Green">
    <i>Good old green monitor style. Theres Amber too.</i>
 </center>
 
-## How to I compile it and run it?
    * You need a C compiler, make, and a few libraries:
       * libasound2-dev [ optional, for audio ]
       * libgl-dev
@@ -88,28 +95,33 @@ You can also use the command line to specify them, and other options.
 
          Usage: ./build-x86_64-linux-gnu/bin/mii_emu_gl [options]
          Options:
-         -h, --help	This help
-         -v, --verbose	Verbose output
-         -m, --mute	Mute the speaker
-         -vol, --volume <volume>	Set speaker volume (0.0 to 10.0)
-         --audio-off, --no-audio, --silent	Disable audio output
-         -speed, --speed <speed>	Set the CPU speed in MHz
-         -s, --slot <slot>:<driver>	Specify a slot and driver
-               Slot id is 1..7
-         -d, --drive <slot>:<drive>:<filename>	Specify a drive
-               Slot id is 1..7, drive is 1..2
-               Alternate syntax: <slot>:<drive> <filename>
-         -L, --list-drivers	List available drivers
-         -def, --default	Set default drives:
-               Slot 4: mouse
-               Slot 6: disk2
-               Slot 7: smartport
-         -nsc[=0|1]	Enable/Disable No Slot Clock:
-               0: disable
-               1: enable [Enabled by default]
-         -titan[=0|1]	Enable/Disable Titan Accelerator IIe:
-               0: disable [default]
-               1: enable [Start at 3.58MHz]
+            -h, --help              This help
+            -v, --verbose           Verbose output
+            -fs, --full-screen      Start in full screen mode
+            --hide-ui, --no-ui	   Hide the UI
+            --list-drivers          List available drivers, exit
+            --list-roms             List available ROMs, exit
+            --video-rom <name>      Load a video ROM
+            -m, --mute              Start with audio muted
+            -vol, --volume <volume> Set speaker volume (0.0 to 10.0)
+            --audio-off, --no-audio, --silent	Disable audio output
+            -speed, --speed <speed>	Set the CPU speed in MHz
+            -s, --slot <slot>:<driver> Specify a slot and driver
+                  Slot id is 1..7
+            -d, --drive <slot>:<drive>:<filename>	Load a drive
+                  Slot id is 1..7, drive is 1..2
+                  Alternate syntax: <slot>:<drive> <filename>
+            -def, --default         Use a set of default cards:
+                  Slot 4: mouse
+                  Slot 6: disk2
+                  Slot 7: smartport
+            -nsc[=0|1]              Enable/Disable No Slot Clock:
+                  0: disable
+                  1: enable [Enabled by default]
+            -titan[=0|1]            Enable/Disable Titan Accelerator IIe:
+                  0: disable [default]
+                  1: enable [Start at 3.58MHz]
+
      And the available drivers:
 
          $ ./build-x86_64-linux-gnu/bin/mii_emu -L
@@ -169,7 +181,7 @@ There are just a few keys that are mapped for anything useful. List is not exaus
  * ~~Port it to Raspbery Pi~~. This was reported to work on a raspi 5.
  * Make a tool to 'flatten' overlay files back into the primary image.
  * Make a UI for the debugger, instead of telnet.
- * A mockinbird sound card emulation [In Progress].
+ * A mockingbird sound card emulation [In Progress].
 
 <div align="center">
   <img src="docs/screen/screen_total.png" alt="Total Replay">

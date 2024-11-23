@@ -116,6 +116,27 @@ mui_draw(
 	}
 }
 
+void
+mui_resize(
+		mui_t *			ui,
+		mui_drawable_t *dr,
+		c2_pt_t 		size)
+{
+	if (size.x == ui->screen_size.x && size.y == ui->screen_size.y)
+		return;
+	ui->screen_size = size;
+	mui_drawable_set_clip(dr, NULL);
+//	printf("%s: resizing to %dx%d\n", __func__, size.x, size.y);
+	mui_drawable_resize(dr, size);
+	c2_rect_t whole = C2_RECT_WH(0, 0, size.x, size.y);
+	pixman_region32_reset(&ui->inval, (pixman_box32_t*)&whole);
+	// get and resize the menu bar to the proper width
+	mui_window_t * mbar = mui_menubar_get(ui);
+	if (mbar) {
+		mui_window_resize(mbar, C2_PT(size.x, c2_rect_height(&mbar->frame)));
+	}
+}
+
 bool
 mui_handle_event(
 		mui_t *ui,

@@ -72,7 +72,7 @@ _mii_speaker_pad(
 					continue;
 				} else
 					break;
-			case MII_AUDIO_STARTING:
+			case MII_AUDIO_STARTING: {
 				// we are starting, so we need to pad the start of the frame
 				// with a small attack to soften the beeps
 //				printf("%s started avail W:%5d\n",
@@ -83,7 +83,7 @@ _mii_speaker_pad(
 							i == MII_SPEAKER_RAMP_ON, false);
 				s->source.state = MII_AUDIO_PLAYING;
 				s->last_fill_cycle = now;
-				break;
+			}	break;
 			case MII_AUDIO_PLAYING: {
 				uint64_t last_click = (now - s->last_click_cycle) /
 											s->source.sink->clk_per_sample;

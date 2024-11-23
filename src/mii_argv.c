@@ -23,6 +23,11 @@ _mii_usage(
 	printf("Options:\n");
 	printf("  -h, --help\tThis help\n");
 	printf("  -v, --verbose\tVerbose output\n");
+	printf("  -fs, --full-screen\tStart in full screen mode\n");
+	printf("  -hide, --hide-ui, --no-ui\tHide the UI\n");
+	printf("  --list-drivers\tList available drivers, exit\n");
+	printf("  --list-roms\tList available ROMs, exit\n");
+	printf("  --video-rom <name>\tLoad a video ROM\n");
 	printf("  -m, --mute\tMute the speaker\n");
 	printf("  -vol, --volume <volume>\tSet speaker volume (0.0 to 10.0)\n");
 	printf("  --audio-off, --no-audio, --silent\tDisable audio output\n");
@@ -32,7 +37,6 @@ _mii_usage(
 	printf("  -d, --drive <slot>:<drive>:<filename>\tLoad a drive\n");
 	printf("\t\tSlot id is 1..7, drive is 1..2\n");
 	printf("\t\tAlternate syntax: <slot>:<drive> <filename>\n");
-	printf("  -L, --list-drivers\tList available drivers, exit\n");
 	printf("  -def, --default\tUse a set of default cards:\n");
 	printf("\t\tSlot 4: mouse\n");
 	printf("\t\tSlot 6: disk2\n");
@@ -64,6 +68,11 @@ mii_argv_parse(
 		} else if (!strcmp(arg, "-v") || !strcmp(arg, "--verbose")) {
 		//	mii->verbose++;
 		//	continue;
+		} else if (!strcmp(arg, "-fs") || !strcmp(arg, "--full-screen")) {
+			*ioFlags |= MII_INIT_FULLSCREEN;
+		} else if (!strcmp(arg, "-hide") || !strcmp(arg, "--hide-ui") ||
+					!strcmp(arg, "--no-ui")) {
+			*ioFlags |= MII_INIT_HIDE_UI;
 		} else if ((!strcmp(arg, "-s") || !strcmp(arg, "--slot")) && i < argc-1) {
 			// for mat for slot is 1..8:<name> where name is the driver name
 			const char *p = argv[++i];
@@ -139,6 +148,28 @@ mii_argv_parse(
 				drv = drv->next;
 			}
 			exit(0);
+		} else if (!strcmp(arg, "--list-roms")) {
+			mii_rom_t * rom = mii_rom_get(NULL);
+			while (rom) {
+				printf("rom: %-20s %-12s %7d %s\n", rom->name, rom->class,
+						rom->len, rom->description);
+				rom = SLIST_NEXT(rom, self);
+			}
+			exit(0);
+		} else if (!strcmp(arg, "--video-rom") && i < argc-1) {
+			const char *name = argv[++i];
+			mii_rom_t *rom = mii_rom_get_class(NULL, "video");
+			while (rom) {
+				if (!strcmp(rom->name, name)) {
+					mii->video.rom = rom;
+					break;
+				}
+				rom = SLIST_NEXT(rom, self);
+			}
+			if (!rom) {
+				printf("mii: video rom %s not found\n", name);
+				return 1;
+			}
 		} else if (!strcmp(arg, "-m") || !strcmp(arg, "--mute")) {
 			mii->audio.muted = true;
 		} else if (!strcmp(arg, "--audio-off") ||

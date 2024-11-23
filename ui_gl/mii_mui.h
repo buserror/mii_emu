@@ -30,14 +30,17 @@ enum mii_mui_transition_e {
 
 #define MII_PIXEL_LAYERS	9
 
-DECLARE_C_ARRAY(float, float_array, 16);
-IMPLEMENT_C_ARRAY(float_array);
+typedef struct mii_mui_v_t {
+	float x, y, u, v;
+}	mii_mui_v_t;
 
-typedef struct mii_vtx_t {
-	unsigned int 		kind;	// TRIANGLES, QUADS, etc
-	float_array_t		pos;
-	float_array_t		tex;
-} mii_vtx_t;
+DECLARE_C_ARRAY(mii_mui_v_t, mii_mui_v_array, 16,
+				unsigned int 		vao, vbo, kind;);
+IMPLEMENT_C_ARRAY(mii_mui_v_array);
+
+DECLARE_C_ARRAY(int, int_array, 16, unsigned int ebo;);
+IMPLEMENT_C_ARRAY(int_array);
+
 
 typedef struct mii_mui_t {
 	mui_t 					mui;		// mui interface
@@ -49,7 +52,10 @@ typedef struct mii_mui_t {
 		c2_pt_t 				pos;
 	} 						mouse;
 	mui_event_t 			key;
-
+	// This is the list of vertices and coordinates for the screen, including
+	// the pincushion distortion. This is inset from video_frame
+	mii_mui_v_array_t		video_mesh;
+	int_array_t 			video_indices;
 	c2_rect_t				video_frame; // current video frame
 	uint32_t 				video_drawn_seed;
 	float					mui_alpha;
@@ -79,10 +85,10 @@ typedef struct mii_mui_t {
 		mii_floppy_t * 				floppy;
 		uint32_t 					seed_load;
 		float 						max_width;
-		/* technically speaking we'd only need one set of vertices, but hey */
-		mii_vtx_t					vtx;
+		/* Despite having the same size, they can (will) have different
+		 * texture coordinates, so each floppy have their own */
+		mii_mui_v_array_t			vtx;
 	}							floppy[2];
-	float_array_t 				floppy_base;
 
 	mii_machine_config_t	config;
 	mii_loadbin_conf_t		loadbin_conf;
@@ -111,6 +117,17 @@ mii_mui_showhide_ui_machine(
 c2_rect_t
 mii_mui_get_video_position(
 		mii_mui_t * ui);
+
+#define MII_GL_FLOPPY_SEGMENT_COUNT 	48
+#define MII_GL_FLOPPY_DISC_RADIUS_IN 	1.8
+#define MII_GL_FLOPPY_DISC_RADIUS_OUT 	10
+#define MII_GL_FLOPPY_FLUX_RADIUS_IN 	2.0
+#define MII_GL_FLOPPY_FLUX_RADIUS_OUT 	9.8
+
+void
+mii_generate_floppy_mesh(
+		mii_mui_v_array_t	* 	vtx,
+		float 			tex_width );
 
 // slot can be <= 0 to open the machine dialog instead
 void

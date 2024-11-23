@@ -3,6 +3,47 @@
 </p>
 
 # MII Version Changelog
+## 1.97
+ * Video Texture was using 4 times the memory it should have. Oops. Funny case of
+   two bugs cancelling each others. Fixed.
+ * Added a barrel distortion to the video rendering, to make it look more like a CRT.
+   Full Retrocomputing experience!
+<div align="center">
+  <img src="docs/screen/v197mousecalc.png" alt="VersionCalc">
+</div>
+<center><i>Curvy Corners FTW!</i>
+</center>
+
+ * After a rework of the OpenGL code, the emulator uses
+   even less CPU than before. It hovers around 10% of one core on my CPU while
+   playing the demos in Total Replay, and 6% when playing Lode Runner.
+ * Audio volume is saved in preferences.
+ * Added support for international ROMS. Include the UK/US and FR/US, there is
+   a new menu item to toggle the ROM bank between US and the alternate one.
+ * You can currently pass the rom you want using the command line:
+    + mii --list-roms will list the available ROMs (all of them, not just the video
+    ones)
+    + mii --video-rom <rom> will set the video ROM to the one you want, for example,
+    --video-rom iiee_video_fr
+    + When a suitable ROM is loaded, the Video submenu "Int. Font Switch" will be
+    enabled.
+    + You can also use the command prompt/telnet mode 'video rom' command to switch
+    the ROM on the fly.
+<div align="center">
+  <img src="docs/screen/v197epistole.png" alt="Epistole">
+</div>
+<center><i>French Video ROM</i>
+</center>
+
+ * Added support for fullscreen. Toggle with: *control-shift-ESC*.
+   The IIe video is resized, so when you hide the menus (Control-F1), you get the full immersive experience!
+   + Also made 'right click' anywhere will show the UI, even in fullscreen,
+     so you can access the menus to turn it off if you forget the key combo.
+   + mii -fs or --fullscreen will start the emulator in fullscreen mode.
+   + mii --no-ui or --hide-ui will hide the UI at startup.
+ * Fixed "Pasting" of text which was borken for a while. Note that you need 'xclip' on your system (*apt install xclip*) for it to work.
+ * Fixed a small problem in HGR mode where the rightmost column could be the wrong color.
+
 ## 1.96
 Bug fix release
  * Mouse driver was revised completely. Now works in all program that I could try,

@@ -163,7 +163,10 @@ mui_drawable_clip_pop(
 pixman_region32_t *
 mui_drawable_clip_get(
 		mui_drawable_t * dr);
-
+void
+mui_drawable_resize(
+		mui_drawable_t * dr,
+		c2_pt_t size);
 
 /*
  * Your typical ARGB color. Note that the components are NOT

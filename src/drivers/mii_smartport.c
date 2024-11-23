@@ -24,7 +24,6 @@
 #include "mii_bank.h"
 #include "mii_dd.h"
 #include "mii_slot.h"
-#include "mii_rom_smartport.h"
 
 
 #define MII_SM_DRIVE_COUNT 2
@@ -281,9 +280,10 @@ _mii_sm_init(
 
 //	printf("%s loading in slot %d\n", __func__, slot->id + 1);
 	uint16_t addr = 0xc100 + (slot->id * 0x100);
+	mii_rom_t *rom = mii_rom_get("smartport");
 	mii_bank_write(
 			&mii->bank[MII_BANK_CARD_ROM],
-			addr, mii_smartport_driver_bin, 256);
+			addr, rom->rom, 256);
 
 	uint8_t trap_hd = mii_register_trap(mii, _mii_hd_callback);
 	uint8_t trap_sm = mii_register_trap(mii, _mii_sm_callback);

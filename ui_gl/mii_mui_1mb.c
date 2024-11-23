@@ -91,7 +91,7 @@ _mii_check_1mb_file(
 		char stt[64];
 		long delta = 1024*1024 - st.st_size;
 		_size_string(delta < 0 ? -delta : delta, stt, sizeof(stt)-2, 1);
-		strcpy(stt + strlen(stt), "B");
+		strcat(stt + strlen(stt), "B");
 		char *msg;
 		asprintf(&msg, "File '%s' is the wrong size, %s too %s.",
 					basename((char*)path),

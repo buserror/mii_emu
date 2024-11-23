@@ -22,6 +22,7 @@
 #endif
 
 #include "mii.h"
+#include "mii_sw.h"
 #include "mii_thread.h"
 #include "miigl_counter.h"
 #include "mii_mui_settings.h"
@@ -143,13 +144,12 @@ mii_thread_cpu_regulator(
 		}
 		if (sleep) {
 			if (paste_buffer) {
+				mii_bank_t * sw = &mii->bank[MII_BANK_SW];
 				if (paste_buffer[paste_buffer_index] == 0) {
 					free(paste_buffer);
 					paste_buffer = NULL;
-				} else if (!(mii_bank_peek(
-								&mii->bank[MII_BANK_SW], 0xc000) & 0x80)) {
-					mii_bank_poke(&mii->bank[MII_BANK_SW],
-							0xc000, paste_buffer[paste_buffer_index] | 0x80);
+				} else if (!(mii_bank_peek(sw, SWAKD) & 0x80)) {
+					mii_keypress(mii, paste_buffer[paste_buffer_index]);
 					paste_buffer_index++;
 				}
 			}

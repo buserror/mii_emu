@@ -43,8 +43,6 @@ make && A2_TTY=/dev/tntX ./surl-server
 #include "fifo_declare.h"
 #include "bsd_queue.h"
 
-#include "mii_rom_ssc.h"
-
 #include <termios.h>
 #include <pty.h>
 #include <fcntl.h>
@@ -69,6 +67,7 @@ static const int _mii_ssc_to_baud[16] = {
 	[8] = B1200,	[9] = B1800,	[10] = B2400,
 	[12] = B4800,					[14] = B9600,	[15] = B19200,
 };
+// Minus ones are the ones that haven't got a tty speed, so are invalid
 static const unsigned int _mii_ssc_to_baud_rate[16] = {
 	[0] = 1152000,	[1] = 50,		[2] = 75,		[3] = 110,
 	[4] = 134,		[5] = 150,		[6] = 300,		[7] = 600,
@@ -159,6 +158,7 @@ typedef struct mii_card_ssc_t {
 	STAILQ_ENTRY(mii_card_ssc_t) started;
 	struct mii_slot_t *	slot;
 	struct mii_bank_t * rom;
+	mii_rom_t *			rom_ssc;
 	mii_t *				mii;
 	uint8_t 			irq_num;	// MII IRQ line
 	uint8_t 			slot_offset;
@@ -395,7 +395,7 @@ _mii_ssc_select(
 			_mii_ssc_thread_start(c);
 		}
 	}
-	mii_bank_write(c->rom, 0xc800, mii_rom_ssc, 2048);
+	mii_bank_write(c->rom, 0xc800, c->rom_ssc->rom, 2048);
 	c->slot->aux_rom_selected = true;
 	return false;
 }
@@ -487,7 +487,8 @@ _mii_scc_set_conf(
 		}
 	}
 	c->conf = *conf;
-	strcpy(c->tty_path, conf->device);
+	strncpy(c->tty_path, conf->device, sizeof(c->tty_path) - 1);
+	c->tty_path[sizeof(c->tty_path) - 1] = 0; 
 	if (c->tty_fd < 0) {
 		int new_fd = -1;
 		if (conf->is_pty) {
@@ -569,7 +570,8 @@ _mii_ssc_init(
 
 	uint16_t addr = 0xc100 + (slot->id * 0x100);
 	c->rom = &mii->bank[MII_BANK_CARD_ROM];
-	mii_bank_write(c->rom, addr, mii_rom_ssc + 7*256, 256);
+	c->rom_ssc = mii_rom_get("ssc");
+	mii_bank_write(c->rom, addr, c->rom_ssc->rom + 7*256, 256);
 	/*
 	 * install a callback that will be called for every access to the
 	 * ROM area, we need this to re-install the secondary part of the ROM

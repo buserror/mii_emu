@@ -14,8 +14,6 @@
 
 #include "mii.h"
 #include "mii_bank.h"
-#include "mii_rom_iiee_video.h"
-#include "mii_rom_iic_video.h"
 #include "mii_sw.h"
 #include "minipt.h"
 
@@ -326,7 +324,7 @@ _mii_line_render_dhires_mono(
 	a = _mii_line_to_video_addr(a, video->line);
 	video->line_addr = a;
 	uint32_t * screen = video->pixels +
-						(video->line * MII_VRAM_WIDTH * 2);
+						(video->line * MII_VIDEO_WIDTH * 2);
 
 	const uint32_t clut[2] = {
 			video->clut.mono[0],
@@ -369,7 +367,7 @@ _mii_line_render_dhires_color(
 	a = _mii_line_to_video_addr(a, video->line);
 	video->line_addr = a;
 	uint32_t * screen = video->pixels +
-						(video->line * MII_VRAM_WIDTH * 2);
+						(video->line * MII_VIDEO_WIDTH * 2);
 
 	uint8_t bits[71] = { 0 };
 
@@ -412,14 +410,15 @@ _mii_line_render_hires(
 	a = _mii_line_to_video_addr(a, video->line);
 	video->line_addr = a;
 	uint32_t * screen = video->pixels +
-						(video->line * MII_VRAM_WIDTH * 2);
+						(video->line * MII_VIDEO_WIDTH * 2);
 	uint8_t *src = main->mem;
 
 	uint8_t b0 = 0;
 	uint8_t b1 = src[a + 0];
 	uint32_t lastcol = 0;
 	for (int x = 0; x < 40; x++) {
-		uint8_t b2 	= src[a + x + 1];
+		// last columns are clear, don't wrap around
+		uint8_t b2 	= x == 39 ? 0 : src[a + x + 1];
 		// last 2 pixels, current 7 pixels, next 2 pixels
 		uint16_t run =  ((b0 & 0x60) >> ( 5 )) |
 						((b1 & 0x7f) << ( 2 )) |
@@ -486,17 +485,18 @@ _mii_line_render_text(
 	int i = video->line >> 3;
 	a += ((i & 0x07) << 7) | ((i >> 3) << 5) | ((i >> 3) << 3);
 	video->line_addr = a;
-//	const uint8_t *rom_base = mii->emu == MII_EMU_IIEE ?
-//								mii_rom_iiee_video : mii_rom_iic_video;
-	// TODO custom fonts
-	const uint8_t *rom_base = mii_rom_iiee_video;
+	const uint8_t *rom_base = video->rom->rom;
+
+	// International ROMS are 8K, the rom_bank variable allows switching between
+	// the default (0) US ROM and the International ROM
+	rom_base += video->rom->len > (4*1024) && video->rom_bank ? (4*1024) : 0;
 
 	bool 	col80 	= SWW_GETSTATE(sw, SW80COL);
 	bool 	altset 	= SWW_GETSTATE(sw, SWALTCHARSET);
 	int 	flash 	= video->frame_count & MII_VIDEO_FLASH_FRAME_MASK ?
 							-0x40 : 0x40;
 	uint32_t * screen = video->pixels +
-						(video->line * MII_VRAM_WIDTH * 2);
+						(video->line * MII_VIDEO_WIDTH * 2);
 
 	for (int x = 0; x < 40 + (40 * col80); x++) {
 		uint8_t c = 0;
@@ -537,7 +537,7 @@ _mii_line_render_lores(
 
 	bool 	col80 	= SWW_GETSTATE(sw, SW80COL);
 	uint32_t * screen = video->pixels +
-						(video->line * MII_VRAM_WIDTH * 2);
+						(video->line * MII_VIDEO_WIDTH * 2);
 	mii_video_clut_t * clut = &video->clut;
 	mii_video_clut_t * clut_low = &video->clut_low;
 	uint32_t lastcolor = 0;
@@ -727,8 +727,8 @@ mii_video_timer_cb(
 			line_drawing(video, sw_state, main, aux);
 
 			uint32_t * screen = video->pixels +
-								(video->line * MII_VRAM_WIDTH * 2);
-			uint32_t * l2 = screen + MII_VRAM_WIDTH;
+								(video->line * MII_VIDEO_WIDTH * 2);
+			uint32_t * l2 = screen + MII_VIDEO_WIDTH;
 
 #if defined(__AVX2__)
 			const __m256i mask = _mm256_set1_epi32(C_SCANLINE_MASK);
@@ -970,6 +970,9 @@ void
 mii_video_init(
 	mii_t *mii)
 {
+	mii_video_t * video = &mii->video;
+	video->rom = mii_rom_get(
+			mii->emu == MII_EMU_IIC ? "iic_video" : "iiee_video");
 	mii->video.timer_id = mii_timer_register(mii,
 				mii_video_timer_cb, NULL, MII_VIDEO_H_CYCLES, __func__);
 	// start the DHRES in color
@@ -1193,7 +1196,15 @@ _mii_mish_video(
 	mii_t * mii = param;
 	mii_video_t * video = &mii->video;
 
-	if (!argv[1] || !strcmp(argv[1], "list")) {
+	if (!argv[1]) {
+		printf("VIDEO mode %d\n", video->color_mode);
+		printf(" ROM %s (%s)\n", video->rom->name, video->rom->description);
+		printf(" ROM bank %s\n", video->rom_bank ? "ON" : "OFF");
+		printf(" AN3 mode %d\n", video->an3_mode);
+		printf(" Monochrome %s\n", video->monochrome ? "ON" : "OFF");
+		return;
+	}
+	if (!strcmp(argv[1], "clut")) {
 		for (int i = 0; i < 16; i++) {
 			printf("%01x: %08x %08x %08x\n", i,
 					video->clut.lores[0][i],
@@ -1227,6 +1238,37 @@ _mii_mish_video(
 		mii_video_full_refresh(mii);
 		return;
 	}
+	if (!strcmp(argv[1], "rom")) {
+		const char * name = argv[2];
+		mii_rom_t * rom = mii_rom_get_class(NULL, "video");
+		while (rom && rom->name) {
+			if (name && !strcmp(rom->name, name)) {
+				printf("ROM set to %s (%s)\n", rom->name, rom->description);
+				mii->video.rom = rom;
+				mii_video_full_refresh(mii);
+				return;
+			} else if (!name) {
+				printf("ROM %s (%s)\n", rom->name, rom->description);
+			}
+			rom = SLIST_NEXT(rom, self);
+		}
+		fprintf(stderr, "ROM %s not found\n", name);
+		return;
+	}
+	if (!strcmp(argv[1], "bank")) {
+		// toggle video_bank and display wether it will do anything with this ROM
+		if (video->rom->len > (4*1024)) {
+			video->rom_bank = !video->rom_bank;
+			printf("ROM %s alternative bank %s\n",
+					video->rom->name,
+					video->rom_bank ? "ON" : "OFF");
+			mii_video_full_refresh(mii);
+		} else {
+			printf("Video rom %s doesn't have alternative charsets\n",
+					video->rom->name);
+		}
+		return;
+	}
 #ifdef TRACE
 	if (!strcmp(argv[1], "trace")) {
 		_trace = 1;
@@ -1236,6 +1278,16 @@ _mii_mish_video(
 	}
 #endif
 	fprintf(stderr, "Unknown video command %s\n", argv[1]);
+
+	// print usage
+	fprintf(stderr, "video: test patterns generator\n");
+	fprintf(stderr, " <default>: dump color tables\n");
+	fprintf(stderr, " list: dump color tables\n");
+	fprintf(stderr, " color: set color mode\n");
+	fprintf(stderr, " mono: set mono mode\n");
+	fprintf(stderr, " dirty: force full refresh\n");
+	fprintf(stderr, " rom <name>: set video rom\n");
+	fprintf(stderr, " bank: toggle video rom bank\n");
 }
 
 #include "mish.h"
@@ -1244,7 +1296,9 @@ MISH_CMD_NAMES(video, "video");
 MISH_CMD_HELP(video,
 		"video: test patterns generator",
 		" <default>: dump color tables",
-		" list: dump color tables",
+		" rom [<name>]: set (or list) video roms",
+		" bank: toggle video rom bank (if rom is > 4k)",
+		" clut: dump color tables",
 		" color: set color mode",
 		" mono: set mono mode",
 		" dirty: force full refresh"

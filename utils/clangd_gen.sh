@@ -36,6 +36,7 @@ END {
 	acc = "";
 	for (cmd in e) {
 		e[cmd] = gensub(/[ |\t]+$/, "", "g", e[cmd]);
+		e[cmd] = gensub(/\\"\\"/, "\\\\\"", "g", e[cmd]);
 		split(e[cmd], arg, / +/);
 		if (!match(arg[1], /g?cc$/))
 			continue;

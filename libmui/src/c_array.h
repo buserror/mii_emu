@@ -78,6 +78,7 @@ C_ARRAY_DECL C_ARRAY_INLINE \
 	if (size == 0) { if (a->e) free(a->e); a->e = NULL; } \
 	else a->e = (__name##_element_t*)realloc(a->e, \
 						size * sizeof(__name##_element_t));\
+	if (a->count > size) a->count = size;\
 	a->size = size; \
 }\
 C_ARRAY_DECL C_ARRAY_INLINE \

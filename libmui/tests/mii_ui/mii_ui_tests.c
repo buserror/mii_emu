@@ -172,7 +172,7 @@ _init(
 //	mii_mui_load_1mbrom(g->ui, &g_machine_conf.slot[0].conf.rom1mb);
 //	mii_mui_load_2dsk(g->ui, &g_machine_conf.slot[0].conf.disk2, MII_2DSK_DISKII);
 //	mii_mui_about(g->ui);
-//	mii_mui_configure_ssc(g->ui, &g_machine_conf.slot[0].conf.ssc);
+	mii_mui_configure_ssc(g->ui, &g_machine_conf.slot[0].conf.ssc);
 
 #if 0
 	mui_alert(ui, C2_PT(0,0),
@@ -188,7 +188,7 @@ _init(
 				"hdv,po,2mg",
 				getenv("HOME"), 0);
 #endif
-#if 1
+#if 0
 	mui_stdfile_put(ui,
 				C2_PT(0, 0),
 				"Save file as:",

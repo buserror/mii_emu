@@ -154,5 +154,5 @@ typedef enum mui_modifier_e {
 #define MUI_GLYPH_F10			""
 #define MUI_GLYPH_F11			""
 #define MUI_GLYPH_F12			""
-
+#define MUI_GLYPH_ESC			"☑"
 

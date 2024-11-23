@@ -13,7 +13,10 @@
 #include <stdio.h>
 #include <math.h>
 #include <stdlib.h>
+
+#define GL_GLEXT_PROTOTYPES
 #include <GL/gl.h>
+#include <GL/glext.h>
 
 #if defined(__AVX2__)
 #include <immintrin.h>
@@ -24,85 +27,11 @@
 #include "mii_mui_gl.h"
 #include "mii_floppy.h"
 
-#define MII_GL_FLOPPY_SEGMENT_COUNT 	32
-#define MII_GL_FLOPPY_DISC_RADIUS_IN 	1.8
-#define MII_GL_FLOPPY_DISC_RADIUS_OUT 	10
-#define MII_GL_FLOPPY_FLUX_RADIUS_IN 	2.0
-#define MII_GL_FLOPPY_FLUX_RADIUS_OUT 	9.8
-
-static void
-mii_gl_make_disc(
-		float_array_t * pos,
-		const double radius_out,
-		const double radius_in,
-		const int count)
-{
-	float_array_clear(pos);
-
-	const double astep = 2 * M_PI / count; // Angle step for each blade
-
-	for (int i = 0; i < MII_GL_FLOPPY_SEGMENT_COUNT; ++i) {
-		double a = i * astep, b = (i + 1) * astep;
-		// Outer vertex
-		double x_out = radius_out * cos(a);
-		double y_out = radius_out * sin(a);
-		double x_out2 = radius_out * cos(b);
-		double y_out2 = radius_out * sin(b);
-		// Inner vertex
-		double x_in = radius_in * cos(a);
-		double y_in = radius_in * sin(a);
-		double x_in2 = radius_in * cos(b);
-		double y_in2 = radius_in * sin(b);
-		// add two triangles winded in the right direction
-		float_array_push(pos, x_out); float_array_push(pos, y_out);
-		float_array_push(pos, x_in); float_array_push(pos, y_in);
-		float_array_push(pos, x_out2); float_array_push(pos, y_out2);
-
-		float_array_push(pos, x_in2); float_array_push(pos, y_in2);
-		float_array_push(pos, x_out2); float_array_push(pos, y_out2);
-		float_array_push(pos, x_in); float_array_push(pos, y_in);
-	}
-}
-static void
-mii_gl_make_floppy(
-	mii_vtx_t	* 	vtx,
-	float 			tex_width,
-	bool 			do_pos,
-	bool 			do_tex)
-{
-	vtx->kind = GL_TRIANGLES;
-	if (do_pos) {
-		mii_gl_make_disc(&vtx->pos,
-				MII_GL_FLOPPY_FLUX_RADIUS_OUT,
-				MII_GL_FLOPPY_FLUX_RADIUS_IN,
-				MII_GL_FLOPPY_SEGMENT_COUNT);
-	}
-	if (!do_tex)
-		return;
-	const double tex_y_in = 1;
-	const double tex_y_out = 0;
-	float_array_t * tex = &vtx->tex;
-	float_array_clear(tex);
-	for (int i = 0; i < MII_GL_FLOPPY_SEGMENT_COUNT; ++i) {
-		float_array_push(tex, (i * tex_width) / MII_GL_FLOPPY_SEGMENT_COUNT);
-		float_array_push(tex, tex_y_out);
-		float_array_push(tex, (i * tex_width) / MII_GL_FLOPPY_SEGMENT_COUNT);
-		float_array_push(tex, tex_y_in);
-		float_array_push(tex, ((i + 1) * tex_width) / MII_GL_FLOPPY_SEGMENT_COUNT);
-		float_array_push(tex, tex_y_out);
-		float_array_push(tex, ((i + 1) * tex_width) / MII_GL_FLOPPY_SEGMENT_COUNT);
-		float_array_push(tex, tex_y_in);
-		float_array_push(tex, ((i + 1) * tex_width) / MII_GL_FLOPPY_SEGMENT_COUNT);
-		float_array_push(tex, tex_y_out);
-		float_array_push(tex, (i * tex_width) / MII_GL_FLOPPY_SEGMENT_COUNT);
-		float_array_push(tex, tex_y_in);
-	}
-}
-
 void
 mii_mui_gl_init(
 		mii_mui_t *ui)
 {
+
 	GLuint tex[MII_PIXEL_LAYERS];
 	glGenTextures(MII_PIXEL_LAYERS, tex);
 	for (int i = 0; i < MII_PIXEL_LAYERS; i++) {
@@ -110,13 +39,13 @@ mii_mui_gl_init(
 		ui->pixels.v[i].texture.id = tex[i];
 		ui->tex_id[i] = tex[i];
 	}
-	mii_gl_make_disc(&ui->floppy_base,
-			MII_GL_FLOPPY_DISC_RADIUS_OUT,
-			MII_GL_FLOPPY_DISC_RADIUS_IN,
-			MII_GL_FLOPPY_SEGMENT_COUNT);
 	mii_mui_gl_prepare_textures(ui);
 }
 
+/*
+ * Grayscale textures are the floppy 'bits' and the heapmaps. They actually
+ * look a lot better as nearest neighbour, as they ought to look like pixels.
+ */
 static void
 _prep_grayscale_texture(
 	mui_drawable_t * dr)
@@ -139,28 +68,14 @@ _prep_grayscale_texture(
 }
 
 void
-mii_mui_gl_prepare_textures(
+mui_mui_gl_regenerate_ui_texture(
 		mii_mui_t *ui)
 {
-	mii_t * mii = &ui->mii;
-
-	glEnable(GL_TEXTURE_2D);
-	mui_drawable_t * dr = &ui->pixels.mii;
-	glBindTexture(GL_TEXTURE_2D, dr->texture.id);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	// disable the repeat of textures
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	dr->texture.kind = GL_RGBA;// note RGBA here, it's quicker!!
-	glTexImage2D(GL_TEXTURE_2D, 0, 4,
-			MII_VRAM_WIDTH,
-			MII_VRAM_HEIGHT, 0, dr->texture.kind,
-	        GL_UNSIGNED_BYTE,	// GL_UNSIGNED_INT_8_8_8_8_REV
-	        mii->video.pixels);
-
-	// bind the mui texture using the GL_ARB_texture_rectangle as well
-	dr = &ui->pixels.mui;
+	mui_drawable_t * dr = &ui->pixels.mui;
+	if (dr->texture.id != 0) {
+		glDeleteTextures(1, &dr->texture.id);
+		glGenTextures(1, &dr->texture.id);
+	}
 	glBindTexture(GL_TEXTURE_2D, dr->texture.id);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -168,11 +83,71 @@ mii_mui_gl_prepare_textures(
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	// here we use GL_BGRA, as the pixman/libmui uses that.
 	dr->texture.kind = GL_BGRA;
-	glTexImage2D(GL_TEXTURE_2D, 0, 4,
-			dr->pix.row_bytes / 4,	// already power of two.
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
+			dr->pix.row_bytes / 4,
 			dr->texture.size.y, 0, dr->texture.kind,
-			GL_UNSIGNED_INT_8_8_8_8_REV,
+			GL_UNSIGNED_BYTE, //GL_UNSIGNED_INT_8_8_8_8_REV,
 			dr->pix.pixels);
+}
+
+void
+mii_mui_gl_prepare_textures(
+		mii_mui_t *ui)
+{
+	mii_t * mii = &ui->mii;
+
+	glEnable(GL_TEXTURE_2D);
+	mui_drawable_t * dr = &ui->pixels.mii;
+	unsigned int tex = dr->texture.id;
+	mui_drawable_init(dr, C2_PT(MII_VIDEO_WIDTH, MII_VIDEO_HEIGHT),
+			32, mii->video.pixels, 0);
+	dr->texture.id = tex;
+	dr->texture.size = dr->pix.size;
+	glBindTexture(GL_TEXTURE_2D, dr->texture.id);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	// disable the repeat of textures
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	dr->texture.kind = GL_RGBA;// note RGBA here, it's quicker!!
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8,
+			dr->pix.row_bytes / 4,
+			dr->texture.size.y, 0, dr->texture.kind,
+			GL_UNSIGNED_BYTE, //GL_UNSIGNED_INT_8_8_8_8_REV,
+			dr->pix.pixels);
+#if 0
+	{
+		printf("Creating video mesh: %d vertices %d indices\n",
+				ui->video_mesh.count, ui->video_indices.count);
+		glGenVertexArrays(1, &ui->video_mesh.vao);
+		glBindVertexArray(ui->video_mesh.vao);
+
+		glGenBuffers(1, &ui->video_mesh.vbo);
+		glBindBuffer(GL_ARRAY_BUFFER, ui->video_mesh.vbo);
+		glBufferData(GL_ARRAY_BUFFER,
+					sizeof(ui->video_mesh.e[0]) * ui->video_mesh.count,
+					ui->video_mesh.e, GL_STATIC_DRAW);
+
+		glGenBuffers(1, &ui->video_indices.ebo);
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ui->video_indices.ebo);
+		glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+					sizeof(ui->video_indices.e[0]) * ui->video_indices.count,
+					ui->video_indices.e, GL_STATIC_DRAW);
+
+		// describe what's in that buffer
+		// Vertices
+		glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE,
+						4 * sizeof(float), (void*)0);
+		glEnableVertexAttribArray(0);
+		// Texture coordinates
+		glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE,
+						4 * sizeof(float), (void*)(2 * sizeof(float)));
+		glEnableVertexAttribArray(1);
+
+		glBindVertexArray(0);
+	}
+#endif
+	mui_mui_gl_regenerate_ui_texture(ui);
 
 #if MII_VIDEO_DEBUG_HEAPMAP
 	dr = &ui->pixels.video_heapmap;
@@ -224,7 +199,7 @@ mii_mui_gl_prepare_textures(
 					8, f->heat->write.map, MII_FLOPPY_HM_TRACK_SIZE);
 			dr->texture.id = tex;
 			_prep_grayscale_texture(dr);
-			mii_gl_make_floppy(&ui->floppy[fi].vtx, 1.0, true, true);
+			mii_generate_floppy_mesh(&ui->floppy[fi].vtx, 1.0);
 		}
 	} else {
 		printf("%s No floppy found\n", __func__);
@@ -233,9 +208,10 @@ mii_mui_gl_prepare_textures(
 			mui_drawable_clear(&ui->pixels.floppy[fi].bits);
 			mui_drawable_clear(&ui->pixels.floppy[fi].hm_read);
 			mui_drawable_clear(&ui->pixels.floppy[fi].hm_write);
-			mii_gl_make_floppy(&ui->floppy[fi].vtx, 1.0, true, true);
+			mii_generate_floppy_mesh(&ui->floppy[fi].vtx, 1.0);
 		}
 	}
+
 	GLenum err = glGetError();
 	if (err != GL_NO_ERROR) {
 		printf("%s Error creating texture: %d\n", __func__, err);
@@ -357,7 +333,7 @@ mii_mui_gl_run(
 				glTexSubImage2D(GL_TEXTURE_2D, 0, r.l, r.t,
 						c2_rect_width(&r), c2_rect_height(&r),
 						dr->texture.kind,
-						GL_UNSIGNED_INT_8_8_8_8_REV,
+						GL_UNSIGNED_BYTE, //GL_UNSIGNED_INT_8_8_8_8_REV,
 						dr->pix.pixels + (r.t * dr->pix.row_bytes) + (r.l * 4));
 			}
 		}
@@ -372,11 +348,13 @@ mii_mui_gl_run(
 		// update the whole texture
 		mui_drawable_t * dr = &ui->pixels.mii;
 		glBindTexture(GL_TEXTURE_2D, dr->texture.id);
+	//	glPixelStorei(GL_UNPACK_ROW_LENGTH, dr->pix.row_bytes / 4);
 		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
-				MII_VRAM_WIDTH,
-				MII_VIDEO_HEIGHT, dr->texture.kind,
-				GL_UNSIGNED_INT_8_8_8_8_REV,
-				mii->video.pixels);
+				dr->pix.size.x, dr->pix.size.y,
+				dr->texture.kind,
+				GL_UNSIGNED_BYTE, //GL_UNSIGNED_INT_8_8_8_8_REV,
+				dr->pix.pixels);
+	//	glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
 	}
 #if MII_VIDEO_DEBUG_HEAPMAP
 	if (ui->mii.state == MII_RUNNING) {
@@ -411,8 +389,8 @@ mii_mui_gl_run(
 					dr->texture.kind, GL_UNSIGNED_BYTE,
 					f->track_data);
 			// dont recalculate the vertices, just the texture coordinates
-			mii_gl_make_floppy(&ui->floppy[fi].vtx,
-							ui->floppy[fi].max_width, false, true);
+			mii_generate_floppy_mesh(&ui->floppy[fi].vtx,
+							ui->floppy[fi].max_width);
 		} else if (dr->texture.opacity > 0.0f ||
 						ui->floppy[fi].floppy->motor) {// still animating
 			draw = true;
@@ -447,6 +425,30 @@ mii_mui_gl_run(
 	return draw;
 }
 
+/*
+ * small replacement for glBegin/glEnd with a static array buffer. Use default
+ * texture coordinates
+ */
+static void
+glRect(
+		c2_rect_p r)
+{
+	const float vtx[] = {
+		r->l, r->t, 0, 0,
+		r->r, r->t, 1, 0,
+		r->r, r->b, 1, 1,
+		r->l, r->b, 0, 1,
+	};
+	const uint32_t idx[] = {0, 1, 2, 0, 2, 3};
+	glEnableClientState(GL_VERTEX_ARRAY);
+	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+	glVertexPointer(2, GL_FLOAT, 4 * sizeof(float), &vtx[0]);
+	glTexCoordPointer(2, GL_FLOAT, 4 * sizeof(float), &vtx[2]);
+	glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, idx);
+	glDisableClientState(GL_VERTEX_ARRAY);
+	glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+}
+
 void
 mii_mui_gl_render(
 		mii_mui_t *ui)
@@ -470,12 +472,10 @@ mii_mui_gl_render(
 				(GLsizei)ui->window_size.x,
 				(GLsizei)ui->window_size.y);
 	glMatrixMode(GL_PROJECTION);
-	glPushMatrix();
 	glLoadIdentity();
 	glOrtho(0.0f, ui->window_size.x, ui->window_size.y,
 				0.0f, -1.0f, 1.0f);
 	glMatrixMode(GL_MODELVIEW);
-	glPushMatrix();
 	glLoadIdentity();
 
 	/* draw mii texture */
@@ -483,20 +483,44 @@ mii_mui_gl_render(
 	mui_drawable_t * dr = &ui->pixels.mii;
 	glEnable(GL_TEXTURE_2D);
 	glBindTexture(GL_TEXTURE_2D, dr->texture.id);
-	glBegin(GL_QUADS);
-	c2_rect_t r = ui->video_frame;
-	glTexCoord2f(0, 0);
-			glVertex2f(r.l, r.t);
-	glTexCoord2f(MII_VIDEO_WIDTH / (double)MII_VRAM_WIDTH, 0);
-			glVertex2f(r.r, r.t);
-	glTexCoord2f(MII_VIDEO_WIDTH / (double)MII_VRAM_WIDTH,
-				MII_VIDEO_HEIGHT / (double)MII_VRAM_HEIGHT);
-			glVertex2f(r.r, r.b);
-	glTexCoord2f(0,
-				MII_VIDEO_HEIGHT / (double)MII_VRAM_HEIGHT);
-			glVertex2f(r.l, r.b);
-	glEnd();
-
+	if (ui->video_mesh.count == 0) {
+		c2_rect_t r = ui->video_frame;
+		glRect(&r);
+	} else {
+		c2_rect_t r = ui->video_frame;
+		glDisable(GL_TEXTURE_2D);
+		glColor4f(0.0f, 0.0f, 0.0f, 1.0);
+		/* replacement for glBegin/end with a small static vertex buffer,
+		   and a draw */
+		glRect(&r);
+		glColor4f(1.0f, 1.0f, 1.0f, 1.0);
+		glEnable(GL_TEXTURE_2D);
+#if 0
+		glPushMatrix();
+		glTranslatef(r.l, r.t, 0);
+		glScalef((float)c2_rect_width(&r) / (float)MII_VIDEO_WIDTH,
+				(float)c2_rect_height(&r) / (float)MII_VIDEO_HEIGHT, 1);
+		glBindVertexArray(ui->video_mesh.vao);
+		glDrawElements(GL_TRIANGLES, ui->video_indices.count,
+						GL_UNSIGNED_INT, 0);
+		glBindVertexArray(0);
+		glPopMatrix();
+#else
+		glEnableClientState(GL_VERTEX_ARRAY);
+		glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+		glVertexPointer(2, GL_FLOAT, 4 * sizeof(float), &ui->video_mesh.e[0].x);
+		glTexCoordPointer(2, GL_FLOAT, 4 * sizeof(float), &ui->video_mesh.e[0].u);
+		glPushMatrix();
+		glTranslatef(r.l, r.t, 0);
+		glScalef((float)c2_rect_width(&r) / (float)MII_VIDEO_WIDTH,
+				(float)c2_rect_height(&r) / (float)MII_VIDEO_HEIGHT, 1);
+		glDrawElements(GL_TRIANGLES, ui->video_indices.count,
+						GL_UNSIGNED_INT, ui->video_indices.e);
+		glPopMatrix();
+		glDisableClientState(GL_VERTEX_ARRAY);
+		glDisableClientState(GL_TEXTURE_COORD_ARRAY);
+#endif
+	}
 #if MII_VIDEO_DEBUG_HEAPMAP
 	/* draw video heatmap */
 	dr = &ui->pixels.video_heapmap;
@@ -508,17 +532,10 @@ mii_mui_gl_render(
 		glColor4f(1.0f, 0.0f, 0.0f, 1.0f);
 		// draw a vertical quad on the left side of the video to show
 		// what's being updated
-		glBegin(GL_QUADS);
 		c2_rect_t r = ui->video_frame;
-		glTexCoord2f(0, 1);
-			glVertex2f(r.l - 10, r.t);
-		glTexCoord2f(0, 0);
-			glVertex2f(r.l + 0, r.t);
-		glTexCoord2f(1, 0);
-			glVertex2f(r.l + 0, r.b);
-		glTexCoord2f(1, 1);
-			glVertex2f(r.l - 10, r.b);
-		glEnd();
+		c2_rect_offet(&r, -10, 0);
+		r.r = r.l + 10;
+		glRect(&r);
 		glPopMatrix();
 	}
 #endif
@@ -555,8 +572,9 @@ mii_mui_gl_render(
 				glColor4f(0.0f, 0.0f, 0.0f, main_opacity);
 				glDisable(GL_TEXTURE_2D);
 				glEnableClientState(GL_VERTEX_ARRAY);
-				glVertexPointer(2, GL_FLOAT, 0, ui->floppy_base.e);
-				int element_count = ui->floppy_base.count / 2;
+				glVertexPointer(2, GL_FLOAT,
+							4 * sizeof(float), &ui->floppy[i].vtx.e[0].x);
+				int element_count = ui->floppy[i].vtx.count ;
 				glDrawArrays(GL_TRIANGLES, 0, element_count);
 			}
 			int track_id = f->track_id[f->qtrack];
@@ -576,10 +594,12 @@ mii_mui_gl_render(
 			glColor4f(1.0f, 1.0f, 1.0f, main_opacity);
 			glEnableClientState(GL_VERTEX_ARRAY);
 			glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-			glVertexPointer(2, GL_FLOAT, 0, ui->floppy[i].vtx.pos.e);
-			glTexCoordPointer(2, GL_FLOAT, 0, ui->floppy[i].vtx.tex.e);
-			int element_count = ui->floppy[i].vtx.pos.count / 2;
-			glDrawArrays(ui->floppy[i].vtx.kind, 0, element_count);
+			glVertexPointer(2, GL_FLOAT,
+							4 * sizeof(float), &ui->floppy[i].vtx.e[0].x);
+			glTexCoordPointer(2, GL_FLOAT,
+							4 * sizeof(float), &ui->floppy[i].vtx.e[0].u);
+			int element_count = ui->floppy[i].vtx.count;
+			glDrawArrays(GL_TRIANGLES, 0, element_count);
 			// draw heatmap and head with full opacity
 			// otherwise we get wierd artifacts
 			if (f->heat) {
@@ -587,11 +607,11 @@ mii_mui_gl_render(
 				dr = &ui->pixels.floppy[i].hm_read;
 				glColor4f(0.0f, 1.0f, 0.0f, 1.0);
 				glBindTexture(GL_TEXTURE_2D, dr->texture.id);
-				glDrawArrays(ui->floppy[i].vtx.kind, 0, element_count);
+				glDrawArrays(GL_TRIANGLES, 0, element_count);
 				dr = &ui->pixels.floppy[i].hm_write;
 				glColor4f(1.0f, 0.0f, 0.0f, 1.0);
 				glBindTexture(GL_TEXTURE_2D, dr->texture.id);
-				glDrawArrays(ui->floppy[i].vtx.kind, 0, element_count);
+				glDrawArrays(GL_TRIANGLES, 0, element_count);
 			}
 			glDisableClientState(GL_VERTEX_ARRAY);
 			glDisableClientState(GL_TEXTURE_COORD_ARRAY);
@@ -642,9 +662,5 @@ mii_mui_gl_render(
 	glDisable(GL_TEXTURE_2D);
 
 	glBindTexture(GL_TEXTURE_2D, 0);
-	glMatrixMode(GL_MODELVIEW);
-	glPopMatrix();
-	glMatrixMode(GL_PROJECTION);
-	glPopMatrix();
 	glPopAttrib();
 }

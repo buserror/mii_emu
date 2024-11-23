@@ -50,6 +50,8 @@ typedef struct mii_x11_t {
 	Display *			dpy;
 	Window 				win;
 
+	Atom 				wmState;
+	Atom 				wmStateFullscreen;
 	Atom 				wm_delete_window;
 	int 				width, height;
 	GLXContext 			glContext;
@@ -128,6 +130,40 @@ _mii_x11_convert_keycode(
 	}
 //	printf("%s %08x to %04x\n", __func__, sym, out->key.key);
 	return true;
+}
+
+
+static GLAPIENTRY void
+debug_callback(GLenum source, GLenum type, GLuint id, GLenum severity,
+                               GLsizei length, const GLchar* message, const void* userParam) {
+    // Filter out notifications if they’re too verbose
+    if (severity == GL_DEBUG_SEVERITY_NOTIFICATION) return;
+
+    printf("OpenGL Debug Message:\n");
+    printf("Source: %s\n", source == GL_DEBUG_SOURCE_API ? "API" :
+                           source == GL_DEBUG_SOURCE_WINDOW_SYSTEM ? "Window System" :
+                           source == GL_DEBUG_SOURCE_SHADER_COMPILER ? "Shader Compiler" :
+                           source == GL_DEBUG_SOURCE_THIRD_PARTY ? "Third Party" :
+                           source == GL_DEBUG_SOURCE_APPLICATION ? "Application" :
+                           source == GL_DEBUG_SOURCE_OTHER ? "Other" : "Unknown");
+
+    printf("Type: %s\n", type == GL_DEBUG_TYPE_ERROR ? "Error" :
+                          type == GL_DEBUG_TYPE_DEPRECATED_BEHAVIOR ? "Deprecated Behavior" :
+                          type == GL_DEBUG_TYPE_UNDEFINED_BEHAVIOR ? "Undefined Behavior" :
+                          type == GL_DEBUG_TYPE_PORTABILITY ? "Portability" :
+                          type == GL_DEBUG_TYPE_PERFORMANCE ? "Performance" :
+                          type == GL_DEBUG_TYPE_MARKER ? "Marker" :
+                          type == GL_DEBUG_TYPE_PUSH_GROUP ? "Push Group" :
+                          type == GL_DEBUG_TYPE_POP_GROUP ? "Pop Group" :
+                          type == GL_DEBUG_TYPE_OTHER ? "Other" : "Unknown");
+
+    printf("Severity: %s\n", severity == GL_DEBUG_SEVERITY_HIGH ? "High" :
+                             severity == GL_DEBUG_SEVERITY_MEDIUM ? "Medium" :
+                             severity == GL_DEBUG_SEVERITY_LOW ? "Low" :
+                             severity == GL_DEBUG_SEVERITY_NOTIFICATION ? "Notification" : "Unknown");
+
+    printf("Message: %s\n", message);
+    printf("---------------------------------\n");
 }
 
 static int
@@ -249,6 +285,8 @@ mii_x11_init(
 		XMapWindow(ui->dpy, ui->win);
 		ui->wm_delete_window = XInternAtom(ui->dpy, "WM_DELETE_WINDOW", False);
 		XSetWMProtocols(ui->dpy, ui->win, &ui->wm_delete_window, 1);
+		ui->wmState = XInternAtom(ui->dpy, "_NET_WM_STATE", False);
+		ui->wmStateFullscreen = XInternAtom(ui->dpy, "_NET_WM_STATE_FULLSCREEN", False);
 	}
 	/* create invisible cursor */
 	{
@@ -299,9 +337,20 @@ mii_x11_init(
 			die("[X11]: Failed to create an OpenGL context\n");
 		glXMakeCurrent(ui->dpy, ui->win, ui->glContext);
 	}
+	{
+		glEnable(GL_DEBUG_OUTPUT);               // Enables the debug output
+		glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);   // Makes sure errors are handled immediately
+
+		typedef void (APIENTRY *PFNGLDEBUGMESSAGECALLBACKPROC)(
+				GLDEBUGPROC callback, const void *userParam);
+		PFNGLDEBUGMESSAGECALLBACKPROC glDebugMessageCallback =
+			(PFNGLDEBUGMESSAGECALLBACKPROC)glXGetProcAddressARB(
+				(const GLubyte *)"glDebugMessageCallback");
+
+		glDebugMessageCallback(debug_callback, 0); // Register the callback function
+	}
 	return 0;
 }
-
 
 static void
 mui_read_clipboard(
@@ -323,6 +372,27 @@ mui_read_clipboard(
 	pclose(f);
 	mui_utf8_free(&mui->clipboard);
 	mui->clipboard = clip;
+	printf("%s %d bytes\n", __func__, mui->clipboard.count);
+}
+
+void
+mii_mui_toggle_fullscreen(
+	mii_mui_t * _ui )
+{
+	mii_x11_t * ui = (mii_x11_t*)_ui;
+
+	XEvent xev = {};
+	xev.type = ClientMessage;
+	xev.xclient.window = ui->win;
+	xev.xclient.message_type = ui->wmState;
+	xev.xclient.format = 32;
+	xev.xclient.data.l[0] = 2; // _NET_WM_STATE_TOGGLE
+	xev.xclient.data.l[1] = ui->wmStateFullscreen;
+	xev.xclient.data.l[2] = 0; // No second property
+	xev.xclient.data.l[3] = 1; // Normal source indication
+	XSendEvent(ui->dpy, DefaultRootWindow(ui->dpy), False,
+				SubstructureNotifyMask | SubstructureRedirectMask, &xev);
+	XFlush(ui->dpy);
 }
 
 static int
@@ -443,6 +513,11 @@ mii_x11_handle_event(
 						mui->clipboard.count = mui->clipboard.size = 0;
 						mii_th_fifo_write(mii_thread_get_fifo(mii), sig);
 					}
+				} else if (mii_key == 0x01b &&	/* Toggle full screen too! */
+						(mui->modifier_keys & MUI_MODIFIER_SHIFT) &&
+						(mui->modifier_keys & MUI_MODIFIER_CTRL)) {
+
+					mii_mui_toggle_fullscreen(&ui->video);
 				} else
 					mii_keypress(mii, mii_key);
 			}
@@ -470,6 +545,13 @@ mii_x11_handle_event(
 					}
 					mii_mui_update_mouse_card(&ui->video);
 				}	break;
+				case Button3: {
+					/* right click force the UI to reappear if it was hidden */
+					if (!ui->video.mui_visible &&
+								ui->video.transition.state == MII_MUI_TRANSITION_NONE) {
+						ui->video.transition.state = MII_MUI_TRANSITION_SHOW_UI;
+					}
+				}	break;
 				case Button4:
 				case Button5: {
 				//	printf("%s wheel %d %d\n", __func__,
@@ -494,6 +576,10 @@ mii_x11_handle_event(
 				ui->video.window_size.x = evt->xconfigure.width;
 				ui->video.window_size.y = evt->xconfigure.height;
 				ui->video.video_frame = mii_mui_get_video_position(&ui->video);
+				mui_resize(&ui->video.mui, &ui->video.pixels.mui,
+							ui->video.window_size);
+				ui->video.pixels.mui.texture.size = ui->video.window_size;
+				mui_mui_gl_regenerate_ui_texture(&ui->video);
 				mii_mui_update_mouse_card(&ui->video);
 			}
 			break;
@@ -605,6 +691,7 @@ _mii_ui_load_config(
 	if (config->titan_accelerator)
 		*ioFlags |= MII_INIT_TITAN;
 	mii->audio.muted = config->audio_muted;
+	mii_audio_volume(&mii->speaker.source, config->audio_volume);
 	mii->video.color_mode = config->video_mode;
 	mii_video_set_mode(mii, config->video_mode);
 	for (int i = 0; i < 7; i++) {
@@ -661,6 +748,8 @@ mii_x11_reload_config(
 
 mii_x11_t g_mii = {};
 
+extern const mii_machine_config_t mii_default_config;
+
 int
 main(
 		int argc,
@@ -673,10 +762,18 @@ main(
 	mii_x11_t * ui = &g_mii;
 	mii_t * 	mii = &g_mii.video.mii;
 	mui_t * 	mui = &g_mii.video.mui;
-	bool no_config_found = false;
 
+	// start with a default config, as some settings might not have been saved
+	ui->video.config = mii_default_config;
+
+	bool no_config_found = false;
+	char pwd[1024];
+	if (!getcwd(pwd, sizeof(pwd))) {
+		perror("getcwd");
+		exit(1);
+	}
 	if (mii_settings_load(
-					&ui->video.cf, getcwd(NULL,0), ".mii_emu_config") < 0 &&
+					&ui->video.cf, pwd, ".mii_emu_config") < 0 &&
 			mii_settings_load(
 					&ui->video.cf, conf_path, "mii_emu_gl") < 0) {
 		asprintf(&ui->video.cf.path, "%s/.local/share/mii/mii_emu_gl",
@@ -738,6 +835,8 @@ main(
 	/* start the CPU/emulator thread */
 	ui->cpu_thread = mii_threads_start(mii);
 
+	if (g_startup_flags & MII_INIT_HIDE_UI)
+		ui->video.transition.state = MII_MUI_TRANSITION_HIDE_UI;
 	while (mii->state != MII_INIT) {
 		/* Input */
 		XEvent evt;
@@ -770,6 +869,12 @@ main(
 		if (read(timerfd, &timerv, sizeof(timerv)) < 0) {
 			perror(__func__);
 			goto cleanup;
+		}
+		/* This delay the switch to full screen until the window was drawn */
+		if (mii->video.frame_count == 30) {
+			if (g_startup_flags & MII_INIT_FULLSCREEN) {
+				mii_mui_toggle_fullscreen(&ui->video);
+			}
 		}
 	#if 0
 		miigl_counter_tick(&ui->sleepc, miigl_get_time());

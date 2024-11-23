@@ -11,8 +11,6 @@
 #include <string.h>
 #include <ctype.h>
 
-#include "mii_rom_iiee.h"
-#include "mii_rom_iic.h"
 #include "mii.h"
 #include "mii_bank.h"
 #include "mii_video.h"
@@ -89,6 +87,7 @@ static const mii_bank_t	_mii_banks_init[MII_BANK_COUNT] = {
 		.base = 0xc000,
 		.size = 0x40, // 64 pages, 16KB
 		.ro = 1,
+		.no_alloc = 1,
 	},
 	[MII_BANK_CARD_ROM] = {
 		.name = "CARD ROM",
@@ -123,7 +122,8 @@ mii_dump_trace_state(
 	static const char *s_flags = "CZIDBRVN";
 	for (int i = 0; i < 8; i++)
 		printf("%c", MII_GET_P_BIT(cpu, i) ? s_flags[i] : tolower(s_flags[i]));
-//	if (s.sync) {
+//	if (s.sync)
+	{
 		uint8_t op[16];
 		for (int i = 0; i < 4; i++) {
 			mii_mem_access(mii, mii->cpu.PC + i, op + i, false, false);
@@ -139,7 +139,8 @@ mii_dump_trace_state(
 				printf(" ; taken");
 		}
 		printf("\n");
-//	} else
+	}
+//	else
 //		printf("\n");
 }
 
@@ -462,14 +463,13 @@ mii_access_soft_switches(
 		switch (addr) {
 			case 0xc020 ... 0xc02f:
 				res = true;
-				if (mii->bank[MII_BANK_ROM].mem == mii_rom_iic) {
+				if (mii->bank[MII_BANK_ROM].mem == mii->rom->rom) {
 					printf("BANKING IIC SECOND ROM\n");
-					mii->bank[MII_BANK_ROM].mem =
-						(uint8_t*)&mii_rom_iic[16 * 1024];
+					mii->bank[MII_BANK_ROM].mem = (uint8_t*)
+						mii->rom->rom + (16 * 1024);
 				} else {
 					printf("BANKING IIC FIRST ROM\n");
-					mii->bank[MII_BANK_ROM].mem =
-						(uint8_t*)&mii_rom_iic[0];
+					mii->bank[MII_BANK_ROM].mem = (uint8_t*)mii->rom->rom;
 				}
 				return res;
 				break;
@@ -518,7 +518,16 @@ mii_access_soft_switches(
 				SW_SETSTATE(mii, SWSLOTC3ROM, addr & 1);
 				mii_bank_poke(sw, SWSLOTC3ROM, (addr & 1) << 7);
 				break;
-			case SWRAMWORKS_BANK:
+			case SWRAMWORKS_BANK:	// 0xc073
+			/*
+			 * From the reading, it seems only Proterm ever assumes these
+			 * are the same. For all other software, everyone only ever use
+			 * $c073 as a bank register. Only added these for completeness,
+			 * and they don't seem to break anything so...
+			 */
+			case SWRAMWORKS_ALT1:
+			case SWRAMWORKS_ALT5:
+			case SWRAMWORKS_ALT7:
 				mii_bank_poke(sw, SWRAMWORKS_BANK, *byte);
 				mii_bank_update_ramworks(mii, *byte);
 				break;
@@ -667,7 +676,7 @@ mii_init(
 
 	for (int i = 0; i < MII_BANK_COUNT; i++)
 		mii->bank[i] = _mii_banks_init[i];
-	mii->bank[MII_BANK_ROM].mem = (uint8_t*)&mii_rom_iiee[0];
+//	mii->bank[MII_BANK_ROM].mem = (uint8_t*)&mii_rom_iiee[0];
 	for (int i = 0; i < MII_BANK_COUNT; i++)
 		mii_bank_init(&mii->bank[i]);
 	uint8_t *mem = realloc(mii->bank[MII_BANK_MAIN].mem, 0x10000);
@@ -702,10 +711,10 @@ mii_prepare(
 		mii_t *mii,
 		uint32_t flags )
 {
-	if (mii->emu == MII_EMU_IIC) {
-		printf("IIC Mode engaged\n");
-		mii->bank[MII_BANK_ROM].mem = (uint8_t*)&mii_rom_iic[0];
-	}
+//	if (mii->emu == MII_EMU_IIC) {
+//		printf("IIC Mode engaged\n");
+//		mii->bank[MII_BANK_ROM].mem = (uint8_t*)&mii_rom_iic[0];
+//	}
 
 //	int banks = (flags >> MII_INIT_RAMWORKS_BIT) & 0xf;
 	// hard code it for now, doesn't seem to have any detrimental effect
@@ -754,10 +763,12 @@ mii_reset(
 		bool cold)
 {
 //	printf("%s cold %d\n", __func__, cold);
+	mii->rom = mii_rom_get("iiee");
 	if (mii->emu == MII_EMU_IIC) {
 		printf("IIC Mode engaged\n");
-		mii->bank[MII_BANK_ROM].mem = (uint8_t*)&mii_rom_iic[0];
+		mii->rom = mii_rom_get("iic");
 	}
+	mii->bank[MII_BANK_ROM].mem = (uint8_t*)mii->rom->rom;
 	mii->state = MII_RUNNING;
 	mii->cpu_state.reset = 1;
 	mii_bank_t * main = &mii->bank[MII_BANK_MAIN];
@@ -776,6 +787,7 @@ mii_reset(
 		mii_bank_poke(sw, SWINTCXROM, 0);
 		uint8_t z[2] = {0x55,0x55};
 		mii_bank_write(main, 0x3f2, z, 2);
+	//	mii_bank_write(main, 0x3fe, z, 2); // also reset IRQ vectors
 	}
 	mii->mem_dirty = 1;
 	mii_page_table_update(mii);
@@ -1123,7 +1135,7 @@ mii_cpu_next(
 	// then put a temporary breakpoint to the next PC.
 	// all of that if this is not a relative branch of course, in
 	// which case we use a normal 'step' behaviour
-	uint8_t op;
+	uint8_t op = 0;
 	mii_mem_access(mii, mii->cpu.PC, &op, false, false);
 	printf("NEXT opcode %04x:%02x\n", mii->cpu.PC, op);
 	if (op == 0x20) {	// JSR here?

@@ -56,6 +56,10 @@ enum {
 	SWAN3 			= 0xc05e,		// AN3 status
 	SWAN3_REGISTER 	= 0xc05f,	// AN3 register for video mode
 	SWRAMWORKS_BANK	= 0xc073,
+	// https://retrocomputing.stackexchange.com/questions/13449/apple-iie-auxiliary-ram-bank-select-register-address-c073-or-c07x
+	SWRAMWORKS_ALT1	= 0xc071,
+	SWRAMWORKS_ALT5	= 0xc075,
+	SWRAMWORKS_ALT7	= 0xc077,
 	SWRDDHIRES 		= 0xc07f,
 };
 

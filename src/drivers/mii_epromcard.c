@@ -21,7 +21,6 @@
 
 #include "mii.h"
 #include "mii_bank.h"
-#include "mii_rom_epromcard.h"
 
 typedef struct mii_card_ee_t {
 	mii_dd_t 	drive[1];
@@ -52,7 +51,8 @@ _mii_ee_init(
 	mii_dd_register_drives(&mii->dd, c->drive, 1);
 
 #if 1
-	c->file = (uint8_t*)GamesWithFirmware_po;
+	mii_rom_t *rom = mii_rom_get("epromcard");
+	c->file = (uint8_t*)rom->rom;
 #else
 	const char *fname = "disks/GamesWithFirmware.po";
 
@@ -119,7 +119,8 @@ _mii_ee_command(
 					return -1;
 			}
 			mii_dd_drive_load(&c->drive[0], file);
-			c->file = file ? file->map : (uint8_t*)GamesWithFirmware_po;
+			mii_rom_t *rom = mii_rom_get("epromcard");
+			c->file = file ? file->map : (uint8_t*)rom->rom;
 			res = 0;
 		}	break;
 	}

@@ -110,7 +110,7 @@ _mii_floppy_check_file(
 		char stt[64];
 		long delta = want_size - st.st_size;
 		_size_string(delta < 0 ? -delta : delta, stt, sizeof(stt)-2, 1);
-		strcpy(stt + strlen(stt), "B");
+		strcat(stt + strlen(stt), "B");
 		asprintf(&out->error,
 				"File '%s' is the wrong size, %s too %s.",
 				filename,

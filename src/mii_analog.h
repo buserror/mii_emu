@@ -27,7 +27,7 @@ mii_analog_init(
 
 void
 mii_analog_access(
-		mii_t *mii,
+		struct mii_t *mii,
 		mii_analog_t * analog,
 		uint16_t addr,
 		uint8_t * byte,

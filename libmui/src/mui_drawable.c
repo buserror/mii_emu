@@ -16,7 +16,7 @@
 
 IMPLEMENT_C_ARRAY(mui_clip_stack);
 
-// create a new mui_draware of size w x h, bpp depth.
+// create a new mui_drawable of size w x h, bpp depth.
 // optionally allocate the pixels if pixels is NULL
 mui_drawable_t *
 mui_drawable_init(
@@ -68,9 +68,7 @@ mui_drawable_clear(
 	if (dr->pixman)
 		pixman_image_unref(dr->pixman);
 	dr->pixman = NULL;
-	for (uint i = 0; i < dr->clip.count; i++)
-		pixman_region32_fini(&dr->clip.e[i]);
-	mui_clip_stack_clear(&dr->clip);
+	mui_drawable_set_clip(dr, NULL);
 	if (dr->pix.pixels && dr->dispose_pixels)
 		free(dr->pix.pixels);
 	static const mui_pixmap_t zero = {};
@@ -89,6 +87,25 @@ mui_drawable_dispose(
 	mui_clip_stack_free(&dr->clip);
 	if (dr->dispose_drawable)
 		free(dr);
+}
+
+void
+mui_drawable_resize(
+		mui_drawable_t * dr,
+		c2_pt_t size)
+{
+	if (!dr)
+		return;
+	if (size.x == dr->pix.size.x && size.y == dr->pix.size.y)
+		return;
+	mui_pixmap_t save = dr->pix;
+	dr->dispose_pixels = 0;
+	mui_drawable_clear(dr);
+	save.size = size;
+	save.row_bytes = (uint32_t)((size.x * (save.bpp / 8)) + 3) & ~3;
+//	printf("resizing to %dx%d, row_bytes %d\n", size.x, size.y, save.row_bytes);
+	save.pixels = realloc(save.pixels, save.row_bytes * size.y);
+	dr->pix = save;
 }
 
 static struct cg_ctx_t *

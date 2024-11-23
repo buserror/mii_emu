@@ -115,6 +115,7 @@ typedef struct mii_machine_config_t {
 							no_slot_clock : 1,
 							titan_accelerator : 1;
 	uint32_t				video_mode;
+	float					audio_volume;
 	mii_joystick_conf_t 	joystick;
 	mii_loadbin_conf_t		loadbin;
 	struct {

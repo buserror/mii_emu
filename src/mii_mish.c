@@ -18,6 +18,7 @@
 #include "mii_sw.h"
 #include "mii_65c02_ops.h"
 #include "mii_65c02_disasm.h"
+#include "mii_rom.h"
 
 void
 mii_hexdump(
@@ -55,10 +56,11 @@ static const char * apple2_charset =
 "PQRSTUVWXYZ[\\]^_"
 " !\"#$%&'()*+,-./"
 "0123456789:;<=>?"
-"................"
-"................"
+"@ABCDEFGHIJKLMNO"
+"PQRSTUVWXYZ[\\]^_"
 "`abcdefghijklmno"
 "pqrstuvwxyz{|}~";
+
 
 void
 _mii_mish_text(
@@ -69,16 +71,23 @@ _mii_mish_text(
 	// load 0x400, calculate the 24 line addresses from the code in video
 	// and show the 40 or 80 chars, depending on col80
 	mii_t * mii = param;
+	mii_bank_t * main = &mii->bank[MII_BANK_MAIN];
+	mii_bank_t * aux = &mii->bank[MII_BANK_AUX_BASE];
 	uint16_t a = 0x400;
-	int page2 = mii_read_one(mii, SWPAGE2);
-//	int col80 = mii_read_one(mii, SW80COL);
+	bool page2 	= SW_GETSTATE(mii, SW80STORE) ? 0 : SW_GETSTATE(mii, SWPAGE2);
+	int col80 = SW_GETSTATE(mii, SW80COL);
 	for (int li = 0; li < 24; li++) {
 		int i = li;
 		a = (0x400 + (0x400 * page2));
 		a += ((i & 0x07) << 7) | ((i >> 3) << 5) | ((i >> 3) << 3);
 		printf("%04x: ", a);
-		for (int ci = 0; ci < 40; ci++) {
-			uint8_t c = (mii_read_one(mii, a++) & 0x3f);
+		for (int x = 0; x < 40 + (40 * col80); x++) {
+			uint8_t c = 0;
+			if (col80)
+				c = mii_bank_peek(x & 1 ? main : aux, a + (x >> 1));
+			else
+				c = mii_bank_peek(main, a + x);
+			c = c & 0x7f;
 			printf("%c", apple2_charset[c]);
 		}
 		printf("\n");
@@ -202,6 +211,25 @@ show_state:
 			timer &= ~(1ull << i);
 			printf("%2d: %8ld %s\n", i, mii->timer.timers[i].when,
 					mii->timer.timers[i].name);
+		}
+		return;
+	}
+	if (!strcmp(argv[1], "roms")) {
+		mii_rom_t * rom = mii_rom_get(NULL);
+		while (rom) {
+			printf("rom: %-20s %-12s %7d %s\n", rom->name, rom->class,
+					rom->len, rom->description);
+			rom = SLIST_NEXT(rom, self);
+		}
+		return;
+	}
+	if (!strcmp(argv[1], "irq")) {
+		uint16_t irq = mii->irq.map;
+		printf("mii: %d IRQs\n", __builtin_popcount(irq));
+		for (int i = 0; i < 16; i++) {
+			if (irq & (1 << i))
+				printf("%2d: %-10s %6d\n", i,
+					mii->irq.irq[i].name, mii->irq.irq[i].count);
 		}
 		return;
 	}
@@ -546,6 +574,7 @@ _mii_mish_bsave(
 		fseek(f, 0, SEEK_SET);
 		if (addr + size > 0x10000) {
 			printf("bsave: size too big\n");
+			fclose(f);
 			return;
 		}
 		mii_bank_t * bank = &mii->bank[MII_BANK_MAIN];
@@ -572,7 +601,10 @@ MISH_CMD_HELP(mii,
 		" peek <addr> : peek a value in memory (respect SW)",
 		" speed <speed> : set speed in MHz",
 		" stop : stop the cpu",
-		" quit|exit : quit the emulator"
+		" quit|exit : quit the emulator",
+		" timers : list active timers",
+		" roms : list loaded roms",
+		" irq : list active IRQs"
 		);
 MII_MISH(mii, _mii_mish_cmd);
 

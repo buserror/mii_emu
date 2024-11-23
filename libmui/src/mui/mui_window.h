@@ -23,10 +23,16 @@
 enum {
 	MUI_WDEF_INIT = 0,	// param is NULL
 	MUI_WDEF_DISPOSE,	// param is NULL
+	// used before controls are drawn
 	MUI_WDEF_DRAW,		// param is mui_drawable_t*
+	// used after controls are drawn
+	MUI_WDEF_DRAW_POST,	// param is mui_drawable_t*
 	MUI_WDEF_EVENT,		// param is mui_event_t*
 	MUI_WDEF_SELECT,	// param is NULL
 	MUI_WDEF_DESELECT,	// param is NULL
+	// called when the window is resized, param is a c2_rect_t with the new rectangle
+	// it CAN be edited by the callback to change the new size, if appopriate
+	MUI_WDEF_RESIZE,	// param is a c2_rect_t with the new rectangle
 };
 typedef bool (*mui_wdef_p)(
 			struct mui_window_t * win,
@@ -157,7 +163,10 @@ mui_window_isfront(
 mui_window_t *
 mui_window_front(
 		struct mui_t *ui);
-
+void
+mui_window_resize(
+		mui_window_t *	win,
+		c2_pt_t 		size);
 // move win to the front (of its layer), return true if it was moved
 bool
 mui_window_select(

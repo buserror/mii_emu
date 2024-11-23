@@ -20,6 +20,7 @@
 #include "mii_mouse.h"
 #include "mii_analog.h"
 #include "mii_vcd.h"
+#include "mii_rom.h"
 
 #define likely(x)		__builtin_expect(!!(x), 1)
 #define unlikely(x)		__builtin_expect(!!(x), 0)
@@ -54,7 +55,7 @@ enum {
  * emulator code when a disk access is needed.
  */
 typedef void (*mii_trap_handler_cb)(
-				mii_t * mii,
+				struct mii_t * mii,
 				uint8_t trap);
 typedef struct mii_trap_t {
 	uint16_t 	map;
@@ -95,7 +96,7 @@ typedef struct mii_trace_t {
 } mii_trace_t;
 
 typedef uint64_t (*mii_timer_p)(
-				mii_t * mii,
+				struct mii_t * mii,
 				void * param );
 
 #define MII_SPEED_NTSC 	1.0227271429 	// 14.31818 MHz / 14
@@ -209,6 +210,7 @@ typedef struct mii_t {
 	/*
 	 * These are all the state of the various subsystems.
 	 */
+	mii_rom_t *		rom;
 	mii_video_t		video;
 	mii_speaker_t	speaker;
 	mii_mouse_t		mouse;
@@ -223,7 +225,10 @@ enum {
 	MII_INIT_SILENT			= (1 << 2), // No audio, ever
 	MII_INIT_MOCKINGBOARD	= (1 << 3), // Install mockingboard
 	// number of 256KB banks added to the ramworks
-	MII_INIT_RAMWORKS_BIT	= 4, // bit 4 in flags. Can be up to 12
+//	MII_INIT_RAMWORKS_BIT	= 4, // bit 4 in flags. Can be up to 12
+
+	MII_INIT_FULLSCREEN		= (1 << 8),
+	MII_INIT_HIDE_UI		= (1 << 9),
 
 	MII_INIT_DEFAULT 	= MII_INIT_NSC,
 };

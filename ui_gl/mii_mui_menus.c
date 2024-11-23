@@ -111,6 +111,11 @@ mii_config_open_slots_dialog(
 		mii_config_save_cb, ui);
 }
 
+// this probably needs to be declared differently
+void
+mii_mui_toggle_fullscreen(
+	mii_mui_t * _ui );
+
 static int
 mii_menubar_action(
 		mui_window_t *win,	// window (menubar)
@@ -208,6 +213,14 @@ mii_menubar_action(
 								(mui_window_front(mui) != NULL) ||
 								(ui->transition.state != MII_MUI_TRANSITION_NONE);
 					}	break;
+					case FCC('a','l','t','f'): {
+						items[i].disabled = mii->video.rom->len < (8*1024);
+						// bank zero is the international one
+						if (mii->video.rom_bank == 0 && !items[i].disabled)
+							strcpy(items[i].mark, MUI_GLYPH_TICK);
+						else
+							items[i].mark[0] = 0;
+					}	break;
 				}
 			}
 		}	break;
@@ -281,10 +294,12 @@ mii_menubar_action(
 				case FCC('a','u','d','+'):
 					mii_audio_volume(&mii->speaker.source,
 							mii->speaker.source.volume + 1);
+					ui->config.audio_volume = mii->speaker.source.volume;
 					break;
 				case FCC('a','u','d','-'):
 					mii_audio_volume(&mii->speaker.source,
 							mii->speaker.source.volume - 1);
+					ui->config.audio_volume = mii->speaker.source.volume;
 					break;
 				case FCC('v','d','C','l'): {
 //					printf("%s Cycle video\n", __func__);
@@ -299,6 +314,15 @@ mii_menubar_action(
 				case FCC('v','d','c','4'):
 					mii_video_set_mode(mii, FCC_INDEX(item->uid));
 					ui->config.video_mode = mii->video.color_mode;
+					break;
+				case FCC('a','l','t','f'): {
+					mii->video.rom_bank = !mii->video.rom_bank;
+					// this forces a refresh
+					mii_video_set_mode(mii, mii->video.color_mode);
+				}	break;
+				case FCC('t','g','l','F'):
+					printf("Toggle Fullscreen\n");
+					mii_mui_toggle_fullscreen(ui);
 					break;
 				case FCC('m','h','z','1'):
 					mii->speed = MII_SPEED_NTSC;

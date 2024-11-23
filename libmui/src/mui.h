@@ -81,6 +81,11 @@ mui_draw(
 		mui_drawable_t *dr,
 		uint16_t 		all);
 void
+mui_resize(
+		mui_t *			ui,
+		mui_drawable_t *dr,
+		c2_pt_t 		size);
+void
 mui_run(
 		mui_t *			ui);
 

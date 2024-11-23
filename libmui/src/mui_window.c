@@ -288,6 +288,29 @@ mui_window_dispose(
 }
 
 void
+mui_window_resize(
+		mui_window_t *	win,
+		c2_pt_t 		size)
+{
+	if (!win)
+		return;
+	c2_rect_t frame = win->frame;
+	c2_rect_t old_frame = frame;
+	frame.r = frame.l + size.x;
+	frame.b = frame.t + size.y;
+	if (win->wdef)
+		win->wdef(win, MUI_WDEF_RESIZE, &frame);
+	if (c2_rect_equal(&frame, &old_frame))
+		return;
+	mui_window_inval(win, NULL);
+	win->frame = frame;
+	mui_font_t * main = mui_font_find(win->ui, "main");
+	c2_rect_t parts[MUI_WINDOW_PART_COUNT];
+	mui_window_update_rects(win, main, parts);
+	mui_window_inval(win, NULL);
+}
+
+void
 mui_window_draw(
 		mui_window_t *win,
 		mui_drawable_t *dr)
@@ -309,6 +332,8 @@ mui_window_draw(
 		mui_control_draw(win, c, dr);
 	}
 	cg_restore(cg);
+	if (win->wdef)
+		win->wdef(win, MUI_WDEF_DRAW_POST, dr);
 
 	mui_drawable_clip_pop(dr);
 }
@@ -382,7 +407,7 @@ mui_window_handle_mouse(
 				mui_window_select(win);
 			if (mui_window_front(win->ui) != win)
 				c = NULL;
-			if (!c) {
+			if (!c && !c2_rect_contains_pt(&win->content, &event->mouse.where)) {
 				/* find where we clicked in the window */
 				mui_window_ref(&win->ui->event_capture, win,
 							FCC('E', 'V', 'C', 'P'));

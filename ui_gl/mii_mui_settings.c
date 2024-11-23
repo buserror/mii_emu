@@ -224,6 +224,9 @@ mii_emu_save(
 				config->no_slot_clock ? "1" : "0");
 	mii_config_set(cf, section, "audio_muted",
 				config->audio_muted ? "1" : "0");
+	// audio volume
+	sprintf(label, "%.2f", config->audio_volume);
+	mii_config_set(cf, section, "audio_volume", label);
 	sprintf(label, "%d", config->video_mode);
 	mii_config_set(cf, section, "video_mode", label);
 
@@ -332,6 +335,9 @@ mii_emu_load(
 		cl = mii_config_get(cf, section, "audio_muted");
 		if (cl)
 			config->audio_muted = !!atoi(cl->value);
+		cl = mii_config_get(cf, section, "audio_volume");
+		if (cl)
+			config->audio_volume = atof(cl->value);
 		cl = mii_config_get(cf, section, "video_mode");
 		if (cl)
 			config->video_mode = atoi(cl->value);

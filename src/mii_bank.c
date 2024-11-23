@@ -31,6 +31,7 @@ void
 mii_bank_dispose(
 		mii_bank_t *bank)
 {
+//	printf("%s %s\n", __func__, bank->name);
 	if (bank->alloc)
 		free(bank->mem);
 	bank->mem = NULL;

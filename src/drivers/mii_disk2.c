@@ -14,7 +14,6 @@
 #include "mii.h"
 #include "mii_bank.h"
 
-#include "mii_rom_disk2.h"
 #include "mii_woz.h"
 #include "mii_disk2.h"
 
@@ -144,9 +143,10 @@ _mii_disk2_init(
 	c->mii = mii;
 	printf("%s loading in slot %d\n", __func__, slot->id + 1);
 	uint16_t addr = 0xc100 + (slot->id * 0x100);
+	mii_rom_t * rom = mii_rom_get("disk2_p5");
 	mii_bank_write(
 			&mii->bank[MII_BANK_CARD_ROM],
-			addr, mii_rom_disk2, 256);
+			addr, rom->rom, 256);
 
 	c->sig = mii_alloc_signal(&mii->sig_pool, 0, SIG_COUNT, sig_names);
 	for (int i = 0; i < SIG_COUNT; i++)

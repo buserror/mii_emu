@@ -27,9 +27,10 @@ typedef struct mii_ui_machine_config_t {
 	mii_machine_config_t	config;
 } mii_ui_machine_config_t;
 
-static const mii_machine_config_t _default_config = {
+const mii_machine_config_t mii_default_config = {
 	.no_slot_clock = 1,
 	.titan_accelerator = 0,
+	.audio_volume = 5.0,
 	.slot = {
 		[0] = {
 //			.driver = MII_SLOT_DRIVER_SSC,
@@ -58,10 +59,11 @@ static const mii_machine_config_t _default_config = {
 	},
 };
 
-static const mii_machine_config_t _default_config_2c
+const mii_machine_config_t mii_default_config_2c
 			__attribute__((unused)) = {
 	.no_slot_clock = 1,
 	.titan_accelerator = 0,
+	.audio_volume = 5.0,
 	.slot = {
 		[0] = {
 			.driver = MII_SLOT_DRIVER_SSC,
@@ -277,7 +279,7 @@ _mii_config_slot_action_cb(
 				case MII_SLOT_DEFAULT: {
 					// set the default config
 					printf("%s default\n", __func__);
-					m->config = _default_config;
+					m->config = mii_default_config;
 					_mii_config_conf_to_win(m);
 				}	break;
 #if 0
@@ -483,7 +485,7 @@ mii_mui_configure_slots(
 	m->dst = config;
 	if (config) {
 		if (config->load_defaults)
-			m->config = _default_config;
+			m->config = mii_default_config;
 		else
 			m->config = *config;
 	}

@@ -9,7 +9,7 @@
 CC				= gcc
 SHELL			= /bin/bash
 # This is where (g)make looks for the source files for implicit rules
-VPATH			:= src src/format src/drivers contrib
+VPATH			:= src src/format src/drivers src/roms contrib
 VPATH 			+= ui_gl
 
 CPPFLAGS		+= -Isrc -Isrc/format -Isrc/roms -Isrc/drivers
@@ -56,7 +56,7 @@ OBJ 			:= $(O)/obj
 all				: $(BIN)/mii_emu_gl
 
 MII_SRC			:= $(wildcard src/*.c src/format/*.c \
-							src/drivers/*.c contrib/*.c)
+							src/drivers/*.c contrib/*.c src/roms/*.c)
 UI_SRC			:= $(wildcard ui_gl/*.c)
 
 SRC				:= $(MII_SRC) $(UI_SRC)
@@ -72,7 +72,7 @@ ui_gl/mii_icon64.h	: contrib/mii-icon-64.png
 ui_gl/mii_mui_apple_logo.h : docs/Apple_logo_rainbow_version2_28x28.png
 	tcc -run libmui/utils/png2raw.c -n mii_mui_apple_logo -o $@ $<
 
-$(BIN)/mii_emu_gl	: $(ALL_OBJ) | mui mish
+$(BIN)/mii_emu_gl	: $(ALL_OBJ) | mish mui
 $(BIN)/mii_emu_gl	: $(LIB)/libmish.a
 $(BIN)/mii_emu_gl	: $(LIB)/libmui.a
 
@@ -85,7 +85,8 @@ $(LIB)/libmish.a : ${wildcard libmish/src/*} | $(LIB) $(OBJ) $(BIN)
 
 LDLIBS 			+= $(LIB)/libmui.a
 mui 			: $(LIB)/libmui.a
-$(LIB)/libmui.a : ${wildcard libmui/src/*} | $(LIB) $(OBJ) $(BIN)
+$(LIB)/libmui.a : ${wildcard libmui/src/*.[ch]} \
+						${wildcard libmui/src/*/*.[ch]} | $(LIB) $(OBJ) $(BIN)
 	mkdir -p $(OBJ)/libmui && \
 	make -j -C libmui BUILD_DIR="../" CC="$(CC)" \
 			V="$(V)" OPTIMIZE="$(OPTIMIZE)" static
@@ -94,68 +95,7 @@ $(LIB)/libmui.a : ${wildcard libmui/src/*} | $(LIB) $(OBJ) $(BIN)
 test/asm/%.bin	: test/asm/%.asm | $(BIN)/mii_asm
 	$(BIN)/mii_asm -v -o $@ $<
 
-# ROMS: This bits convert the binary roms with the product number in the name
-# to a C header file that can be included in the project. I used to use
-# incbin.h for this, but there were issues with some of the linker used, for
-# example, webassembly, so we now use xxd to generate the .h file.
-# You'd NEED the xxd tool if you want to re-generate these files, but well,
-# they've been constant for over 40 years, my guess is that they ain't going
-# anywhere.
-#
-# The reason these roms are used like this here is that I always found that it
-# was a massive pain to have to deal with the roms in *any* apple II (or Mac)
-# emulator. You had to find the roms, put them in the right place, name them
-# correctly, and then, if you wanted to use a different version, you had to
-# rename them, and so on. Dreadful.
-# I think it prevents a lot of people learning about the Apple II, because it's
-# just too much hassle to get started. So, I've included the roms in the source
-# code, and they are compiled in the binary. For the user. Not for convenience,
-# Not for 'stealing' from apple, but for the user. For the user to have a
-# seamless experience. To be able to just run the emulator, and have it work.
-# And be amazed *at the brand*.
-#
-# Now, I understand that strictly speaking these are copyrighted material, but
-# they are so old, and so widely available, and are used here for educational
-# purposes, and with the upmost respect for all the original authors, and for
-# what 'the brand' represented for us at the time. With that in mind, I think
-# that there shouldn't be an issue. But if you, Mr&Mrs Apple Lawyer think
-# otherwise, please let me know, I'll remove them. Reluctantly. I'll cry&scream!
-.PHONY : roms
-define rom_to_h
-$(1) :
-	@if [ ! -f $$@ ]; then \
-		echo "ROM file $$@ not found, relying on the exiting .h"; \
-		touch $$@; \
-	fi
-src/roms/$(2).h : $(1)
-	@if [ ! -s "$$<" ]; then \
-		touch $$@; \
-	else { echo "#pragma once"; \
-			xxd -n $$(shell basename $$<|sed 's/_[0-9].*//') -i $$< |\
-				sed 's/unsigned/static const unsigned/' ; \
-		}>$$@ ; \
-		echo "ROM $$@ Generated"; \
-	fi
-
-$(OBJ)/mii.o : src/roms/$(2).h
-roms: src/roms/$(2).h
-endef
-
-# 38063e08c778503fc03ecebb979769e9  contrib/mii_rom_iiee_3420349b.bin
-$(eval $(call rom_to_h,contrib/mii_rom_iiee_3420349b.bin,mii_rom_iiee))
-# 9123fff3442c0e688cc6816be88dd4ab  contrib/mii_rom_iiee_video_3420265a.bin
-$(eval $(call rom_to_h,contrib/mii_rom_iiee_video_3420265a.bin,mii_rom_iiee_video))
-# e0d67bb1aabe2030547b4cbdf3905b60  contrib/mii_rom_iic_3420033a.bin
-$(eval $(call rom_to_h,contrib/mii_rom_iic_3420033a.bin,mii_rom_iic))
-# 67c0d61ab0911183faf05270f881a97e  contrib/mii_rom_ssc_3410065a.bin
-$(eval $(call rom_to_h,contrib/mii_rom_ssc_3410065a.bin,mii_rom_ssc))
-# 9123fff3442c0e688cc6816be88dd4ab  contrib/mii_rom_iic_video_3410265a.bin
-$(eval $(call rom_to_h,contrib/mii_rom_iic_video_3410265a.bin,mii_rom_iic_video))
-
-# This is the ROM file for the EEPROM card, with some games too...
-$(eval $(call rom_to_h,disks/GamesWithFirmware.po,mii_rom_epromcard))
-# And the smartport driver
-$(eval $(call rom_to_h,test/asm/mii_smartport_driver.bin,mii_rom_smartport))
+include src/roms/Makefile.inc
 
 clean			:
 	rm -rf $(O); make -C libmui clean; make -C libmish clean
