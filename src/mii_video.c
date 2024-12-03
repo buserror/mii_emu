@@ -24,7 +24,9 @@ typedef uint32_t u32_v __attribute__((vector_size(32)));
 #define VEC_ALIGN 31
 #define VEC_ECOUNT 8
 #else
+#if defined(__SSE2__)
 #include <emmintrin.h>
+#endif
 typedef uint32_t u32_v __attribute__((vector_size(16)));
 #define VEC_ALIGN 15
 #define VEC_ECOUNT 4
