@@ -80,6 +80,9 @@ I wanted something:
    * To run it, just type `build-x86_64-linux-gnu/bin/mii_emu_gl` and it should start.
    * If you want to install it, I suggest 'make avail' this will install a symlink into /usr/local/bin pointing back to the source tree, so you can run it from anywhere.
 
+### Build on Nix
+You can either build manually by running 'nix build' or if you have a flake style NixOS configuration add this repo as a named input and include the default output.
+
 ## Command line options
 If you run it with no options, and there are no config file, it will present
 you with a dialog to select the Cards and the disk images.
@@ -198,4 +201,3 @@ There are just a few keys that are mapped for anything useful. List is not exaus
     * [isapple2](https://github.com/ivanizag/izapple2/) for other bits and pieces.
     * [clemens_IIgs](https://github.com/samkusin/clemens_iigs) for the mockingboard code -- not working just yet.
  * And of course, countless books, articles and posts read over the last 40 years!
-
