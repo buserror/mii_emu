@@ -56,3 +56,53 @@ I have pretty consistent code style across my projects.
 * In the code there are a few bits which needs fixing
    * The floppy driver still has issues writing, most notably it fails to 'bit copy' stuff when using Copy II plus. It's a timing issue, but I haven't found it yet.
 
+## Debian/Ubuntu
+
+Install GCC and other tools
+
+```bash
+sudo apt-get update
+sudo apt install build-essential
+```
+
+You may also want to install the manual pages for development with the command:
+
+```bash
+sudo apt install manpages-dev
+```
+
+Next, you'll need pixman-1 and glx:
+
+```bash
+sudo apt-get install libpixman-1-dev
+# or sometimes libpixman-1.0-dev depending on the repo
+sudo apt-get install libglx-dev
+# Alternatively, you might need:
+sudo apt-get install libgl1-mesa-dev
+```
+
+You might get 
+
+```bash
+/usr/bin/ld: cannot find -lGLU: No such file or directory
+collect2: error: ld returned 1 exit
+```
+
+Try installing mesa again. 
+
+```bash
+sudo apt update
+sudo apt install libglu1-mesa-dev
+```
+
+For sound support, you need to install ALSA:
+
+```bash
+sudo apt install libasound2-dev
+```
+
+To compile:
+
+```bash
+make
+```
